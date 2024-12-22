@@ -1,4 +1,4 @@
-use std::fmt::{format, Debug};
+use std::fmt::Debug;
 
 #[rustfmt::skip]
 static DEFAULT_BOARD: [u8; 120] = [
@@ -17,8 +17,24 @@ static DEFAULT_BOARD: [u8; 120] = [
 ];
 
 #[rustfmt::skip]
+pub static DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION: [u8; 120] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0xFF,
+    0xFF, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0xFF,
+    0xFF, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0xFF,
+    0xFF, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xFF,
+    0xFF, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0xFF,
+    0xFF, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0xFF,
+    0xFF, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0xFF,
+    0xFF, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+];
+
+#[rustfmt::skip]
 // little endian file-rank mapping https://www.chessprogramming.org/Square_Mapping_Considerations
-static BOARD_SQUARE_INDEX_TRANSLATION_64: [u8; 64] = [
+pub static BOARD_SQUARE_INDEX_TRANSLATION_64: [u8; 64] = [
     21, 22, 23, 24, 25, 26, 27, 28,
     31, 32, 33, 34, 35, 36, 37, 38,
     41, 42, 43, 44, 45, 46, 47, 48,
@@ -29,20 +45,23 @@ static BOARD_SQUARE_INDEX_TRANSLATION_64: [u8; 64] = [
     91, 92, 93, 94, 95, 96, 97, 98
 ];
 
-const PIECE_NONE: u8 = 0;
-const PIECE_PAWN: u8 = 0x1;
-const PIECE_KNIGHT: u8 = 0x2;
-const PIECE_BISHOP: u8 = 0x3;
-const PIECE_ROOK: u8 = 0x4;
-const PIECE_QUEEN: u8 = 0x5;
-const PIECE_KING: u8 = 0x6;
+pub const PIECE_MASK: u8 = 0b0000_0111;
+pub const PIECE_NONE: u8 = 0;
+pub const PIECE_PAWN: u8 = 0x1;
+pub const PIECE_KNIGHT: u8 = 0x2;
+pub const PIECE_BISHOP: u8 = 0x3;
+pub const PIECE_ROOK: u8 = 0x4;
+pub const PIECE_QUEEN: u8 = 0x5;
+pub const PIECE_KING: u8 = 0x6;
+pub const PIECE_INVALID: u8 = 0xFF;
 
-const COLOR_BLACK: u8 = 1 << 3;
+pub const COLOR_FLAG_MASK: u8 = 1 << 3;
+pub const COLOR_BLACK: u8 = 1 << 3;
 
-const CASTLE_WHITE_KING: u8 = 1;
-const CASTLE_WHITE_QUEEN: u8 = 1 << 1;
-const CASTLE_BLACK_KING: u8 = 1 << 2;
-const CASTLE_BLACK_QUEEN: u8 = 1 << 3;
+pub const CASTLE_WHITE_KING: u8 = 1;
+pub const CASTLE_WHITE_QUEEN: u8 = 1 << 1;
+pub const CASTLE_BLACK_KING: u8 = 1 << 2;
+pub const CASTLE_BLACK_QUEEN: u8 = 1 << 3;
 
 pub struct Board {
     squares: [u8; 120],
@@ -55,6 +74,18 @@ pub struct Board {
 }
 
 impl Board {
+    pub fn get_piece(&self, square_index: usize) -> u8 {
+        self.squares[square_index]
+    }
+
+    pub fn get_piece_64(&self, square_index: usize) -> u8 {
+        self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize]
+    }
+
+    fn write_piece(&mut self, piece: u8, square_index: usize) {
+        self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize] = piece;
+    }
+
     pub fn from_fen(fen: &str) -> Result<Board, String> {
         if !fen.is_ascii() {
             return Err(String::from("Expected FEN to only contain ASCII characters"));
@@ -186,7 +217,7 @@ impl Board {
             let mut ep_square_index: u8 = 0;
             match chars[0] {
                 'a'..='h' => {
-                    ep_square_index += chars[0] as u8 - 'a' as u8;
+                    ep_square_index += chars[0] as u8 - b'a';
                 }
                 _ => {
                     return Err(format!(
@@ -238,10 +269,6 @@ impl Board {
         }
 
         Ok(board)
-    }
-
-    pub fn write_piece(&mut self, piece: u8, square_index: usize) {
-        self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize] = piece;
     }
 }
 
