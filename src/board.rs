@@ -63,6 +63,7 @@ pub const CASTLE_WHITE_QUEEN: u8 = 1 << 1;
 pub const CASTLE_BLACK_KING: u8 = 1 << 2;
 pub const CASTLE_BLACK_QUEEN: u8 = 1 << 3;
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [u8; 120],
     pub white_to_move: bool,
@@ -82,7 +83,7 @@ impl Board {
         self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize]
     }
 
-    fn write_piece(&mut self, piece: u8, square_index: usize) {
+    pub fn write_piece(&mut self, piece: u8, square_index: usize) {
         self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize] = piece;
     }
 
@@ -315,4 +316,42 @@ impl Debug for Board {
 
         writeln!(f, "\nsquares: \n{}", pretty_squares)
     }
+}
+
+pub fn rank_8x8(index: u8) -> u8 {
+    ((index & 0x38) >> 3) + 1
+}
+
+pub fn file_8x8(index: u8) -> u8 {
+    index & 0x07
+}
+
+pub fn piece_to_name(piece: u8) -> char {
+    let result = match piece & PIECE_MASK {
+        PIECE_PAWN => 'P',
+        PIECE_KNIGHT => 'N',
+        PIECE_BISHOP => 'B',
+        PIECE_ROOK => 'R',
+        PIECE_QUEEN => 'Q',
+        PIECE_KING => 'K',
+        PIECE_NONE => ' ',
+        _ => panic!("Unexpected piece {piece} passed to piece_to_name"),
+    };
+
+    if piece & COLOR_BLACK != 0 {
+        result.to_ascii_lowercase()
+    } else {
+        result
+    }
+}
+
+pub fn index_10x12_to_pos_str(i: u8) -> String {
+    index_8x8_to_pos_str(DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i as usize])
+}
+
+pub fn index_8x8_to_pos_str(i: u8) -> String {
+    let rank = rank_8x8(i);
+    let file = file_8x8(i);
+
+    format!("{}{}", (b'a' + file) as char, rank)
 }
