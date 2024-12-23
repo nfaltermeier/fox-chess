@@ -1,3 +1,5 @@
+use log::{debug, error, trace};
+
 use crate::{
     board::{
         index_10x12_to_pos_str, piece_to_name, Board, BOARD_SQUARE_INDEX_TRANSLATION_64, CASTLE_BLACK_KING,
@@ -63,9 +65,9 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
             board.unmake_move(&intermediate_move, &mut rollback);
 
             if ENABLE_UNMAKE_MOVE_TEST {
-                if &board_copy.unwrap() != board {
-                    println!("unmake move did not properly undo move {:?}", intermediate_move);
-                    assert_eq!((&board_copy.unwrap()), board);
+                if board_copy.as_ref().unwrap() != board {
+                    error!("unmake move did not properly undo move {:?}", intermediate_move);
+                    assert_eq!(board_copy.as_ref().unwrap(), board);
                 }
             }
 
@@ -79,9 +81,9 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
         board.unmake_move(r#move, &mut rollback);
 
         if ENABLE_UNMAKE_MOVE_TEST {
-            if &board_copy.unwrap() != board {
-                println!("unmake move did not properly undo move {:?}", r#move);
-                assert_eq!((&board_copy.unwrap()), board);
+            if board_copy.as_ref().unwrap() != board {
+                error!("unmake move did not properly undo move {:?}", r#move);
+                assert_eq!(board_copy.as_ref().unwrap(), board);
             }
         }
 
@@ -125,7 +127,17 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                             }
 
                             if target_piece == PIECE_NONE {
-                                // println!("{} {} {:#04x} {} {} {} {:#04x} {}", i, index_10x12_to_pos_str(i as u8), piece, piece_to_name(piece), cur_pos, index_10x12_to_pos_str(cur_pos as u8), target_piece, piece_to_name(target_piece));
+                                trace!(
+                                    "{} {} {:#04x} {} {} {} {:#04x} {}",
+                                    i,
+                                    index_10x12_to_pos_str(i as u8),
+                                    piece,
+                                    piece_to_name(piece),
+                                    cur_pos,
+                                    index_10x12_to_pos_str(cur_pos as u8),
+                                    target_piece,
+                                    piece_to_name(target_piece)
+                                );
 
                                 // Doing this extra translation is probably bad for performance. May as well use 3 bytes per move instead of 2?
                                 result.push(Move::new(
@@ -135,7 +147,17 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                 ));
                             } else {
                                 if target_piece & COLOR_FLAG_MASK != color_flag {
-                                    // println!("{} {} {:#04x} {} {} {} {:#04x} {}", i, index_10x12_to_pos_str(i as u8), piece, piece_to_name(piece), cur_pos, index_10x12_to_pos_str(cur_pos as u8), target_piece, piece_to_name(target_piece));
+                                    trace!(
+                                        "{} {} {:#04x} {} {} {} {:#04x} {}",
+                                        i,
+                                        index_10x12_to_pos_str(i as u8),
+                                        piece,
+                                        piece_to_name(piece),
+                                        cur_pos,
+                                        index_10x12_to_pos_str(cur_pos as u8),
+                                        target_piece,
+                                        piece_to_name(target_piece)
+                                    );
 
                                     result.push(Move::new(
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],

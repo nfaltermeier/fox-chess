@@ -1,3 +1,4 @@
+use log::{debug, error};
 use regex::Regex;
 
 use crate::{
@@ -61,9 +62,15 @@ impl Move {
         let mut promoted_to = ' ';
         if flags & MOVE_FLAG_PROMOTION != 0 {
             let color_flag = match board {
-                Some(b) => if b.white_to_move { 0 } else { COLOR_BLACK },
+                Some(b) => {
+                    if b.white_to_move {
+                        0
+                    } else {
+                        COLOR_BLACK
+                    }
+                }
                 None => 0,
-            } ;
+            };
             let promo_value = (flags as u8) & 3;
             // +2 converts promo code to piece code
             let promo_to_piece = color_flag | (promo_value + 2);
@@ -78,7 +85,7 @@ impl Move {
                 let piece = b.get_piece_64(from as usize);
                 piece_to_name(piece)
             }
-            None => '?'
+            None => '?',
         };
 
         let from_rank = rank_8x8(from);
@@ -97,11 +104,47 @@ impl Move {
             promoted_to
         )
     }
+
+    pub fn simple_long_algebraic_notation(&self) -> String {
+        let from = self.from() as u8;
+        let to = self.to() as u8;
+        let flags = self.flags();
+
+        let from_rank = rank_8x8(from);
+        let from_file = file_8x8(from);
+        let to_rank = rank_8x8(to);
+        let to_file = file_8x8(to);
+
+        let result = format!(
+            "{}{}{}{}",
+            (b'a' + from_file) as char,
+            from_rank,
+            (b'a' + to_file) as char,
+            to_rank,
+        );
+
+        if flags & MOVE_FLAG_PROMOTION == 0 {
+            result
+        } else {
+            let promo_value = (flags as u8) & 3;
+            // +2 converts promo code to piece code
+            let promo_to_piece = COLOR_BLACK | (promo_value + 2);
+
+            format!("{}{}", result, piece_to_name(promo_to_piece))
+        }
+    }
 }
 
 impl std::fmt::Debug for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Move from: {} to: {} flags: {}\nPretty: {}", self.from(), self.to(), self.flags(), self.pretty_print(None))
+        write!(
+            f,
+            "Move from: {} to: {} flags: {}\nPretty: {}",
+            self.from(),
+            self.to(),
+            self.flags(),
+            self.pretty_print(None)
+        )
     }
 }
 
@@ -322,26 +365,33 @@ pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
     result
 }
 
-pub fn square_indices_to_moves(indices: Vec<(u8, u8)>) -> Vec<Move> {
+pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move> {
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = generate_moves(&mut board);
-        let Some(gen_move_pos) = moves
-            .iter()
-            .position(|m| m.from() == r#move.0 as u16 && m.to() == r#move.1 as u16)
-        else {
-            dbg!(board);
-            panic!(
+        let Some(gen_move_pos) = moves.iter().position(|m| {
+            if m.from() != r#move.0 as u16 || m.to() != r#move.1 as u16 {
+                return false;
+            }
+
+            match r#move.2 {
+                Some(p) => m.flags() & 0x03 == p,
+                None => true,
+            }
+        }) else {
+            debug!("{:?}", board);
+            error!(
                 "Requested move {} from {} {} to {} {} but it was not found in the board state",
                 i + 1,
                 r#move.0,
                 index_8x8_to_pos_str(r#move.0),
                 r#move.1,
                 index_8x8_to_pos_str(r#move.1)
-            )
+            );
+            panic!("Requested move not found");
         };
         let gen_move = moves.swap_remove(gen_move_pos);
 
@@ -350,4 +400,36 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8)>) -> Vec<Move> {
     }
 
     result
+}
+
+pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
+    let mut rollback = MoveRollback::default();
+
+    for (i, r#move) in indices.iter().enumerate() {
+        let mut moves = generate_moves(board);
+        let Some(gen_move_pos) = moves.iter().position(|m| {
+            if m.from() != r#move.0 as u16 || m.to() != r#move.1 as u16 {
+                return false;
+            }
+
+            match r#move.2 {
+                Some(p) => m.flags() & 0x03 == p,
+                None => true,
+            }
+        }) else {
+            debug!("{:?}", board);
+            error!(
+                "Requested move {} from {} {} to {} {} but it was not found in the board state",
+                i + 1,
+                r#move.0,
+                index_8x8_to_pos_str(r#move.0),
+                r#move.1,
+                index_8x8_to_pos_str(r#move.1)
+            );
+            panic!("Requested move not found");
+        };
+        let gen_move = moves.swap_remove(gen_move_pos);
+
+        board.make_move(&gen_move, &mut rollback);
+    }
 }

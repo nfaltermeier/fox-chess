@@ -63,7 +63,7 @@ pub const CASTLE_WHITE_QUEEN: u8 = 1 << 1;
 pub const CASTLE_BLACK_KING: u8 = 1 << 2;
 pub const CASTLE_BLACK_QUEEN: u8 = 1 << 3;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [u8; 120],
     pub white_to_move: bool,
