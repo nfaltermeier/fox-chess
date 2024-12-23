@@ -63,7 +63,7 @@ pub const CASTLE_WHITE_QUEEN: u8 = 1 << 1;
 pub const CASTLE_BLACK_KING: u8 = 1 << 2;
 pub const CASTLE_BLACK_QUEEN: u8 = 1 << 3;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [u8; 120],
     pub white_to_move: bool,
@@ -271,6 +271,20 @@ impl Board {
 
         Ok(board)
     }
+
+    fn pretty_print(&self) -> String {
+        (0..64)
+            .map(|i| piece_to_name(self.get_piece_64(i)).to_string())
+            // Could not chunk the map result directly for some reason
+            .collect::<Vec<_>>()
+            .chunks_exact(8)
+            .map(|chunk| chunk.join(", "))
+            // Reverse so it prints with a1 in the bottom left like viewing the board as white
+            .rev()
+            // Join the sets of 8 with newlines
+            .reduce(|acc, x| format!("{}\n{}", acc, x))
+            .unwrap()
+    }
 }
 
 impl Default for Board {
@@ -314,7 +328,8 @@ impl Debug for Board {
             .reduce(|acc, x| format!("{}\n{}", acc, x))
             .unwrap();
 
-        writeln!(f, "\nsquares: \n{}", pretty_squares)
+        writeln!(f, "\nsquares:\n{}", pretty_squares).unwrap();
+        writeln!(f, "pretty version:\n{}", self.pretty_print())
     }
 }
 

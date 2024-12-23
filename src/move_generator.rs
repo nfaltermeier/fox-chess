@@ -12,6 +12,11 @@ use crate::{
 };
 
 const ENABLE_PERFT_STATS: bool = true;
+// This option is slow
+const ENABLE_PERFT_STATS_CHECKS: bool = false;
+// This option is very slow
+const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
+const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
 // Values from https://www.chessprogramming.org/10x12_Board under TSCP
 // If the piece can slide through squares when moving
@@ -30,11 +35,55 @@ const OFFSET: [[i8; 8]; 5] = [
 pub fn generate_moves(board: &mut Board) -> Vec<Move> {
     let mut moves = generate_moves_psuedo_legal(board);
     let mut rollback = MoveRollback::default();
+    let mut board_copy = None;
+    if ENABLE_UNMAKE_MOVE_TEST {
+        board_copy = Some(board.clone());
+    }
 
     moves.retain(|r#move| {
+        let mut result;
+        let flags = r#move.flags();
+        if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
+            // Check the king isn't in check to begin with
+            board.white_to_move = !board.white_to_move;
+            result = !can_capture_opponent_king(board, false);
+            board.white_to_move = !board.white_to_move;
+
+            if !result {
+                return result;
+            }
+
+            let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
+            let from = r#move.from();
+            let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
+            let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
+
+            board.make_move(&intermediate_move, &mut rollback);
+            result = !can_capture_opponent_king(board, true);
+            board.unmake_move(&intermediate_move, &mut rollback);
+
+            if ENABLE_UNMAKE_MOVE_TEST {
+                if &board_copy.unwrap() != board {
+                    println!("unmake move did not properly undo move {:?}", intermediate_move);
+                    assert_eq!((&board_copy.unwrap()), board);
+                }
+            }
+
+            if !result {
+                return result;
+            }
+        }
+
         board.make_move(r#move, &mut rollback);
-        let result = !can_capture_opponent_king(board, true);
+        result = !can_capture_opponent_king(board, true);
         board.unmake_move(r#move, &mut rollback);
+
+        if ENABLE_UNMAKE_MOVE_TEST {
+            if &board_copy.unwrap() != board {
+                println!("unmake move did not properly undo move {:?}", r#move);
+                assert_eq!((&board_copy.unwrap()), board);
+            }
+        }
 
         result
     });
@@ -124,7 +173,8 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
 
                                     if target_piece != PIECE_NONE {
                                         if target_piece == friendly_rook {
-                                            // When castling to pos will be the rook's position
+                                            let king_to = i.checked_add_signed(offset * 2).unwrap();
+
                                             let flags = if offset == -1 {
                                                 MOVE_QUEEN_CASTLE
                                             } else {
@@ -132,7 +182,7 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                             };
                                             result.push(Move::new(
                                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
+                                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[king_to],
                                                 flags,
                                             ));
                                         }
@@ -250,7 +300,7 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
     result
 }
 
-fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: bool) -> bool {
+pub fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: bool) -> bool {
     let mut king_pos_opt = None;
     let opponent_color = if board.white_to_move { COLOR_BLACK } else { 0 };
     let opponent_king_piece = PIECE_KING | opponent_color;
@@ -315,7 +365,7 @@ fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: bool) -
     }
 
     let pawn = PIECE_PAWN | color_flag;
-    let direction_sign = if board.white_to_move { 1 } else { -1 };
+    let direction_sign = if board.white_to_move { -1 } else { 1 };
     for offset in [9, 11] {
         let target_pos = king_pos.checked_add_signed(offset * direction_sign).unwrap() as usize;
         let piece = board.get_piece(target_pos);
@@ -361,10 +411,10 @@ pub fn perft_pseudo_legal_optimized(depth: u8, board: &mut Board, rollback: &mut
 
 pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
     if depth == 0 {
-        // Causes incorrect results
-        // if ENABLE_PERFT_STATS && generate_moves(board).is_empty() {
-        //     stats.checkmates += 1;
-        // }
+        // slow as all heck
+        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES && generate_moves(board).is_empty() {
+            stats.checkmates += 1;
+        }
 
         stats.nodes += 1;
         return;
@@ -400,7 +450,7 @@ fn check_perft_stats(r#move: &Move, board: &mut Board, stats: &mut PerftStats) {
     }
 
     board.white_to_move = !board.white_to_move;
-    if can_capture_opponent_king(board, false) {
+    if ENABLE_PERFT_STATS_CHECKS && can_capture_opponent_king(board, false) {
         stats.checks += 1;
     }
     board.white_to_move = !board.white_to_move;

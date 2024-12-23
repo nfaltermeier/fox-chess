@@ -22,7 +22,6 @@ pub const MOVE_PROMO_BISHOP: u16 = MOVE_FLAG_PROMOTION | 1;
 pub const MOVE_PROMO_ROOK: u16 = MOVE_FLAG_PROMOTION | 2;
 pub const MOVE_PROMO_QUEEN: u16 = MOVE_FLAG_PROMOTION | 3;
 
-#[derive(Debug)]
 pub struct Move {
     // from: 6 bits, to: 6 bits: flags: 4 bits. Using flags format from https://www.chessprogramming.org/Encoding_Moves
     pub data: u16,
@@ -47,7 +46,7 @@ impl Move {
         self.data >> 12
     }
 
-    pub fn pretty_print(&self, board: &Board) -> String {
+    pub fn pretty_print(&self, board: Option<&Board>) -> String {
         let flags = self.flags();
 
         if flags == MOVE_KING_CASTLE {
@@ -61,7 +60,10 @@ impl Move {
 
         let mut promoted_to = ' ';
         if flags & MOVE_FLAG_PROMOTION != 0 {
-            let color_flag = if board.white_to_move { 0 } else { COLOR_BLACK };
+            let color_flag = match board {
+                Some(b) => if b.white_to_move { 0 } else { COLOR_BLACK },
+                None => 0,
+            } ;
             let promo_value = (flags as u8) & 3;
             // +2 converts promo code to piece code
             let promo_to_piece = color_flag | (promo_value + 2);
@@ -71,7 +73,13 @@ impl Move {
 
         let from = self.from() as u8;
         let to = self.to() as u8;
-        let piece = board.get_piece_64(from as usize);
+        let piece_name = match board {
+            Some(b) => {
+                let piece = b.get_piece_64(from as usize);
+                piece_to_name(piece)
+            }
+            None => '?'
+        };
 
         let from_rank = rank_8x8(from);
         let from_file = file_8x8(from);
@@ -80,7 +88,7 @@ impl Move {
 
         format!(
             "{}{}{}{}{}{}{}",
-            piece_to_name(piece),
+            piece_name,
             (b'a' + from_file) as char,
             from_rank,
             capture_char,
@@ -88,6 +96,12 @@ impl Move {
             to_rank,
             promoted_to
         )
+    }
+}
+
+impl std::fmt::Debug for Move {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Move from: {} to: {} flags: {}\nPretty: {}", self.from(), self.to(), self.flags(), self.pretty_print(None))
     }
 }
 
@@ -138,7 +152,7 @@ impl Board {
                 king_to = king_from + 2;
             } else {
                 rook_to = king_from - 1;
-                rook_from = king_from - 3;
+                rook_from = king_from - 4;
                 king_to = king_from - 2;
             }
 
@@ -224,33 +238,28 @@ impl Board {
             self.write_piece(captured_piece, to as usize);
             self.write_piece(moved_piece, from as usize);
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
-            let king_from = if self.white_to_move { 4 } else { 60 };
+            let king_from;
             let rook_to;
             let rook_from;
-            let king_to;
+            let king_to = to as usize;
             if flags == MOVE_KING_CASTLE {
-                rook_to = king_from + 1;
-                rook_from = king_from + 3;
-                king_to = king_from + 2;
+                rook_from = king_to + 1;
+                rook_to = king_to - 1;
+                king_from = king_to - 2;
             } else {
-                rook_to = king_from - 1;
-                rook_from = king_from - 3;
-                king_to = king_from - 2;
+                rook_from = king_to - 2;
+                rook_to = king_to + 1;
+                king_from = king_to + 2;
             }
 
-            let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
+            let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
             self.write_piece(PIECE_NONE, king_to);
             self.write_piece(PIECE_NONE, rook_to);
             self.write_piece(PIECE_KING | color_flag, king_from);
             self.write_piece(PIECE_ROOK | color_flag, rook_from);
-        } else if flags & MOVE_FLAG_PROMOTION != 0 {
-            let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
-
-            self.write_piece(PIECE_NONE, to as usize);
-            self.write_piece(PIECE_PAWN | color_flag, from as usize);
         } else {
             if ep_capture {
-                let opponent_color = if self.white_to_move { COLOR_BLACK } else { 0 };
+                let opponent_color = if self.white_to_move { 0 } else { COLOR_BLACK };
                 let diff = (to as i16).checked_sub_unsigned(from).unwrap();
                 if diff == 7 || diff == -9 {
                     self.write_piece(PIECE_PAWN | opponent_color, (from - 1) as usize);
@@ -261,6 +270,15 @@ impl Board {
 
             self.write_piece(PIECE_NONE, to as usize);
             self.write_piece(moved_piece, from as usize);
+        }
+
+        if flags & MOVE_FLAG_PROMOTION != 0 {
+            let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
+
+            if !capture {
+                self.write_piece(PIECE_NONE, to as usize);
+            }
+            self.write_piece(PIECE_PAWN | color_flag, from as usize);
         }
 
         self.en_passant_target_square_index = rollback.ep_index.pop().unwrap();
