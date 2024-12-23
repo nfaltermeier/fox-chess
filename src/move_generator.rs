@@ -348,32 +348,37 @@ pub fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: boo
 
     let queen = PIECE_QUEEN | color_flag;
     let rook = PIECE_ROOK | color_flag;
+    let king = PIECE_KING | color_flag;
     for offset in OFFSET[PIECE_ROOK as usize - 2] {
         let mut current_pos = king_pos;
+        let mut first = true;
         loop {
             current_pos = current_pos.checked_add_signed(offset).unwrap();
             let piece = board.get_piece(current_pos as usize);
             if piece != PIECE_NONE {
-                if piece == queen || piece == rook {
+                if piece == queen || piece == rook || (first && piece == king) {
                     return true;
                 }
                 break;
             }
+            first = false;
         }
     }
 
     let bishop = PIECE_BISHOP | color_flag;
     for offset in OFFSET[PIECE_BISHOP as usize - 2] {
         let mut current_pos = king_pos;
+        let mut first = true;
         loop {
             current_pos = current_pos.checked_add_signed(offset).unwrap();
             let piece = board.get_piece(current_pos as usize);
             if piece != PIECE_NONE {
-                if piece == queen || piece == bishop {
+                if piece == queen || piece == bishop || (first && piece == king) {
                     return true;
                 }
                 break;
             }
+            first = false;
         }
     }
 

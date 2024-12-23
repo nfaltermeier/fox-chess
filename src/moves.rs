@@ -18,10 +18,15 @@ pub const MOVE_DOUBLE_PAWN: u16 = 1;
 pub const MOVE_KING_CASTLE: u16 = 2;
 pub const MOVE_QUEEN_CASTLE: u16 = 3;
 pub const MOVE_EP_CAPTURE: u16 = 5;
-pub const MOVE_PROMO_KNIGHT: u16 = MOVE_FLAG_PROMOTION;
-pub const MOVE_PROMO_BISHOP: u16 = MOVE_FLAG_PROMOTION | 1;
-pub const MOVE_PROMO_ROOK: u16 = MOVE_FLAG_PROMOTION | 2;
-pub const MOVE_PROMO_QUEEN: u16 = MOVE_FLAG_PROMOTION | 3;
+pub const FLAGS_PROMO_KNIGHT: u16 = 0;
+pub const FLAGS_PROMO_BISHOP: u16 = 1;
+pub const FLAGS_PROMO_ROOK: u16 = 2;
+pub const FLAGS_PROMO_QUEEN: u16 = 3;
+pub const MOVE_PROMO_KNIGHT: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_KNIGHT;
+pub const MOVE_PROMO_BISHOP: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_BISHOP;
+pub const MOVE_PROMO_ROOK: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_ROOK;
+pub const MOVE_PROMO_QUEEN: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_QUEEN;
+pub const FLAGS_MASK_PROMO: u16 = 3;
 
 pub struct Move {
     // from: 6 bits, to: 6 bits: flags: 4 bits. Using flags format from https://www.chessprogramming.org/Encoding_Moves
@@ -413,7 +418,7 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             }
 
             match r#move.2 {
-                Some(p) => m.flags() & 0x03 == p,
+                Some(p) => m.flags() & FLAGS_MASK_PROMO == p,
                 None => true,
             }
         }) else {

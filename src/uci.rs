@@ -1,13 +1,13 @@
 use std::process::exit;
 
-use log::{debug, error};
+use log::{debug, error, trace};
 use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
     moves::{
-        find_and_run_moves, square_indices_to_moves, MoveRollback, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
-        MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK,
+        find_and_run_moves, square_indices_to_moves, MoveRollback, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT,
+        FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK,
     },
     STARTING_FEN,
 };
@@ -60,10 +60,10 @@ impl UciInterface {
                             let mut promo = None;
                             if m.promotion.is_some() {
                                 promo = match m.promotion.unwrap() {
-                                    UciPiece::Knight => Some(MOVE_PROMO_KNIGHT),
-                                    UciPiece::Bishop => Some(MOVE_PROMO_BISHOP),
-                                    UciPiece::Rook => Some(MOVE_PROMO_ROOK),
-                                    UciPiece::Queen => Some(MOVE_PROMO_QUEEN),
+                                    UciPiece::Knight => Some(FLAGS_PROMO_KNIGHT),
+                                    UciPiece::Bishop => Some(FLAGS_PROMO_BISHOP),
+                                    UciPiece::Rook => Some(FLAGS_PROMO_ROOK),
+                                    UciPiece::Queen => Some(FLAGS_PROMO_QUEEN),
                                     _ => {
                                         error!("Unexpected promotion value '{:?}'", m.promotion.unwrap());
                                         panic!("Unexpected promotion value")
@@ -77,13 +77,13 @@ impl UciInterface {
                         find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
                     }
 
-                    debug!("At end of position. {:#?}", self.board);
+                    trace!("At end of position. {:#?}", self.board);
                 }
                 UciMessage::Go {
                     time_control,
                     search_control,
                 } => {
-                    debug!("At start of go. {:#?}", self.board);
+                    trace!("At start of go. {:#?}", self.board);
                     match self.board.as_mut() {
                         Some(b) => {
                             let r#move = b.search();
