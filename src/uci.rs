@@ -86,8 +86,9 @@ impl UciInterface {
                     trace!("At start of go. {:#?}", self.board);
                     match self.board.as_mut() {
                         Some(b) => {
-                            let r#move = b.search();
-                            println!("bestmove {}", r#move.simple_long_algebraic_notation())
+                            let move_data = b.search();
+                            println!("info cp {}", move_data.1);
+                            println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                         }
                         None => {}
                     }

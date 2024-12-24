@@ -19,6 +19,7 @@ mod move_generator;
 mod moves;
 mod search;
 mod uci;
+mod evaluate;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
