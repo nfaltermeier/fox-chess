@@ -12,6 +12,7 @@ use move_generator::{
     PerftStats,
 };
 use moves::{square_indices_to_moves, Move, MoveRollback};
+use search::prioritize_moves;
 use uci::UciInterface;
 
 mod board;
@@ -32,7 +33,7 @@ fn main() {
 
     run_uci();
 
-    // print_moves_from_pos("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q2/PPPBBPpP/1R2K2R w Kkq - 0 2");
+    // print_moves_from_pos("rnbqkbnr/pppppppp/4B3/3qnr2/3QP3/4N3/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     // do_perft(5, STARTING_FEN);
     // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
@@ -67,7 +68,10 @@ fn print_moves_from_pos(fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
     info!("{:?}", &board);
 
-    let moves = generate_moves(&mut board);
+    let mut moves = generate_moves(&mut board);
+
+    prioritize_moves(&mut moves, &board);
+
     for r#move in moves {
         info!("{}", r#move.pretty_print(Some(&board)));
     }

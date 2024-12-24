@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
-use log::error;
+use log::{debug, error, trace};
 
-use crate::{board::Board, move_generator::{can_capture_opponent_king, generate_moves}, moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL}};
+use crate::{board::{Board, PIECE_MASK}, evaluate::CENTIPAWN_VALUES, move_generator::{can_capture_opponent_king, generate_moves}, moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL}};
 
 #[derive(Default)]
 pub struct SearchStats {
@@ -21,7 +21,7 @@ impl Board {
         let mut alpha = -999999;
         let mut best_value = -999999;
         let mut best_move = None;
-        let moves = generate_moves(self);
+        let mut moves = generate_moves(self);
         let mut rollback = MoveRollback::default();
         let mut stats = SearchStats::default();
         stats.depth = depth;
@@ -30,6 +30,8 @@ impl Board {
             error!("Tried to search on a position but found no moves. Position: {:#?}", self);
             panic!("Tried to search on a position but found no moves");
         }
+
+        prioritize_moves(&mut moves, self);
 
         for r#move in moves {
             self.make_move(&r#move, &mut rollback);
@@ -55,7 +57,7 @@ impl Board {
         }
 
         let mut best_value = -999999;
-        let moves = generate_moves(self);
+        let mut moves = generate_moves(self);
 
         // Assuming no bug with move generation...
         if moves.is_empty() {
@@ -65,6 +67,8 @@ impl Board {
 
             return if is_check { self.evaluate_checkmate_side_to_move_relative() } else { 0 }
         }
+
+        prioritize_moves(&mut moves, self);
 
         for r#move in moves {
             self.make_move(&r#move, rollback);
@@ -98,7 +102,11 @@ impl Board {
         }
 
         let moves = generate_moves(self);
-        for r#move in moves.iter().filter(|m| m.flags() & MOVE_FLAG_CAPTURE != 0) {
+        let mut capture_moves = moves.into_iter().filter(|m| m.flags() & MOVE_FLAG_CAPTURE != 0).collect::<Vec<Move>>();
+
+        prioritize_moves(&mut capture_moves, self);
+
+        for r#move in capture_moves {
             self.make_move(&r#move, rollback);
             let result = -self.quiescense_side_to_move_relative(-beta, -alpha, rollback, stats);
             self.unmake_move(&r#move, rollback);
@@ -181,4 +189,40 @@ impl Board {
 
         max
     }
+}
+
+pub fn prioritize_moves(moves: &mut Vec<Move>, board: &Board) {
+    moves.sort_by(|m1, m2| {
+        // Should promotions be given a bonus for capture or non-capture?
+        let m1_capture = m1.data & MOVE_FLAG_CAPTURE_FULL != 0;
+        let m2_capture = m2.data & MOVE_FLAG_CAPTURE_FULL != 0;
+        let capture_cmp = m2_capture.cmp(&m1_capture);
+
+        if !m1_capture || capture_cmp != Ordering::Equal {
+            return capture_cmp;
+        }
+
+        let m1_cp_diff;
+        let m2_cp_diff;
+
+        if m1.flags() == MOVE_EP_CAPTURE {
+            m1_cp_diff = 0;
+        } else {
+            let p1_from = board.get_piece_64(m1.from() as usize);
+            let p1_to = board.get_piece_64(m1.to() as usize);
+            m1_cp_diff = CENTIPAWN_VALUES[(p1_to & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(p1_from & PIECE_MASK) as usize];
+        }
+
+        if m2.flags() == MOVE_EP_CAPTURE {
+            m2_cp_diff = 0;
+        } else {
+            let p2_from = board.get_piece_64(m2.from() as usize);
+            let p2_to = board.get_piece_64(m2.to() as usize);
+            m2_cp_diff = CENTIPAWN_VALUES[(p2_to & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(p2_from & PIECE_MASK) as usize];
+        }
+
+        let result = m2_cp_diff.cmp(&m1_cp_diff);
+        // trace!("{} {} {} {} {:?}", m1.pretty_print(Some(board)), m1_cp_diff, m2.pretty_print(Some(board)), m2_cp_diff, result);
+        result
+    });
 }

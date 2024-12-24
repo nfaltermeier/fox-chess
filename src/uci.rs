@@ -33,9 +33,11 @@ impl UciInterface {
                     println!("readyok")
                 }
                 UciMessage::UciNewGame => {
-                    // Nothing to do for this for now
+                    self.board = None;
                 }
                 UciMessage::Position { startpos, fen, moves } => {
+                    // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
+                    let start = Instant::now();
                     if startpos {
                         self.board = Some(Board::from_fen(STARTING_FEN).unwrap())
                     } else if fen.is_some() {
@@ -76,6 +78,8 @@ impl UciInterface {
 
                         find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
                     }
+                    let duration = start.elapsed();
+                    debug!("Position with {} moves took {duration:#?} to calculate", moves.len());
 
                     trace!("At end of position. {:#?}", self.board);
                 }
