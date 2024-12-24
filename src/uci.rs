@@ -1,4 +1,4 @@
-use std::process::exit;
+use std::{process::exit, time::Instant};
 
 use log::{debug, error, trace};
 use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
@@ -86,8 +86,12 @@ impl UciInterface {
                     trace!("At start of go. {:#?}", self.board);
                     match self.board.as_mut() {
                         Some(b) => {
+                            let start_time = Instant::now();
                             let move_data = b.search();
-                            println!("info cp {}", move_data.1);
+                            let elapsed = start_time.elapsed();
+                    
+                            let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
+                            println!("info score cp {} nodes {} depth {} nps {:.0}", move_data.1, move_data.2.nodes, move_data.2.depth, nps);
                             println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                         }
                         None => {}

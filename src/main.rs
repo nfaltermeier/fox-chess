@@ -28,6 +28,7 @@ fn main() {
     if setup_logger_result.is_err() {
         panic!("logger setup failed: {}", setup_logger_result.unwrap_err())
     }
+    log_panics::init();
 
     run_uci();
 

@@ -27,12 +27,19 @@ impl Board {
         // Add a small variance to try to avoid repetition
         result += (random::<i32>() % 11) - 5;
 
-        result *= if self.white_to_move { 1 } else { -1 };
-
         result
     }
 
     pub fn evaluate_checkmate(&self) -> i32 {
         if self.white_to_move { -20000 } else { 20000 }
     }
+
+    pub fn evaluate_side_to_move_relative(&self) -> i32 {
+        self.evaluate() * if self.white_to_move { 1 } else { -1 }
+    }
+
+    pub fn evaluate_checkmate_side_to_move_relative(&self) -> i32 {
+        self.evaluate_checkmate() * if self.white_to_move { 1 } else { -1 }
+    }
+
 }
