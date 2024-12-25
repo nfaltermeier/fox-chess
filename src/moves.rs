@@ -8,7 +8,7 @@ use crate::{
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_CASTLE_WHITE_QUEEN_IDX,
         HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
-    move_generator::generate_moves,
+    move_generator::{generate_moves, ENABLE_UNMAKE_MOVE_TEST},
     STARTING_FEN,
 };
 
@@ -176,7 +176,8 @@ impl MoveRollback {
 }
 
 impl Board {
-    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
+    // Returns how many times the move has been repeated
+    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) -> u8 {
         let from = (r#move.data & 0x003F) as usize;
         let to = ((r#move.data >> 6) & 0x003F) as usize;
         let flags = r#move.data >> 12;
@@ -283,7 +284,6 @@ impl Board {
                 check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
             }
         }
-
         if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
             self.halfmove_clock = 0;
         } else {
@@ -295,9 +295,41 @@ impl Board {
         }
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+
+        // Could clear the map on capture or pawn moves. I think doing that during search would be bad because of allocation.
+        let repetitions;
+        match self.threefold_hashes.get_mut(&self.hash) {
+            Some(v) => {
+                *v += 1;
+                repetitions = *v;
+            }
+            None => {
+                self.threefold_hashes.insert(self.hash, 1);
+                repetitions = 1;
+            }
+        }
+
+        repetitions
     }
 
     pub fn unmake_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
+        match self.threefold_hashes.get_mut(&self.hash) {
+            Some(v) => {
+                if *v > 1 {
+                    *v -= 1;
+                } else {
+                    self.threefold_hashes.remove(&self.hash);
+                }
+            }
+            None => {
+                error!("Could not find hash in threefold_hashes map. Unmaking move must have not reversed the hash correctly. Move: {}", r#move.pretty_print(Some(self)));
+                // ENABLE_UNMAKE_MOVE_TEST should panic and log more info
+                if !ENABLE_UNMAKE_MOVE_TEST {
+                    panic!("Could not find hash in threefold_hashes map")
+                }
+            }
+        }
+
         let from = (r#move.data & 0x003F) as usize;
         let to = ((r#move.data >> 6) & 0x003F) as usize;
         let flags = r#move.data >> 12;

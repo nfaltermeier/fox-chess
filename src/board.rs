@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::LazyLock};
+use std::{collections::HashMap, fmt::Debug, sync::LazyLock};
 
 use log::error;
 use rand::{rngs::StdRng, Fill, SeedableRng};
@@ -104,6 +104,7 @@ pub struct Board {
     // Is this needed?
     pub fullmove_counter: u16,
     pub hash: u64,
+    pub threefold_hashes: HashMap<u64, u8>,
 }
 
 impl Board {
@@ -336,6 +337,7 @@ impl Default for Board {
             halfmove_clock: 0,
             fullmove_counter: 1,
             hash: 0,
+            threefold_hashes: HashMap::new()
         }
     }
 }
@@ -351,6 +353,7 @@ impl Debug for Board {
             .field("halfmove_clock", &self.halfmove_clock)
             .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
+            .field("threefold_hashes", &self.threefold_hashes)
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")

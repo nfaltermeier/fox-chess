@@ -21,7 +21,7 @@ impl Board {
         if cfg!(debug_assertions) {
             depth = 4;
         } else {
-            depth = 6;
+            depth = 5;
         }
         // (self.random_move(), 0)
         // self.negamax_init(4)
@@ -48,8 +48,15 @@ impl Board {
         prioritize_moves(&mut moves, self);
 
         for r#move in moves {
-            self.make_move(&r#move, &mut rollback);
-            let result = -self.alpha_beta_recurse(-999999, -alpha, depth - 1, &mut rollback, &mut stats);
+            let repetitions = self.make_move(&r#move, &mut rollback);
+
+            let result;
+            if repetitions >= 3 || self.halfmove_clock >= 50 {
+                result = 0;
+            } else {
+                result = -self.alpha_beta_recurse(-999999, -alpha, depth - 1, &mut rollback, &mut stats);
+            }
+
             self.unmake_move(&r#move, &mut rollback);
 
             if result > best_value {
@@ -100,8 +107,15 @@ impl Board {
         prioritize_moves(&mut moves, self);
 
         for r#move in moves {
-            self.make_move(&r#move, rollback);
-            let result = -self.alpha_beta_recurse(-beta, -alpha, depth - 1, rollback, stats);
+            let repetitions = self.make_move(&r#move, rollback);
+
+            let result;
+            if repetitions >= 3 || self.halfmove_clock >= 50 {
+                result = 0;
+            } else {
+                result = -self.alpha_beta_recurse(-beta, -alpha, depth - 1, rollback, stats);
+            }
+
             self.unmake_move(&r#move, rollback);
 
             if result > best_value {

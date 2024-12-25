@@ -15,6 +15,8 @@ use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::prioritize_moves;
 use uci::UciInterface;
 
+use num_format::{Locale, ToFormattedString};
+
 mod board;
 mod evaluate;
 mod move_generator;
@@ -56,8 +58,8 @@ fn do_perft(up_to_depth: u8, fen: &str) {
 
         let nps = stats.nodes as f64 / elapsed.as_secs_f64();
         info!(
-            "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {nps:.0}",
-            stats.nodes
+            "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {}",
+            stats.nodes.to_formatted_string(&Locale::en), (nps as u64).to_formatted_string(&Locale::en)
         );
         info!("{:?}", stats);
         debug_assert!(rollback.is_empty());

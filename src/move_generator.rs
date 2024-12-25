@@ -18,7 +18,7 @@ const ENABLE_PERFT_STATS: bool = true;
 const ENABLE_PERFT_STATS_CHECKS: bool = false;
 // This option is very slow
 const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
-const ENABLE_UNMAKE_MOVE_TEST: bool = false;
+pub const ENABLE_UNMAKE_MOVE_TEST: bool = true;
 
 // Values from https://www.chessprogramming.org/10x12_Board under TSCP
 // If the piece can slide through squares when moving
