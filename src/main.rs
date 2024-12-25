@@ -16,11 +16,11 @@ use search::prioritize_moves;
 use uci::UciInterface;
 
 mod board;
+mod evaluate;
 mod move_generator;
 mod moves;
 mod search;
 mod uci;
-mod evaluate;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -33,7 +33,7 @@ fn main() {
 
     run_uci();
 
-    // print_moves_from_pos("rnbqkbnr/pppppppp/4B3/3qnr2/3QP3/4N3/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    // print_moves_from_pos("4kb1r/r5pp/8/4p2n/1pP5/8/PP4PP/4KRNR w Kk - 0 1");
     // do_perft(5, STARTING_FEN);
     // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
@@ -133,6 +133,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
             ))
         })
         .level(log::LevelFilter::Debug)
+        // .level_for("fox_chess::move_generator", log::LevelFilter::Trace)
         .chain(std::io::stderr())
         .chain(fern::log_file("output.log")?)
         .apply()?;

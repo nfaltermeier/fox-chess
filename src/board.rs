@@ -1,4 +1,7 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::LazyLock};
+
+use log::error;
+use rand::{rngs::StdRng, Fill, SeedableRng};
 
 #[rustfmt::skip]
 static DEFAULT_BOARD: [u8; 120] = [
@@ -58,10 +61,38 @@ pub const PIECE_INVALID: u8 = 0xFF;
 pub const COLOR_FLAG_MASK: u8 = 1 << 3;
 pub const COLOR_BLACK: u8 = 1 << 3;
 
-pub const CASTLE_WHITE_KING: u8 = 1;
-pub const CASTLE_WHITE_QUEEN: u8 = 1 << 1;
-pub const CASTLE_BLACK_KING: u8 = 1 << 2;
-pub const CASTLE_BLACK_QUEEN: u8 = 1 << 3;
+#[derive(Copy, Clone)]
+pub enum CastlingValue {
+    WhiteKing = 0,
+    WhiteQueen = 1,
+    BlackKing = 2,
+    BlackQueen = 3,
+}
+
+pub const CASTLE_WHITE_KING_FLAG: u8 = 1 << CastlingValue::WhiteKing as u8;
+pub const CASTLE_WHITE_QUEEN_FLAG: u8 = 1 << CastlingValue::WhiteQueen as u8;
+pub const CASTLE_BLACK_KING_FLAG: u8 = 1 << CastlingValue::BlackKing as u8;
+pub const CASTLE_BLACK_QUEEN_FLAG: u8 = 1 << CastlingValue::BlackQueen as u8;
+
+pub static HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
+    // rand crate doesn't gurantee values are reproducible...
+    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc3);
+    let mut result = [0; 781];
+
+    if result.try_fill(&mut rng).is_err() {
+        error!("Failed to initialize hash values with random data.");
+        panic!("Failed to initialize hash values with random data.");
+    }
+
+    result
+});
+pub const HASH_VALUES_BLACK_TO_MOVE_IDX: usize = 12 * 64;
+pub const HASH_VALUES_CASTLE_BASE_IDX: usize = HASH_VALUES_CASTLE_WHITE_KING_IDX;
+pub const HASH_VALUES_CASTLE_WHITE_KING_IDX: usize = HASH_VALUES_BLACK_TO_MOVE_IDX + 1;
+pub const HASH_VALUES_CASTLE_WHITE_QUEEN_IDX: usize = HASH_VALUES_CASTLE_WHITE_KING_IDX + 1;
+pub const HASH_VALUES_CASTLE_BLACK_KING_IDX: usize = HASH_VALUES_CASTLE_WHITE_QUEEN_IDX + 1;
+pub const HASH_VALUES_CASTLE_BLACK_QUEEN_IDX: usize = HASH_VALUES_CASTLE_BLACK_KING_IDX + 1;
+pub const HASH_VALUES_EP_FILE_IDX: usize = HASH_VALUES_CASTLE_BLACK_QUEEN_IDX + 1;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
@@ -72,6 +103,7 @@ pub struct Board {
     pub halfmove_clock: u8,
     // Is this needed?
     pub fullmove_counter: u16,
+    pub hash: u64,
 }
 
 impl Board {
@@ -102,6 +134,7 @@ impl Board {
 
         let mut board = Board::default();
         let mut board_index: usize = 56;
+        let hash_values = &*HASH_VALUES;
 
         for c in fen_pieces[0].chars() {
             match c {
@@ -116,51 +149,51 @@ impl Board {
                     board_index += char::to_digit(c, 10).unwrap() as usize;
                 }
                 'P' => {
-                    board.write_piece(PIECE_PAWN, board_index);
+                    place_piece_init(&mut board, PIECE_PAWN, true, board_index, hash_values);
                     board_index += 1;
                 }
                 'N' => {
-                    board.write_piece(PIECE_KNIGHT, board_index);
+                    place_piece_init(&mut board, PIECE_KNIGHT, true, board_index, hash_values);
                     board_index += 1;
                 }
                 'B' => {
-                    board.write_piece(PIECE_BISHOP, board_index);
+                    place_piece_init(&mut board, PIECE_BISHOP, true, board_index, hash_values);
                     board_index += 1;
                 }
                 'R' => {
-                    board.write_piece(PIECE_ROOK, board_index);
+                    place_piece_init(&mut board, PIECE_ROOK, true, board_index, hash_values);
                     board_index += 1;
                 }
                 'Q' => {
-                    board.write_piece(PIECE_QUEEN, board_index);
+                    place_piece_init(&mut board, PIECE_QUEEN, true, board_index, hash_values);
                     board_index += 1;
                 }
                 'K' => {
-                    board.write_piece(PIECE_KING, board_index);
+                    place_piece_init(&mut board, PIECE_KING, true, board_index, hash_values);
                     board_index += 1;
                 }
                 'p' => {
-                    board.write_piece(PIECE_PAWN | COLOR_BLACK, board_index);
+                    place_piece_init(&mut board, PIECE_PAWN, false, board_index, hash_values);
                     board_index += 1;
                 }
                 'n' => {
-                    board.write_piece(PIECE_KNIGHT | COLOR_BLACK, board_index);
+                    place_piece_init(&mut board, PIECE_KNIGHT, false, board_index, hash_values);
                     board_index += 1;
                 }
                 'b' => {
-                    board.write_piece(PIECE_BISHOP | COLOR_BLACK, board_index);
+                    place_piece_init(&mut board, PIECE_BISHOP, false, board_index, hash_values);
                     board_index += 1;
                 }
                 'r' => {
-                    board.write_piece(PIECE_ROOK | COLOR_BLACK, board_index);
+                    place_piece_init(&mut board, PIECE_ROOK, false, board_index, hash_values);
                     board_index += 1;
                 }
                 'q' => {
-                    board.write_piece(PIECE_QUEEN | COLOR_BLACK, board_index);
+                    place_piece_init(&mut board, PIECE_QUEEN, false, board_index, hash_values);
                     board_index += 1;
                 }
                 'k' => {
-                    board.write_piece(PIECE_KING | COLOR_BLACK, board_index);
+                    place_piece_init(&mut board, PIECE_KING, false, board_index, hash_values);
                     board_index += 1;
                 }
                 _ => {
@@ -176,6 +209,7 @@ impl Board {
             board.white_to_move = true;
         } else if fen_pieces[1] == "b" {
             board.white_to_move = false;
+            board.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
         } else {
             return Err(format!("Encountered unexpected Side to move value '{}'", fen_pieces[1]));
         }
@@ -184,16 +218,20 @@ impl Board {
             for c in fen_pieces[2].chars() {
                 match c {
                     'K' => {
-                        board.castling_rights |= CASTLE_WHITE_KING;
+                        board.castling_rights |= CASTLE_WHITE_KING_FLAG;
+                        board.hash ^= hash_values[HASH_VALUES_CASTLE_WHITE_KING_IDX];
                     }
                     'Q' => {
-                        board.castling_rights |= CASTLE_WHITE_QUEEN;
+                        board.castling_rights |= CASTLE_WHITE_QUEEN_FLAG;
+                        board.hash ^= hash_values[HASH_VALUES_CASTLE_WHITE_QUEEN_IDX];
                     }
                     'k' => {
-                        board.castling_rights |= CASTLE_BLACK_KING;
+                        board.castling_rights |= CASTLE_BLACK_KING_FLAG;
+                        board.hash ^= hash_values[HASH_VALUES_CASTLE_BLACK_KING_IDX];
                     }
                     'q' => {
-                        board.castling_rights |= CASTLE_BLACK_QUEEN;
+                        board.castling_rights |= CASTLE_BLACK_QUEEN_FLAG;
+                        board.hash ^= hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
                     }
                     _ => {
                         return Err(format!(
@@ -215,10 +253,11 @@ impl Board {
                 ));
             }
 
-            let mut ep_square_index: u8 = 0;
+            let mut ep_square_index;
             match chars[0] {
                 'a'..='h' => {
-                    ep_square_index += chars[0] as u8 - b'a';
+                    ep_square_index = chars[0] as u8 - b'a';
+                    board.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + ep_square_index as usize];
                 }
                 _ => {
                     return Err(format!(
@@ -296,6 +335,7 @@ impl Default for Board {
             en_passant_target_square_index: None,
             halfmove_clock: 0,
             fullmove_counter: 1,
+            hash: 0,
         }
     }
 }
@@ -310,6 +350,7 @@ impl Debug for Board {
             .field("en_passant_target_square_index", &self.en_passant_target_square_index)
             .field("halfmove_clock", &self.halfmove_clock)
             .field("fullmove_counter", &self.fullmove_counter)
+            .field("hash", &format!("{:#018x}", self.hash))
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -369,4 +410,14 @@ pub fn index_8x8_to_pos_str(i: u8) -> String {
     let file = file_8x8(i);
 
     format!("{}{}", (b'a' + file) as char, rank)
+}
+
+pub fn get_hash_value(piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) -> u64 {
+    hash_values[if white { 0 } else { 6 * 64 } + ((piece_code - 1) as usize * 64) + index]
+}
+
+// For creating a board from the default board
+fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) {
+    board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
+    board.hash ^= get_hash_value(piece_code, white, index, hash_values);
 }

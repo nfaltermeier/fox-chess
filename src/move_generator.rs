@@ -2,10 +2,10 @@ use log::{debug, error, trace};
 
 use crate::{
     board::{
-        index_10x12_to_pos_str, piece_to_name, Board, BOARD_SQUARE_INDEX_TRANSLATION_64, CASTLE_BLACK_KING,
-        CASTLE_BLACK_QUEEN, CASTLE_WHITE_KING, CASTLE_WHITE_QUEEN, COLOR_BLACK, COLOR_FLAG_MASK,
-        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        index_10x12_to_pos_str, piece_to_name, Board, BOARD_SQUARE_INDEX_TRANSLATION_64, CASTLE_BLACK_KING_FLAG,
+        CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
+        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION, HASH_VALUES, PIECE_BISHOP, PIECE_INVALID, PIECE_KING,
+        PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
     moves::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
@@ -42,6 +42,10 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
         board_copy = Some(board.clone());
     }
 
+    for m in &moves {
+        trace!("{}", m.pretty_print(Some(board)));
+    }
+
     moves.retain(|r#move| {
         let mut result;
         let flags = r#move.flags();
@@ -50,10 +54,6 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
             board.white_to_move = !board.white_to_move;
             result = !can_capture_opponent_king(board, false);
             board.white_to_move = !board.white_to_move;
-
-            if !result {
-                return result;
-            }
 
             let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
             let from = r#move.from();
@@ -83,6 +83,16 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
         if ENABLE_UNMAKE_MOVE_TEST {
             if board_copy.as_ref().unwrap() != board {
                 error!("unmake move did not properly undo move {:?}", r#move);
+
+                let board_copied = board_copy.as_ref().unwrap();
+                if board_copied.hash != board.hash {
+                    for (i, v) in HASH_VALUES.iter().enumerate() {
+                        if board_copied.hash ^ v == board.hash {
+                            debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                        }
+                    }
+                }
+
                 assert_eq!(board_copy.as_ref().unwrap(), board);
             }
         }
@@ -176,16 +186,18 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
 
                     if piece_type == PIECE_KING as usize {
                         for offset in [-1, 1] {
-                            if (offset == -1 && board.white_to_move && board.castling_rights & CASTLE_WHITE_QUEEN != 0)
+                            if (offset == -1
+                                && board.white_to_move
+                                && board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0)
                                 || (offset == -1
                                     && !board.white_to_move
-                                    && board.castling_rights & CASTLE_BLACK_QUEEN != 0)
+                                    && board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0)
                                 || (offset == 1
                                     && board.white_to_move
-                                    && board.castling_rights & CASTLE_WHITE_KING != 0)
+                                    && board.castling_rights & CASTLE_WHITE_KING_FLAG != 0)
                                 || (offset == 1
                                     && !board.white_to_move
-                                    && board.castling_rights & CASTLE_BLACK_KING != 0)
+                                    && board.castling_rights & CASTLE_BLACK_KING_FLAG != 0)
                             {
                                 let friendly_rook = PIECE_ROOK | color_flag;
                                 let mut cur_pos = i;
@@ -194,7 +206,9 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                     let target_piece = board.get_piece(cur_pos);
 
                                     if target_piece != PIECE_NONE {
-                                        if target_piece == friendly_rook {
+                                        if target_piece == friendly_rook
+                                            && (cur_pos == 21 || cur_pos == 28 || cur_pos == 91 || cur_pos == 98)
+                                        {
                                             let king_to = i.checked_add_signed(offset * 2).unwrap();
 
                                             let flags = if offset == -1 {

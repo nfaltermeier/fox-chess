@@ -1,6 +1,9 @@
 use rand::random;
 
-use crate::board::{Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK};
+use crate::board::{
+    Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
+    PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+};
 
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i32; 7] = [0, 100, 300, 350, 500, 900, 20000];
@@ -31,7 +34,11 @@ impl Board {
     }
 
     pub fn evaluate_checkmate(&self) -> i32 {
-        if self.white_to_move { -20000 } else { 20000 }
+        if self.white_to_move {
+            -20000
+        } else {
+            20000
+        }
     }
 
     pub fn evaluate_side_to_move_relative(&self) -> i32 {
@@ -41,5 +48,4 @@ impl Board {
     pub fn evaluate_checkmate_side_to_move_relative(&self) -> i32 {
         self.evaluate_checkmate() * if self.white_to_move { 1 } else { -1 }
     }
-
 }

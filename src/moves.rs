@@ -3,8 +3,10 @@ use regex::Regex;
 
 use crate::{
     board::{
-        self, file_8x8, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CASTLE_BLACK_KING, CASTLE_BLACK_QUEEN,
-        CASTLE_WHITE_KING, CASTLE_WHITE_QUEEN, COLOR_BLACK, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
+        file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue,
+        CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK,
+        HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_CASTLE_WHITE_QUEEN_IDX,
+        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
     move_generator::generate_moves,
     STARTING_FEN,
@@ -175,14 +177,16 @@ impl MoveRollback {
 
 impl Board {
     pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
-        let from = r#move.data & 0x003F;
-        let to = (r#move.data >> 6) & 0x003F;
+        let from = (r#move.data & 0x003F) as usize;
+        let to = ((r#move.data >> 6) & 0x003F) as usize;
         let flags = r#move.data >> 12;
+        let hash_values = &*HASH_VALUES;
 
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
-            let capture_piece = self.get_piece_64(to as usize);
+            let capture_piece = self.get_piece_64(to);
+            self.hash ^= get_hash_value(capture_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_piece);
         }
 
@@ -190,7 +194,7 @@ impl Board {
         rollback.castling_rights.push(self.castling_rights);
         rollback.halfmove_clocks.push(self.halfmove_clock);
 
-        let moved_piece = self.get_piece_64(from as usize);
+        let moved_piece = self.get_piece_64(from);
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from = if self.white_to_move { 4 } else { 60 };
             let rook_to;
@@ -208,29 +212,45 @@ impl Board {
 
             let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
             self.write_piece(PIECE_NONE, king_from);
+            self.hash ^= get_hash_value(PIECE_KING, self.white_to_move, king_from, hash_values);
             self.write_piece(PIECE_NONE, rook_from);
+            self.hash ^= get_hash_value(PIECE_ROOK, self.white_to_move, rook_from, hash_values);
             self.write_piece(PIECE_KING | color_flag, king_to);
+            self.hash ^= get_hash_value(PIECE_KING, self.white_to_move, king_to, hash_values);
             self.write_piece(PIECE_ROOK | color_flag, rook_to);
+            self.hash ^= get_hash_value(PIECE_ROOK, self.white_to_move, rook_to, hash_values);
         } else if flags & MOVE_FLAG_PROMOTION != 0 {
             let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
             let promo_value = (flags as u8) & 3;
             // +2 converts promo code to piece code
             let promo_to_piece = color_flag | (promo_value + 2);
 
-            self.write_piece(PIECE_NONE, from as usize);
-            self.write_piece(promo_to_piece, to as usize);
+            self.write_piece(PIECE_NONE, from);
+            self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from, hash_values);
+            self.write_piece(promo_to_piece, to);
+            self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
         } else {
             if ep_capture {
-                let diff = (to as i16).checked_sub_unsigned(from).unwrap();
+                let diff = (to as isize).checked_sub_unsigned(from).unwrap();
                 if diff == 7 || diff == -9 {
-                    self.write_piece(PIECE_NONE, (from - 1) as usize);
+                    self.write_piece(PIECE_NONE, from - 1);
+                    self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from - 1, hash_values);
                 } else {
-                    self.write_piece(PIECE_NONE, (from + 1) as usize);
+                    self.write_piece(PIECE_NONE, from + 1);
+                    self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
                 }
             }
 
-            self.write_piece(PIECE_NONE, from as usize);
-            self.write_piece(moved_piece, to as usize);
+            let moved_piece_val = moved_piece & PIECE_MASK;
+            self.write_piece(PIECE_NONE, from);
+            self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, from, hash_values);
+            self.write_piece(moved_piece, to);
+            self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, to, hash_values);
+        }
+
+        if self.en_passant_target_square_index.is_some() {
+            let file = file_8x8(self.en_passant_target_square_index.unwrap());
+            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         }
 
         let double_pawn_push = flags == MOVE_DOUBLE_PAWN;
@@ -238,7 +258,9 @@ impl Board {
             let ep_index = from
                 .checked_add_signed(if self.white_to_move { 8 } else { -8 })
                 .unwrap() as u8;
-            self.en_passant_target_square_index = Some(ep_index)
+            let file = file_8x8(ep_index);
+            self.en_passant_target_square_index = Some(ep_index);
+            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         } else {
             self.en_passant_target_square_index = None;
         }
@@ -246,19 +268,19 @@ impl Board {
         if self.castling_rights != 0 {
             // potential optimization: match statement?
             if from == 0 || to == 0 {
-                self.castling_rights &= !CASTLE_WHITE_QUEEN;
+                check_and_disable_castling(self, CastlingValue::WhiteQueen, hash_values);
             } else if from == 4 {
-                self.castling_rights &= !CASTLE_WHITE_QUEEN;
-                self.castling_rights &= !CASTLE_WHITE_KING;
+                check_and_disable_castling(self, CastlingValue::WhiteQueen, hash_values);
+                check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
             } else if from == 7 || to == 7 {
-                self.castling_rights &= !CASTLE_WHITE_KING;
+                check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
             } else if from == 56 || to == 56 {
-                self.castling_rights &= !CASTLE_BLACK_QUEEN;
+                check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
             } else if from == 60 {
-                self.castling_rights &= !CASTLE_BLACK_QUEEN;
-                self.castling_rights &= !CASTLE_BLACK_KING;
+                check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
+                check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
             } else if from == 63 || to == 63 {
-                self.castling_rights &= !CASTLE_BLACK_KING;
+                check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
             }
         }
 
@@ -272,21 +294,34 @@ impl Board {
             self.fullmove_counter += 1;
         }
         self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
 
     pub fn unmake_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
-        let from = r#move.data & 0x003F;
-        let to = (r#move.data >> 6) & 0x003F;
+        let from = (r#move.data & 0x003F) as usize;
+        let to = ((r#move.data >> 6) & 0x003F) as usize;
         let flags = r#move.data >> 12;
+        let hash_values = &*HASH_VALUES;
 
-        let moved_piece = self.get_piece_64(to as usize);
+        let moved_piece = self.get_piece_64(to);
 
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
             let captured_piece = rollback.captured_pieces.pop().unwrap();
-            self.write_piece(captured_piece, to as usize);
-            self.write_piece(moved_piece, from as usize);
+            let moved_piece_val = moved_piece & PIECE_MASK;
+            self.write_piece(captured_piece, to);
+            self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
+            self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
+
+            if flags & MOVE_FLAG_PROMOTION == 0 {
+                self.write_piece(moved_piece, from);
+                self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
+            } else {
+                let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
+                self.write_piece(PIECE_PAWN | color_flag, from);
+                self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
+            }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
             let rook_to;
@@ -304,41 +339,68 @@ impl Board {
 
             let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
             self.write_piece(PIECE_NONE, king_to);
+            self.hash ^= get_hash_value(PIECE_KING, !self.white_to_move, king_to, hash_values);
             self.write_piece(PIECE_NONE, rook_to);
+            self.hash ^= get_hash_value(PIECE_ROOK, !self.white_to_move, rook_to, hash_values);
             self.write_piece(PIECE_KING | color_flag, king_from);
+            self.hash ^= get_hash_value(PIECE_KING, !self.white_to_move, king_from, hash_values);
             self.write_piece(PIECE_ROOK | color_flag, rook_from);
+            self.hash ^= get_hash_value(PIECE_ROOK, !self.white_to_move, rook_from, hash_values);
         } else {
             if ep_capture {
                 let opponent_color = if self.white_to_move { 0 } else { COLOR_BLACK };
-                let diff = (to as i16).checked_sub_unsigned(from).unwrap();
+                let diff = (to as isize).checked_sub_unsigned(from).unwrap();
                 if diff == 7 || diff == -9 {
-                    self.write_piece(PIECE_PAWN | opponent_color, (from - 1) as usize);
+                    self.write_piece(PIECE_PAWN | opponent_color, from - 1);
+                    self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from - 1, hash_values);
                 } else {
-                    self.write_piece(PIECE_PAWN | opponent_color, (from + 1) as usize);
+                    self.write_piece(PIECE_PAWN | opponent_color, from + 1);
+                    self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
                 }
             }
 
-            self.write_piece(PIECE_NONE, to as usize);
-            self.write_piece(moved_piece, from as usize);
-        }
+            let moved_piece_val = moved_piece & PIECE_MASK;
+            self.write_piece(PIECE_NONE, to);
+            self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
 
-        if flags & MOVE_FLAG_PROMOTION != 0 {
-            let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
-
-            if !capture {
-                self.write_piece(PIECE_NONE, to as usize);
+            if flags & MOVE_FLAG_PROMOTION == 0 {
+                self.write_piece(moved_piece, from);
+                self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
+            } else {
+                let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
+                self.write_piece(PIECE_PAWN | color_flag, from);
+                self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
             }
-            self.write_piece(PIECE_PAWN | color_flag, from as usize);
         }
 
+        if self.en_passant_target_square_index.is_some() {
+            let file = file_8x8(self.en_passant_target_square_index.unwrap());
+            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+        }
         self.en_passant_target_square_index = rollback.ep_index.pop().unwrap();
+        if self.en_passant_target_square_index.is_some() {
+            let file = file_8x8(self.en_passant_target_square_index.unwrap());
+            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+        }
+
+        let old_castling_rights = self.castling_rights;
         self.castling_rights = rollback.castling_rights.pop().unwrap();
+        if old_castling_rights != self.castling_rights {
+            let diff = old_castling_rights ^ self.castling_rights;
+            for i in 0..4usize {
+                if diff & (1 << i) != 0 {
+                    self.hash ^= hash_values[HASH_VALUES_CASTLE_BASE_IDX + i];
+                }
+            }
+        }
+
         self.halfmove_clock = rollback.halfmove_clocks.pop().unwrap();
 
         if self.white_to_move {
             self.fullmove_counter -= 1;
         }
         self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
 }
 
@@ -438,5 +500,13 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
         let gen_move = moves.swap_remove(gen_move_pos);
 
         board.make_move(&gen_move, &mut rollback);
+    }
+}
+
+#[inline]
+fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_values: &[u64; 781]) {
+    if board.castling_rights & (1 << castling as u8) != 0 {
+        board.castling_rights &= !(1 << castling as u8);
+        board.hash ^= hash_values[HASH_VALUES_CASTLE_BASE_IDX + castling as usize];
     }
 }
