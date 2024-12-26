@@ -91,7 +91,7 @@ impl UciInterface {
                     match self.board.as_mut() {
                         Some(b) => {
                             let start_time = Instant::now();
-                            let move_data = b.search();
+                            let move_data = b.search(&time_control);
                             let elapsed = start_time.elapsed();
 
                             let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
@@ -105,8 +105,8 @@ impl UciInterface {
                     }
                 }
                 UciMessage::Stop => {
-                    error!("UCI stop command but this is not implemented");
-                    unimplemented!("UCI stop command")
+                    // error!("UCI stop command but this is not implemented");
+                    // unimplemented!("UCI stop command")
                     // println!("bestmove <>")
                 }
                 UciMessage::Quit => exit(0),

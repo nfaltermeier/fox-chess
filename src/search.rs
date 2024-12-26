@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use log::{debug, error, trace};
+use vampirc_uci::UciTimeControl;
 
 use crate::{
     board::{Board, PIECE_MASK},
@@ -16,13 +17,41 @@ pub struct SearchStats {
 }
 
 impl Board {
-    pub fn search(&mut self) -> (Move, i32, SearchStats) {
-        let depth;
+    pub fn search(&mut self, time: &Option<UciTimeControl>) -> (Move, i32, SearchStats) {
+        let mut depth;
         if cfg!(debug_assertions) {
             depth = 4;
         } else {
             depth = 5;
         }
+
+        if time.is_some() {
+            let t = time.as_ref().unwrap();
+            match t {
+                UciTimeControl::TimeLeft { white_time, black_time, white_increment, black_increment, moves_to_go } => {
+                    if self.white_to_move {
+                        if white_time.is_some() {
+                            if white_time.as_ref().unwrap().num_seconds() < 30 {
+                                depth -= 1;
+                            }
+                        }
+                    } else {
+                        if black_time.is_some() {
+                            if black_time.as_ref().unwrap().num_seconds() < 30 {
+                                depth -= 1;
+                            }
+                        }
+                    }
+                }
+                UciTimeControl::MoveTime(dur) => {
+                    if dur.num_seconds() < 5 {
+                        depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // (self.random_move(), 0)
         // self.negamax_init(4)
         self.alpha_beta_init(depth)
