@@ -96,8 +96,8 @@ impl UciInterface {
 
                             let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
                             println!(
-                                "info score cp {} nodes {} depth {} nps {:.0}",
-                                move_data.1, move_data.2.nodes, move_data.2.depth, nps
+                                "info score cp {} nodes {} depth {} nps {:.0} time {}",
+                                move_data.1, move_data.2.nodes, move_data.2.depth, nps, elapsed.as_secs_f32()
                             );
                             println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                         }

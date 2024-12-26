@@ -1,3 +1,4 @@
+use array_macro::array;
 use rand::random;
 
 use crate::board::{
@@ -6,11 +7,106 @@ use crate::board::{
 };
 
 // Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES: [i32; 7] = [0, 100, 300, 350, 500, 900, 20000];
+pub static CENTIPAWN_VALUES: [i32; 7] = [0, 100, 315, 350, 500, 900, 20000];
+
+#[rustfmt::skip]
+// piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
+const PAWN_SQUARE_TABLE: [i32; 64] = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    10, 10, 20, 30, 30, 20, 10, 10,
+     5,  5, 10, 25, 25, 10,  5,  5,
+     0,  0,  0, 20, 20,  0,  0,  0,
+     5, -5,-10,  0,  0,-10, -5,  5,
+     5, 10, 10,-20,-20, 10, 10,  5,
+     0,  0,  0,  0,  0,  0,  0,  0
+];
+
+#[rustfmt::skip]
+const KNIGHT_SQUARE_TABLE: [i32; 64] = [
+    -50,-40,-30,-30,-30,-30,-40,-50,
+    -40,-20,  0,  0,  0,  0,-20,-40,
+    -30,  0, 10, 15, 15, 10,  0,-30,
+    -30,  5, 15, 20, 20, 15,  5,-30,
+    -30,  0, 15, 20, 20, 15,  0,-30,
+    -30,  5, 10, 15, 15, 10,  5,-30,
+    -40,-20,  0,  5,  5,  0,-20,-40,
+    -50,-40,-30,-30,-30,-30,-40,-50,
+];
+
+#[rustfmt::skip]
+const BISHOP_SQUARE_TABLE: [i32; 64] = [
+    -20,-10,-10,-10,-10,-10,-10,-20,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -10,  0,  5, 10, 10,  5,  0,-10,
+    -10,  5,  5, 10, 10,  5,  5,-10,
+    -10,  0, 10, 10, 10, 10,  0,-10,
+    -10, 10, 10, 10, 10, 10, 10,-10,
+    -10,  5,  0,  0,  0,  0,  5,-10,
+    -20,-10,-10,-10,-10,-10,-10,-20,
+];
+
+#[rustfmt::skip]
+const ROOK_SQUARE_TABLE: [i32; 64] = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    5, 10, 10, 10, 10, 10, 10,  5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+   -5,  0,  0,  0,  0,  0,  0, -5,
+    0,  0,  0,  5,  5,  0,  0,  0
+];
+
+#[rustfmt::skip]
+const QUEEN_SQUARE_TABLE: [i32; 64] = [
+    -20,-10,-10, -5, -5,-10,-10,-20,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -5,  0,  5,  5,  5,  5,  0, -5,
+    0,  0,  5,  5,  5,  5,  0, -5,
+    -10,  5,  5,  5,  5,  5,  0,-10,
+    -10,  0,  5,  0,  0,  0,  0,-10,
+    -20,-10,-10, -5, -5,-10,-10,-20
+];
+
+#[rustfmt::skip]
+const KING_MIDGAME_SQUARE_TABLE: [i32; 64] = [
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -20,-30,-30,-40,-40,-30,-30,-20,
+    -10,-20,-20,-20,-20,-20,-20,-10,
+    20, 20,  0,  0,  0,  0, 20, 20,
+    20, 30, 10,  0,  0, 10, 30, 20
+];
+
+#[rustfmt::skip]
+const KING_ENDGAME_SQUARE_TABLE: [i32; 64] = [
+    -50,-40,-30,-20,-20,-30,-40,-50,
+    -30,-20,-10,  0,  0,-10,-20,-30,
+    -30,-10, 20, 30, 30, 20,-10,-30,
+    -30,-10, 30, 40, 40, 30,-10,-30,
+    -30,-10, 30, 40, 40, 30,-10,-30,
+    -30,-10, 20, 30, 30, 20,-10,-30,
+    -30,-30,  0,  0,  0,  0,-30,-30,
+    -50,-30,-30,-30,-30,-30,-30,-50
+];
+
+const ALL_PIECE_SQUARE_TABLES: [[i32; 64]; 7] = [ PAWN_SQUARE_TABLE, KNIGHT_SQUARE_TABLE, BISHOP_SQUARE_TABLE, ROOK_SQUARE_TABLE, QUEEN_SQUARE_TABLE, KING_MIDGAME_SQUARE_TABLE, KING_ENDGAME_SQUARE_TABLE ];
+
+static PIECE_SQUARE_TABLES: [[[i32; 64]; 7]; 2] = [
+    // vertically flip each table for white
+    array![x => array![y => ALL_PIECE_SQUARE_TABLES[x][y ^ 0b00111000]; 64]; 7],
+    // Evaluate from white's perspective so negate each score for black
+    array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 7],
+];
 
 impl Board {
     pub fn evaluate(&self) -> i32 {
-        let mut result = 0;
+        let mut material_score = 0;
+        let mut position_score = 0;
 
         // white then black
         let mut piece_counts = [[0i8; 7]; 2];
@@ -20,17 +116,17 @@ impl Board {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
                 let piece_type = (piece & PIECE_MASK) as usize;
                 piece_counts[color][piece_type] += 1;
+                // todo endgame vs midgame
+                position_score += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
             }
         }
 
         for i in 1..7 {
-            result += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i32;
+            material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i32;
         }
 
         // Add a small variance to try to avoid repetition
-        result += (random::<i32>() % 11) - 5;
-
-        result
+        material_score + position_score + (random::<i32>() % 11) - 5
     }
 
     pub fn evaluate_checkmate(&self) -> i32 {
