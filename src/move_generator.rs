@@ -55,6 +55,10 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
             result = !can_capture_opponent_king(board, false);
             board.white_to_move = !board.white_to_move;
 
+            if !result {
+                return result;
+            }
+
             let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
             let from = r#move.from();
             let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
