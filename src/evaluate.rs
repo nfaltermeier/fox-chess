@@ -9,6 +9,10 @@ use crate::board::{
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i32; 7] = [0, 100, 315, 350, 500, 900, 20000];
 
+static GAME_STAGE_VALUES: [i32; 7] = [0, 0, 4, 4, 4, 8, 0];
+const MAX_GAME_STAGE: i32 = 64;
+const GAME_STAGE_FULLY_ENDGAME: i32 = 16;
+
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
 const PAWN_SQUARE_TABLE: [i32; 64] = [
@@ -107,6 +111,8 @@ impl Board {
     pub fn evaluate(&self) -> i32 {
         let mut material_score = 0;
         let mut position_score = 0;
+        let mut game_stage = 0;
+        let mut king_pos = [0, 0];
 
         // white then black
         let mut piece_counts = [[0i8; 7]; 2];
@@ -116,13 +122,34 @@ impl Board {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
                 let piece_type = (piece & PIECE_MASK) as usize;
                 piece_counts[color][piece_type] += 1;
+
                 // todo endgame vs midgame
-                position_score += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
+                if piece_type != PIECE_KING as usize {
+                    position_score += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
+                } else {
+                    king_pos[color] = i;
+                }
             }
         }
 
         for i in 1..7 {
             material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i32;
+
+            game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i32;
+        }
+
+        game_stage -= GAME_STAGE_FULLY_ENDGAME;
+        if game_stage > MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME {
+            game_stage = MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME;
+        } else if game_stage < 0 {
+            game_stage = 0;
+        }
+
+        for i in 0..=1 {
+            position_score += (
+                    (PIECE_SQUARE_TABLES[i][PIECE_KING as usize - 1][king_pos[i]] * game_stage)
+                    + (PIECE_SQUARE_TABLES[i][PIECE_KING as usize][king_pos[i]] * (MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME - game_stage))
+                ) / (MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME);
         }
 
         // Add a small variance to try to avoid repetition

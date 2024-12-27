@@ -39,10 +39,6 @@ fn main() {
     }
     log_panics::init();
 
-    trace!("trace test");
-    debug!("debug test");
-    error!("error test");
-
     // dereference lazy cell to cause it to initialize
     let _ = *HASH_VALUES;
 
