@@ -1,12 +1,10 @@
 use std::{
-    io,
-    sync::mpsc::{self, Receiver, TryRecvError},
-    thread::{self, sleep},
-    time::{Duration, Instant, SystemTime},
+    env, io, str::FromStr, sync::mpsc::{self, Receiver, TryRecvError}, thread::{self, sleep}, time::{Duration, Instant, SystemTime}
 };
 
-use board::Board;
-use log::{debug, error, info, warn};
+use board::{Board, HASH_VALUES};
+use clap::Parser;
+use log::{debug, error, info, trace, warn};
 use move_generator::{
     can_capture_opponent_king, generate_moves, generate_moves_psuedo_legal, perft, perft_pseudo_legal_optimized,
     PerftStats,
@@ -26,16 +24,31 @@ mod uci;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+#[derive(Parser)]
+struct CliArgs {
+    #[arg(short, long, default_value_t = log::LevelFilter::Debug)]
+    log_level: log::LevelFilter,
+}
+
 fn main() {
-    let setup_logger_result = setup_logger();
+    let args = CliArgs::parse();
+
+    let setup_logger_result = setup_logger(&args);
     if setup_logger_result.is_err() {
         panic!("logger setup failed: {}", setup_logger_result.unwrap_err())
     }
     log_panics::init();
 
+    trace!("trace test");
+    debug!("debug test");
+    error!("error test");
+
+    // dereference lazy cell to cause it to initialize
+    let _ = *HASH_VALUES;
+
     run_uci();
 
-    // print_moves_from_pos("4kb1r/r5pp/8/4p2n/1pP5/8/PP4PP/4KRNR w Kk - 0 1");
+    // print_moves_from_pos("4rb1r/pB1k1p2/5p1p/2p5/2P3P1/1P1b3P/P2N1P2/R3K2R w KQ - 1 19");
     // do_perft(5, STARTING_FEN);
     // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
@@ -123,7 +136,7 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
     }
 }
 
-fn setup_logger() -> Result<(), fern::InitError> {
+fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -134,7 +147,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Debug)
+        .level(args.log_level)
         // .level_for("fox_chess::move_generator", log::LevelFilter::Trace)
         .chain(std::io::stderr())
         .chain(fern::log_file("output.log")?)

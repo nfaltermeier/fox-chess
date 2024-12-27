@@ -1,5 +1,7 @@
 use std::{process::exit, time::Instant};
 
+use build_info::build_info;
+use build_info::VersionControl::Git;
 use log::{debug, error, trace};
 use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
@@ -17,6 +19,8 @@ pub struct UciInterface {
     board: Option<Board>,
 }
 
+build_info!(fn get_build_info);
+
 impl UciInterface {
     // how to communicate with the engine while it is computing? How necessary is that?
     pub fn process_command(&mut self, cmd: String) {
@@ -25,7 +29,22 @@ impl UciInterface {
         for m in messages {
             match m {
                 UciMessage::Uci => {
-                    println!("id name FoxChess");
+                    let build_info = get_build_info();
+                    let commit;
+                    match &build_info.version_control {
+                        Some(vc) => {
+                            match vc {
+                                Git(g) => {
+                                    commit = format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" });
+                                }
+                            }
+                        }
+                        None => {
+                            commit = "".to_string();
+                        }
+                    }
+
+                    println!("id name FoxChess {} {}", build_info.profile, commit);
                     println!("id author IDK");
                     println!("uciok");
                 }
@@ -97,7 +116,7 @@ impl UciInterface {
                             let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
                             println!(
                                 "info score cp {} nodes {} depth {} nps {:.0} time {}",
-                                move_data.1, move_data.2.nodes, move_data.2.depth, nps, elapsed.as_secs_f32()
+                                move_data.1, move_data.2.nodes, move_data.2.depth, nps, elapsed.as_millis()
                             );
                             println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                         }
