@@ -531,6 +531,17 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
         };
         let gen_move = moves.swap_remove(gen_move_pos);
 
+        // Pawn moves and captures are irreversible so we can clear previous game states.
+        let mut clear_threefold_repetition = gen_move.data & MOVE_FLAG_CAPTURE_FULL != 0;
+        if !clear_threefold_repetition {
+            let piece = board.get_piece_64(gen_move.from() as usize);
+            clear_threefold_repetition = piece & PIECE_MASK == PIECE_PAWN;
+        }
+
+        if clear_threefold_repetition {
+            board.threefold_hashes.clear();
+        }
+
         board.make_move(&gen_move, &mut rollback);
     }
 }
