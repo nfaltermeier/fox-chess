@@ -138,18 +138,15 @@ impl Board {
             game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i32;
         }
 
-        game_stage -= GAME_STAGE_FULLY_ENDGAME;
-        if game_stage > MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME {
-            game_stage = MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME;
-        } else if game_stage < 0 {
-            game_stage = 0;
+        if game_stage > MAX_GAME_STAGE {
+            game_stage = MAX_GAME_STAGE;
         }
 
         for i in 0..=1 {
             position_score += (
                     (PIECE_SQUARE_TABLES[i][PIECE_KING as usize - 1][king_pos[i]] * game_stage)
-                    + (PIECE_SQUARE_TABLES[i][PIECE_KING as usize][king_pos[i]] * (MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME - game_stage))
-                ) / (MAX_GAME_STAGE - GAME_STAGE_FULLY_ENDGAME);
+                    + (PIECE_SQUARE_TABLES[i][PIECE_KING as usize][king_pos[i]] * (MAX_GAME_STAGE - game_stage))
+                ) / (MAX_GAME_STAGE);
         }
 
         // Add a small variance to try to avoid repetition
