@@ -3,10 +3,9 @@ use regex::Regex;
 
 use crate::{
     board::{
-        file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue,
-        CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK,
-        HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_CASTLE_WHITE_QUEEN_IDX,
-        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
+        file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
+        HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
+        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
     move_generator::{generate_moves, ENABLE_UNMAKE_MOVE_TEST},
     STARTING_FEN,
@@ -358,7 +357,7 @@ impl Board {
             let king_from;
             let rook_to;
             let rook_from;
-            let king_to = to as usize;
+            let king_to = to;
             if flags == MOVE_KING_CASTLE {
                 rook_from = king_to + 1;
                 rook_to = king_to - 1;

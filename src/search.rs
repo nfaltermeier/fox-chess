@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use log::{debug, error, trace};
+use log::error;
 use vampirc_uci::UciTimeControl;
 
 use crate::{
@@ -28,19 +28,19 @@ impl Board {
         if time.is_some() {
             let t = time.as_ref().unwrap();
             match t {
-                UciTimeControl::TimeLeft { white_time, black_time, white_increment, black_increment, moves_to_go } => {
+                UciTimeControl::TimeLeft {
+                    white_time,
+                    black_time,
+                    white_increment,
+                    black_increment,
+                    moves_to_go,
+                } => {
                     if self.white_to_move {
-                        if white_time.is_some() {
-                            if white_time.as_ref().unwrap().num_seconds() < 30 {
-                                draft -= 1;
-                            }
+                        if white_time.is_some() && white_time.as_ref().unwrap().num_seconds() < 30 {
+                            draft -= 1;
                         }
-                    } else {
-                        if black_time.is_some() {
-                            if black_time.as_ref().unwrap().num_seconds() < 30 {
-                                draft -= 1;
-                            }
-                        }
+                    } else if black_time.is_some() && black_time.as_ref().unwrap().num_seconds() < 30 {
+                        draft -= 1;
                     }
                 }
                 UciTimeControl::MoveTime(dur) => {
@@ -335,8 +335,7 @@ pub fn prioritize_moves(moves: &mut Vec<Move>, board: &Board) {
                 CENTIPAWN_VALUES[(p2_to & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(p2_from & PIECE_MASK) as usize];
         }
 
-        let result = m2_cp_diff.cmp(&m1_cp_diff);
         // trace!("{} {} {} {} {:?}", m1.pretty_print(Some(board)), m1_cp_diff, m2.pretty_print(Some(board)), m2_cp_diff, result);
-        result
+        m2_cp_diff.cmp(&m1_cp_diff)
     });
 }

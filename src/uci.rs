@@ -7,10 +7,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
-    moves::{
-        find_and_run_moves, square_indices_to_moves, MoveRollback, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT,
-        FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK,
-    },
+    moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     STARTING_FEN,
 };
 
@@ -32,13 +29,11 @@ impl UciInterface {
                     let build_info = get_build_info();
                     let commit;
                     match &build_info.version_control {
-                        Some(vc) => {
-                            match vc {
-                                Git(g) => {
-                                    commit = format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" });
-                                }
+                        Some(vc) => match vc {
+                            Git(g) => {
+                                commit = format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" });
                             }
-                        }
+                        },
                         None => {
                             commit = "".to_string();
                         }
@@ -107,30 +102,30 @@ impl UciInterface {
                     search_control,
                 } => {
                     trace!("At start of go. {:#?}", self.board);
-                    match self.board.as_mut() {
-                        Some(b) => {
-                            let start_time = Instant::now();
-                            let move_data = b.search(&time_control);
-                            let elapsed = start_time.elapsed();
+                    if let Some(b) = self.board.as_mut() {
+                        let start_time = Instant::now();
+                        let move_data = b.search(&time_control);
+                        let elapsed = start_time.elapsed();
 
-                            let cp = move_data.1;
-                            let score_string;
-                            if cp >= 19800 || cp <= -19800 {
-                                let diff = 20000 - cp.abs();
-                                let moves = (diff as f32 / 20.0).ceil();
-                                score_string = format!("score mate {}{moves}", if cp < 0 { "-" } else { "" });
-                            } else {
-                                score_string = format!("score cp {cp}");
-                            }
-
-                            let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
-                            println!(
-                                "info {score_string} nodes {} depth {} nps {:.0} time {} str cp: {cp}",
-                                move_data.2.nodes, move_data.2.depth, nps, elapsed.as_millis()
-                            );
-                            println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
+                        let cp = move_data.1;
+                        let score_string;
+                        if cp >= 19800 || cp <= -19800 {
+                            let diff = 20000 - cp.abs();
+                            let moves = (diff as f32 / 20.0).ceil();
+                            score_string = format!("score mate {}{moves}", if cp < 0 { "-" } else { "" });
+                        } else {
+                            score_string = format!("score cp {cp}");
                         }
-                        None => {}
+
+                        let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
+                        println!(
+                            "info {score_string} nodes {} depth {} nps {:.0} time {} str cp: {cp}",
+                            move_data.2.nodes,
+                            move_data.2.depth,
+                            nps,
+                            elapsed.as_millis()
+                        );
+                        println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                     }
                 }
                 UciMessage::Stop => {

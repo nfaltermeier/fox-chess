@@ -337,7 +337,7 @@ impl Default for Board {
             halfmove_clock: 0,
             fullmove_counter: 1,
             hash: 0,
-            threefold_hashes: HashMap::new()
+            threefold_hashes: HashMap::new(),
         }
     }
 }

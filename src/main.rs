@@ -1,14 +1,14 @@
 use std::{
-    env, io, str::FromStr, sync::mpsc::{self, Receiver, TryRecvError}, thread::{self, sleep}, time::{Duration, Instant, SystemTime}
+    io,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread::{self, sleep},
+    time::{Duration, Instant, SystemTime},
 };
 
 use board::{Board, HASH_VALUES};
 use clap::Parser;
-use log::{debug, error, info, trace, warn};
-use move_generator::{
-    can_capture_opponent_king, generate_moves, generate_moves_psuedo_legal, perft, perft_pseudo_legal_optimized,
-    PerftStats,
-};
+use log::{debug, error, info, warn};
+use move_generator::{can_capture_opponent_king, generate_moves, perft, PerftStats};
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::prioritize_moves;
 use uci::UciInterface;
@@ -68,7 +68,8 @@ fn do_perft(up_to_depth: u8, fen: &str) {
         let nps = stats.nodes as f64 / elapsed.as_secs_f64();
         info!(
             "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {}",
-            stats.nodes.to_formatted_string(&Locale::en), (nps as u64).to_formatted_string(&Locale::en)
+            stats.nodes.to_formatted_string(&Locale::en),
+            (nps as u64).to_formatted_string(&Locale::en)
         );
         info!("{:?}", stats);
         debug_assert!(rollback.is_empty());

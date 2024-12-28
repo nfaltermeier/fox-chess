@@ -68,11 +68,9 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
             result = !can_capture_opponent_king(board, true);
             board.unmake_move(&intermediate_move, &mut rollback);
 
-            if ENABLE_UNMAKE_MOVE_TEST {
-                if board_copy.as_ref().unwrap() != board {
-                    error!("unmake move did not properly undo move {:?}", intermediate_move);
-                    assert_eq!(board_copy.as_ref().unwrap(), board);
-                }
+            if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
+                error!("unmake move did not properly undo move {:?}", intermediate_move);
+                assert_eq!(board_copy.as_ref().unwrap(), board);
             }
 
             if !result {
@@ -84,21 +82,19 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
         result = !can_capture_opponent_king(board, true);
         board.unmake_move(r#move, &mut rollback);
 
-        if ENABLE_UNMAKE_MOVE_TEST {
-            if board_copy.as_ref().unwrap() != board {
-                error!("unmake move did not properly undo move {:?}", r#move);
+        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
+            error!("unmake move did not properly undo move {:?}", r#move);
 
-                let board_copied = board_copy.as_ref().unwrap();
-                if board_copied.hash != board.hash {
-                    for (i, v) in HASH_VALUES.iter().enumerate() {
-                        if board_copied.hash ^ v == board.hash {
-                            debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
-                        }
+            let board_copied = board_copy.as_ref().unwrap();
+            if board_copied.hash != board.hash {
+                for (i, v) in HASH_VALUES.iter().enumerate() {
+                    if board_copied.hash ^ v == board.hash {
+                        debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
                     }
                 }
-
-                assert_eq!(board_copy.as_ref().unwrap(), board);
             }
+
+            assert_eq!(board_copy.as_ref().unwrap(), board);
         }
 
         result
@@ -289,42 +285,41 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                         target_pos = i.checked_add_signed(offset * direction_sign).unwrap();
                         target_piece = board.get_piece(target_pos);
 
-                        if target_piece != PIECE_INVALID {
-                            if (target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)
-                                || (target_pos == ep_target && target_piece == PIECE_NONE)
-                            {
-                                if can_promo {
-                                    result.push(Move::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                                    ));
-                                    result.push(Move::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                                    ));
-                                    result.push(Move::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                                    ));
-                                    result.push(Move::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                                    ));
-                                } else {
-                                    result.push(Move::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        if target_pos == ep_target {
-                                            MOVE_EP_CAPTURE
-                                        } else {
-                                            MOVE_FLAG_CAPTURE
-                                        },
-                                    ));
-                                }
+                        if target_piece != PIECE_INVALID
+                            && ((target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)
+                                || (target_pos == ep_target && target_piece == PIECE_NONE))
+                        {
+                            if can_promo {
+                                result.push(Move::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
+                                ));
+                                result.push(Move::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
+                                ));
+                                result.push(Move::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
+                                ));
+                                result.push(Move::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
+                                ));
+                            } else {
+                                result.push(Move::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    if target_pos == ep_target {
+                                        MOVE_EP_CAPTURE
+                                    } else {
+                                        MOVE_FLAG_CAPTURE
+                                    },
+                                ));
                             }
                         }
                     }
@@ -467,14 +462,14 @@ pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &
 
     let moves = generate_moves(board);
     for r#move in &moves {
-        board.make_move(&r#move, rollback);
+        board.make_move(r#move, rollback);
 
         if ENABLE_PERFT_STATS && depth == 1 {
-            check_perft_stats(&r#move, board, stats);
+            check_perft_stats(r#move, board, stats);
         }
 
         perft(depth - 1, board, rollback, stats);
-        board.unmake_move(&r#move, rollback);
+        board.unmake_move(r#move, rollback);
     }
 }
 
