@@ -16,3 +16,6 @@ A UCI chess engine
 - [ ] [Evaluation: Consider Mobility (and negative mobility for king)](https://www.chessprogramming.org/Mobility)
 - [ ] [Evaluation: Pawn chains](https://www.chessprogramming.org/Connected_Pawns)
 - [ ] [Use bitboards to improve move generation](https://www.chessprogramming.org/Bitboards)
+- [ ] Opening book
+- [ ] Endgame tablebase
+- [ ] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)

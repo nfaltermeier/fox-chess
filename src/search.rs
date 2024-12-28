@@ -17,7 +17,7 @@ pub struct SearchStats {
 }
 
 impl Board {
-    pub fn search(&mut self, time: &Option<UciTimeControl>) -> (Move, i32, SearchStats) {
+    pub fn search(&mut self, time: &Option<UciTimeControl>) -> (Move, Option<i32>, SearchStats) {
         let mut draft;
         if cfg!(debug_assertions) {
             draft = 4;
@@ -57,14 +57,13 @@ impl Board {
         self.alpha_beta_init(draft)
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8) -> (Move, i32, SearchStats) {
+    pub fn alpha_beta_init(&mut self, draft: u8) -> (Move, Option<i32>, SearchStats) {
         let mut alpha = -999999;
         let mut best_value = -999999;
         let mut best_move = None;
         let mut moves = generate_moves(self);
         let mut rollback = MoveRollback::default();
         let mut stats = SearchStats::default();
-        stats.depth = draft;
 
         if moves.is_empty() {
             error!(
@@ -72,6 +71,17 @@ impl Board {
                 self
             );
             panic!("Tried to search on a position but found no moves");
+        }
+
+        if moves.len() == 1 {
+            stats.depth = 1;
+            return (
+                moves.pop().unwrap(),
+                None,
+                stats
+            );
+        } else {
+            stats.depth = draft;
         }
 
         prioritize_moves(&mut moves, self);
@@ -100,7 +110,7 @@ impl Board {
         // Make the score not side-to-move relative
         (
             best_move.unwrap(),
-            best_value * if self.white_to_move { 1 } else { -1 },
+            Some(best_value * if self.white_to_move { 1 } else { -1 }),
             stats,
         )
     }

@@ -107,14 +107,17 @@ impl UciInterface {
                         let move_data = b.search(&time_control);
                         let elapsed = start_time.elapsed();
 
-                        let cp = move_data.1;
                         let score_string;
-                        if cp >= 19800 || cp <= -19800 {
-                            let diff = 20000 - cp.abs();
-                            let moves = (diff as f32 / 20.0).ceil();
-                            score_string = format!("score mate {}{moves}", if cp < 0 { "-" } else { "" });
+                        if let Some(cp) = move_data.1 {
+                            if cp >= 19800 || cp <= -19800 {
+                                let diff = 20000 - cp.abs();
+                                let moves = (diff as f32 / 20.0).ceil();
+                                score_string = format!("score mate {}{moves}", if cp < 0 { "-" } else { "" });
+                            } else {
+                                score_string = format!("score cp {cp}");
+                            }
                         } else {
-                            score_string = format!("score cp {cp}");
+                            score_string = "".to_string();
                         }
 
                         let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
