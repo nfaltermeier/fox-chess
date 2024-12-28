@@ -113,10 +113,20 @@ impl UciInterface {
                             let move_data = b.search(&time_control);
                             let elapsed = start_time.elapsed();
 
+                            let cp = move_data.1;
+                            let score_string;
+                            if cp >= 19800 || cp <= -19800 {
+                                let diff = 20000 - cp.abs();
+                                let moves = (diff as f32 / 20.0).ceil();
+                                score_string = format!("score mate {}{moves}", if cp < 0 { "-" } else { "" });
+                            } else {
+                                score_string = format!("score cp {cp}");
+                            }
+
                             let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
                             println!(
-                                "info score cp {} nodes {} depth {} nps {:.0} time {}",
-                                move_data.1, move_data.2.nodes, move_data.2.depth, nps, elapsed.as_millis()
+                                "info {score_string} nodes {} depth {} nps {:.0} time {} str cp: {cp}",
+                                move_data.2.nodes, move_data.2.depth, nps, elapsed.as_millis()
                             );
                             println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                         }
