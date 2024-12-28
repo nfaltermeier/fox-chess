@@ -119,7 +119,7 @@ impl UciInterface {
 
                         let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
                         println!(
-                            "info {score_string} nodes {} depth {} nps {:.0} time {} str cp: {cp}",
+                            "info {score_string} nodes {} depth {} nps {:.0} time {}",
                             move_data.2.nodes,
                             move_data.2.depth,
                             nps,
