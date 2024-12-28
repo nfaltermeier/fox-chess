@@ -10,8 +10,8 @@ use crate::board::{
 pub static CENTIPAWN_VALUES: [i32; 7] = [0, 100, 315, 350, 500, 900, 20000];
 
 static GAME_STAGE_VALUES: [i32; 7] = [0, 0, 4, 4, 4, 8, 0];
-const MAX_GAME_STAGE: i32 = 64;
-const GAME_STAGE_FULLY_ENDGAME: i32 = 16;
+pub const MAX_GAME_STAGE: i32 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize] + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize] + 4 * GAME_STAGE_VALUES[PIECE_BISHOP as usize] + 4 * GAME_STAGE_VALUES[PIECE_ROOK as usize] + 2 * GAME_STAGE_VALUES[PIECE_QUEEN as usize] + 2 * GAME_STAGE_VALUES[PIECE_KING as usize];
+pub const MIN_GAME_STAGE_FULLY_MIDGAME: i32 = GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2 + GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 3 + GAME_STAGE_VALUES[PIECE_KNIGHT as usize] * 3;
 
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -138,15 +138,15 @@ impl Board {
             game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i32;
         }
 
-        if game_stage > MAX_GAME_STAGE {
-            game_stage = MAX_GAME_STAGE;
+        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
+            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
         }
 
         for i in 0..=1 {
             position_score += (
                     (PIECE_SQUARE_TABLES[i][PIECE_KING as usize - 1][king_pos[i]] * game_stage)
-                    + (PIECE_SQUARE_TABLES[i][PIECE_KING as usize][king_pos[i]] * (MAX_GAME_STAGE - game_stage))
-                ) / (MAX_GAME_STAGE);
+                    + (PIECE_SQUARE_TABLES[i][PIECE_KING as usize][king_pos[i]] * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage))
+                ) / (MIN_GAME_STAGE_FULLY_MIDGAME);
         }
 
         // Add a small variance to try to avoid repetition
