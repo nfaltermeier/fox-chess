@@ -18,11 +18,11 @@ pub struct SearchStats {
 
 impl Board {
     pub fn search(&mut self, time: &Option<UciTimeControl>) -> (Move, i32, SearchStats) {
-        let mut depth;
+        let mut draft;
         if cfg!(debug_assertions) {
-            depth = 4;
+            draft = 4;
         } else {
-            depth = 5;
+            draft = 5;
         }
 
         if time.is_some() {
@@ -32,20 +32,20 @@ impl Board {
                     if self.white_to_move {
                         if white_time.is_some() {
                             if white_time.as_ref().unwrap().num_seconds() < 30 {
-                                depth -= 1;
+                                draft -= 1;
                             }
                         }
                     } else {
                         if black_time.is_some() {
                             if black_time.as_ref().unwrap().num_seconds() < 30 {
-                                depth -= 1;
+                                draft -= 1;
                             }
                         }
                     }
                 }
                 UciTimeControl::MoveTime(dur) => {
                     if dur.num_seconds() < 5 {
-                        depth -= 1;
+                        draft -= 1;
                     }
                 }
                 _ => {}
@@ -54,17 +54,17 @@ impl Board {
 
         // (self.random_move(), 0)
         // self.negamax_init(4)
-        self.alpha_beta_init(depth)
+        self.alpha_beta_init(draft)
     }
 
-    pub fn alpha_beta_init(&mut self, depth: u8) -> (Move, i32, SearchStats) {
+    pub fn alpha_beta_init(&mut self, draft: u8) -> (Move, i32, SearchStats) {
         let mut alpha = -999999;
         let mut best_value = -999999;
         let mut best_move = None;
         let mut moves = generate_moves(self);
         let mut rollback = MoveRollback::default();
         let mut stats = SearchStats::default();
-        stats.depth = depth;
+        stats.depth = draft;
 
         if moves.is_empty() {
             error!(
@@ -83,7 +83,7 @@ impl Board {
             if repetitions >= 3 || self.halfmove_clock >= 50 {
                 result = 0;
             } else {
-                result = -self.alpha_beta_recurse(-999999, -alpha, depth - 1, &mut rollback, &mut stats);
+                result = -self.alpha_beta_recurse(-999999, -alpha, draft - 1, 1, &mut rollback, &mut stats);
             }
 
             self.unmake_move(&r#move, &mut rollback);
@@ -109,12 +109,13 @@ impl Board {
         &mut self,
         mut alpha: i32,
         beta: i32,
-        depth: u8,
+        draft: u8,
+        ply: u8,
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
     ) -> i32 {
-        if depth == 0 {
-            return self.quiescense_side_to_move_relative(alpha, beta, rollback, stats);
+        if draft == 0 {
+            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats);
         }
 
         let mut best_value = -999999;
@@ -127,7 +128,7 @@ impl Board {
             self.white_to_move = !self.white_to_move;
 
             return if is_check {
-                self.evaluate_checkmate_side_to_move_relative()
+                self.evaluate_checkmate_side_to_move_relative(ply)
             } else {
                 0
             };
@@ -142,7 +143,7 @@ impl Board {
             if repetitions >= 3 || self.halfmove_clock >= 50 {
                 result = 0;
             } else {
-                result = -self.alpha_beta_recurse(-beta, -alpha, depth - 1, rollback, stats);
+                result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, rollback, stats);
             }
 
             self.unmake_move(&r#move, rollback);
@@ -166,6 +167,7 @@ impl Board {
         &mut self,
         mut alpha: i32,
         beta: i32,
+        ply: u8,
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
     ) -> i32 {
@@ -189,7 +191,8 @@ impl Board {
 
         for r#move in capture_moves {
             self.make_move(&r#move, rollback);
-            let result = -self.quiescense_side_to_move_relative(-beta, -alpha, rollback, stats);
+            // pretty sure checkmate and repetition checks are needed here or in this method somewhere
+            let result = -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats);
             self.unmake_move(&r#move, rollback);
 
             if result >= beta {
@@ -214,7 +217,7 @@ impl Board {
         moves.swap_remove(rand::random::<usize>() % moves.len())
     }
 
-    pub fn negamax_init(&mut self, depth: u8) -> (Move, i32) {
+    pub fn negamax_init(&mut self, draft: u8) -> (Move, i32) {
         let mut max = -999999;
         let mut max_move = None;
         let moves = generate_moves(self);
@@ -230,7 +233,7 @@ impl Board {
 
         for r#move in moves {
             self.make_move(&r#move, &mut rollback);
-            let result = -self.negamax_recurse(depth - 1);
+            let result = -self.negamax_recurse(draft - 1, 1);
             self.unmake_move(&r#move, &mut rollback);
 
             if result > max {
@@ -243,8 +246,8 @@ impl Board {
         (max_move.unwrap(), max * if self.white_to_move { 1 } else { -1 })
     }
 
-    fn negamax_recurse(&mut self, depth: u8) -> i32 {
-        if depth == 0 {
+    fn negamax_recurse(&mut self, draft: u8, ply: u8) -> i32 {
+        if draft == 0 {
             return self.evaluate_side_to_move_relative();
         }
 
@@ -259,7 +262,7 @@ impl Board {
             self.white_to_move = !self.white_to_move;
 
             return if is_check {
-                self.evaluate_checkmate_side_to_move_relative()
+                self.evaluate_checkmate_side_to_move_relative(ply)
             } else {
                 0
             };
@@ -267,7 +270,7 @@ impl Board {
 
         for r#move in moves {
             self.make_move(&r#move, &mut rollback);
-            let result = -self.negamax_recurse(depth - 1);
+            let result = -self.negamax_recurse(draft - 1, ply + 1);
             self.unmake_move(&r#move, &mut rollback);
 
             if result > max {

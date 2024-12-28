@@ -153,11 +153,11 @@ impl Board {
         material_score + position_score + (random::<i32>() % 11) - 5
     }
 
-    pub fn evaluate_checkmate(&self) -> i32 {
+    pub fn evaluate_checkmate(&self, ply: u8) -> i32 {
         if self.white_to_move {
-            -20000
+            -20000 + (ply as i32) * 10
         } else {
-            20000
+            20000 - (ply as i32) * 10
         }
     }
 
@@ -165,7 +165,7 @@ impl Board {
         self.evaluate() * if self.white_to_move { 1 } else { -1 }
     }
 
-    pub fn evaluate_checkmate_side_to_move_relative(&self) -> i32 {
-        self.evaluate_checkmate() * if self.white_to_move { 1 } else { -1 }
+    pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i32 {
+        self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
 }
