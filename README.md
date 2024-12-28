@@ -5,6 +5,7 @@ A UCI chess engine
 
 ## Ideas of features to add
 - [ ] Needs some help in endgames. It lost KQK because it wouldn't move the king out of the center to support the queen.
+- [ ] Avoid draws due to insufficient mating material
 - [ ] [Delta pruning](https://www.chessprogramming.org/Delta_Pruning)
 - [ ] [Transposition table](https://www.chessprogramming.org/Transposition_Table)
 - [ ] [Iterative deepening](https://www.chessprogramming.org/Iterative_Deepening)

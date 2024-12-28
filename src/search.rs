@@ -127,11 +127,11 @@ impl Board {
             let is_check = can_capture_opponent_king(self, false);
             self.white_to_move = !self.white_to_move;
 
-            return if is_check {
-                self.evaluate_checkmate_side_to_move_relative(ply)
+            if is_check {
+                return self.evaluate_checkmate_side_to_move_relative(ply);
             } else {
-                0
-            };
+                return 0;
+            }
         }
 
         prioritize_moves(&mut moves, self);
@@ -182,6 +182,19 @@ impl Board {
         }
 
         let moves = generate_moves(self);
+
+        if moves.is_empty() {
+            self.white_to_move = !self.white_to_move;
+            let is_check = can_capture_opponent_king(self, false);
+            self.white_to_move = !self.white_to_move;
+
+            if is_check {
+                return self.evaluate_checkmate_side_to_move_relative(ply);
+            } else {
+                return 0;
+            }
+        }
+
         let mut capture_moves = moves
             .into_iter()
             .filter(|m| m.flags() & MOVE_FLAG_CAPTURE != 0)
@@ -190,9 +203,17 @@ impl Board {
         prioritize_moves(&mut capture_moves, self);
 
         for r#move in capture_moves {
-            self.make_move(&r#move, rollback);
+            let repetitions = self.make_move(&r#move, rollback);
             // pretty sure checkmate and repetition checks are needed here or in this method somewhere
-            let result = -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats);
+            let result;
+
+            // Only doing captures right now so not checking halfmove here
+            if repetitions >= 3 {
+                result = 0;
+            } else {
+                result = -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats);
+            }
+
             self.unmake_move(&r#move, rollback);
 
             if result >= beta {
