@@ -19,3 +19,4 @@ A UCI chess engine
 - [ ] Opening book
 - [ ] Endgame tablebase
 - [ ] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)
+- [ ] [Contempt factor](https://www.chessprogramming.org/Contempt_Factor)

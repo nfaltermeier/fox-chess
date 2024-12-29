@@ -1,13 +1,17 @@
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    time::{Duration, Instant},
+};
 
 use log::error;
-use vampirc_uci::UciTimeControl;
+use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::CENTIPAWN_VALUES,
     move_generator::{can_capture_opponent_king, generate_moves},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
+    uci::UciInterface,
 };
 
 #[derive(Default)]
@@ -54,10 +58,82 @@ impl Board {
 
         // (self.random_move(), 0)
         // self.negamax_init(4)
-        self.alpha_beta_init(draft)
+        let start_time = Instant::now();
+        let result = self.alpha_beta_init(draft).0;
+        let elapsed = start_time.elapsed();
+
+        UciInterface::print_search_info(result.1, &result.2, &elapsed);
+
+        result
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8) -> (Move, Option<i32>, SearchStats) {
+    pub fn iterative_deepening_search(
+        &mut self,
+        time: &Option<UciTimeControl>,
+        search: &Option<UciSearchControl>,
+    ) -> (Move, Option<i32>, SearchStats) {
+        let start_time = Instant::now();
+        let target_dur;
+
+        if let Some(t) = time {
+            match t {
+                UciTimeControl::TimeLeft { white_time, black_time, white_increment, black_increment, moves_to_go } => {
+                    let time_left = if self.white_to_move { white_time } else { black_time };
+
+                    if time_left.is_none() {
+                        error!("No time left value provided when searching");
+                        panic!("No time left value provided when searching");
+                    }
+
+                    let divisor = if self.fullmove_counter < 10 {
+                        21
+                    } else if self.fullmove_counter < 20 {
+                        18
+                    } else {
+                        25
+                    };
+                    target_dur = time_left.as_ref().unwrap().to_std().unwrap().checked_div(divisor).unwrap();
+                    // let expected_moves_left = if let Some(mtg) = moves_to_go {
+                    //     *mtg
+                    // } else {
+                    //     let eval = self.evaluate();
+                    // }
+                },
+                UciTimeControl::MoveTime(time_delta) => {
+                    target_dur = time_delta.to_std().unwrap();
+                },
+                UciTimeControl::Ponder => {
+                    unimplemented!("uci go ponder");
+                },
+                UciTimeControl::Infinite => {
+                    unimplemented!("uci go infinite");
+                },
+            }
+        } else {
+            error!("UCI time control not passed to go, currently required");
+            unimplemented!("UCI time control not passed to go, currently required");
+        }
+
+        // Above 5 depth moves can start taking a lot more time
+        let cutoff_low_depth = target_dur.mul_f32(0.55);
+        let cutoff = target_dur.mul_f32(0.25);
+        let mut depth = 1;
+
+        loop {
+            let (result, end_search) = self.alpha_beta_init(depth);
+            let elapsed = start_time.elapsed();
+
+            UciInterface::print_search_info(result.1, &result.2, &elapsed);
+
+            if end_search || (depth >= 5 && elapsed >= cutoff) || elapsed >= cutoff_low_depth || result.1.is_some_and(|v| v.abs() >= 19800) {
+                return result;
+            }
+
+            depth += 1;
+        }
+    }
+
+    pub fn alpha_beta_init(&mut self, draft: u8) -> ((Move, Option<i32>, SearchStats), bool) {
         let mut alpha = -999999;
         let mut best_value = -999999;
         let mut best_move = None;
@@ -75,11 +151,7 @@ impl Board {
 
         if moves.len() == 1 {
             stats.depth = 1;
-            return (
-                moves.pop().unwrap(),
-                None,
-                stats
-            );
+            return ((moves.pop().unwrap(), None, stats), true);
         } else {
             stats.depth = draft;
         }
@@ -109,9 +181,12 @@ impl Board {
 
         // Make the score not side-to-move relative
         (
-            best_move.unwrap(),
-            Some(best_value * if self.white_to_move { 1 } else { -1 }),
-            stats,
+            (
+                best_move.unwrap(),
+                Some(best_value * if self.white_to_move { 1 } else { -1 }),
+                stats,
+            ),
+            false,
         )
     }
 

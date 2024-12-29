@@ -1,4 +1,4 @@
-use std::{process::exit, time::Instant};
+use std::{process::exit, time::{Duration, Instant}};
 
 use build_info::build_info;
 use build_info::VersionControl::Git;
@@ -6,9 +6,7 @@ use log::{debug, error, trace};
 use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
-    board::Board,
-    moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
-    STARTING_FEN,
+    board::Board, moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK}, search::SearchStats, STARTING_FEN
 };
 
 #[derive(Default)]
@@ -103,31 +101,8 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
-                        let start_time = Instant::now();
-                        let move_data = b.search(&time_control);
-                        let elapsed = start_time.elapsed();
+                        let move_data = b.iterative_deepening_search(&time_control, &search_control);
 
-                        let score_string;
-                        if let Some(cp) = move_data.1 {
-                            if cp >= 19800 || cp <= -19800 {
-                                let diff = 20000 - cp.abs();
-                                let moves = (diff as f32 / 20.0).ceil();
-                                score_string = format!("score mate {}{moves}", if cp < 0 { "-" } else { "" });
-                            } else {
-                                score_string = format!("score cp {cp}");
-                            }
-                        } else {
-                            score_string = "".to_string();
-                        }
-
-                        let nps = move_data.2.nodes as f64 / elapsed.as_secs_f64();
-                        println!(
-                            "info {score_string} nodes {} depth {} nps {:.0} time {}",
-                            move_data.2.nodes,
-                            move_data.2.depth,
-                            nps,
-                            elapsed.as_millis()
-                        );
                         println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
                     }
                 }
@@ -145,5 +120,30 @@ impl UciInterface {
                 }
             }
         }
+    }
+
+    pub fn print_search_info(eval_opt: Option<i32>, stats: &SearchStats, elapsed: &Duration) {
+        let score_string;
+        if let Some(eval) = eval_opt {
+            let abs_cp = eval.abs();
+            if abs_cp >= 19800 {
+                let diff = 20000 - abs_cp;
+                let moves = (diff as f32 / 20.0).ceil();
+                score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
+            } else {
+                score_string = format!("score cp {eval}");
+            }
+        } else {
+            score_string = "".to_string();
+        }
+
+        let nps = stats.nodes as f64 / elapsed.as_secs_f64();
+        println!(
+            "info {score_string} nodes {} depth {} nps {:.0} time {}",
+            stats.nodes,
+            stats.depth,
+            nps,
+            elapsed.as_millis()
+        );
     }
 }
