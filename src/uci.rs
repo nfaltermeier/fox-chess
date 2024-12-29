@@ -122,19 +122,15 @@ impl UciInterface {
         }
     }
 
-    pub fn print_search_info(eval_opt: Option<i32>, stats: &SearchStats, elapsed: &Duration) {
+    pub fn print_search_info(eval: i32, stats: &SearchStats, elapsed: &Duration) {
         let score_string;
-        if let Some(eval) = eval_opt {
-            let abs_cp = eval.abs();
-            if abs_cp >= 19800 {
-                let diff = 20000 - abs_cp;
-                let moves = (diff as f32 / 20.0).ceil();
-                score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
-            } else {
-                score_string = format!("score cp {eval}");
-            }
+        let abs_cp = eval.abs();
+        if abs_cp >= 19800 {
+            let diff = 20000 - abs_cp;
+            let moves = (diff as f32 / 20.0).ceil();
+            score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
         } else {
-            score_string = "".to_string();
+            score_string = format!("score cp {eval}");
         }
 
         let nps = stats.nodes as f64 / elapsed.as_secs_f64();

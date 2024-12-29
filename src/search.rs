@@ -21,7 +21,7 @@ pub struct SearchStats {
 }
 
 impl Board {
-    pub fn search(&mut self, time: &Option<UciTimeControl>) -> (Move, Option<i32>, SearchStats) {
+    pub fn search(&mut self, time: &Option<UciTimeControl>) -> (Move, i32, SearchStats) {
         let mut draft;
         if cfg!(debug_assertions) {
             draft = 4;
@@ -71,7 +71,7 @@ impl Board {
         &mut self,
         time: &Option<UciTimeControl>,
         search: &Option<UciSearchControl>,
-    ) -> (Move, Option<i32>, SearchStats) {
+    ) -> (Move, i32, SearchStats) {
         let start_time = Instant::now();
         let target_dur;
 
@@ -125,7 +125,7 @@ impl Board {
 
             UciInterface::print_search_info(result.1, &result.2, &elapsed);
 
-            if end_search || (depth >= 5 && elapsed >= cutoff) || elapsed >= cutoff_low_depth || result.1.is_some_and(|v| v.abs() >= 19800) {
+            if end_search || (depth >= 5 && elapsed >= cutoff) || elapsed >= cutoff_low_depth || result.1.abs() >= 19800 {
                 return result;
             }
 
@@ -133,7 +133,7 @@ impl Board {
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8) -> ((Move, Option<i32>, SearchStats), bool) {
+    pub fn alpha_beta_init(&mut self, draft: u8) -> ((Move, i32, SearchStats), bool) {
         let mut alpha = -999999;
         let mut best_value = -999999;
         let mut best_move = None;
@@ -151,7 +151,7 @@ impl Board {
 
         if moves.len() == 1 {
             stats.depth = 1;
-            return ((moves.pop().unwrap(), None, stats), true);
+            return ((moves.pop().unwrap(), self.evaluate(), stats), true);
         } else {
             stats.depth = draft;
         }
@@ -183,7 +183,7 @@ impl Board {
         (
             (
                 best_move.unwrap(),
-                Some(best_value * if self.white_to_move { 1 } else { -1 }),
+                best_value * if self.white_to_move { 1 } else { -1 },
                 stats,
             ),
             false,
