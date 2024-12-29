@@ -8,7 +8,7 @@ use std::{
 use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
-use move_generator::{can_capture_opponent_king, generate_moves, perft, PerftStats};
+use move_generator::{can_capture_opponent_king, generate_moves, perft, PerftStats, ENABLE_UNMAKE_MOVE_TEST};
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::prioritize_moves;
 use uci::UciInterface;
@@ -153,6 +153,10 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
 }
 
 fn run_uci() {
+    if ENABLE_UNMAKE_MOVE_TEST {
+        warn!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded somewhat.")
+    }
+
     let mut uci = UciInterface::default();
     let stdin_channel = spawn_stdin_channel();
     loop {
