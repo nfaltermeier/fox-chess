@@ -93,6 +93,8 @@ impl Board {
                         25
                     };
                     target_dur = time_left.as_ref().unwrap().to_std().unwrap().checked_div(divisor).unwrap();
+
+                    // maybe something like https://www.desmos.com/calculator/47t9iys2fo
                     // let expected_moves_left = if let Some(mtg) = moves_to_go {
                     //     *mtg
                     // } else {

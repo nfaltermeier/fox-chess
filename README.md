@@ -13,6 +13,8 @@ A UCI chess engine
 - [ ] [Null move pruning](https://www.chessprogramming.org/Null_Move_Pruning)
 - [ ] [Some kind of better Move Ordering](https://www.chessprogramming.org/Move_Ordering)
   - [ ] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)
+- [ ] Refine piece square evaluations
+  - [ ] Automated tuning?
 - [ ] [Evaluation: Consider Mobility (and negative mobility for king)](https://www.chessprogramming.org/Mobility)
 - [ ] [Evaluation: Pawn chains](https://www.chessprogramming.org/Connected_Pawns)
 - [ ] [Use bitboards to improve move generation](https://www.chessprogramming.org/Bitboards)
