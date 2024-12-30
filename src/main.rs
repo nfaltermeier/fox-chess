@@ -20,6 +20,7 @@ mod evaluate;
 mod move_generator;
 mod moves;
 mod search;
+mod transposition_table;
 mod uci;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -157,7 +158,8 @@ fn run_uci() {
         warn!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded somewhat.")
     }
 
-    let mut uci = UciInterface::default();
+    // 2^23 entries -> 128MiB
+    let mut uci = UciInterface::new(23);
     let stdin_channel = spawn_stdin_channel();
     loop {
         match stdin_channel.try_recv() {

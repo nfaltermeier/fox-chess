@@ -1,4 +1,7 @@
-use std::{process::exit, time::{Duration, Instant}};
+use std::{
+    process::exit,
+    time::{Duration, Instant},
+};
 
 use build_info::build_info;
 use build_info::VersionControl::Git;
@@ -6,17 +9,28 @@ use log::{debug, error, trace};
 use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
-    board::Board, moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK}, search::SearchStats, STARTING_FEN
+    board::Board,
+    moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
+    search::SearchStats,
+    transposition_table::TranspositionTable,
+    STARTING_FEN,
 };
 
-#[derive(Default)]
 pub struct UciInterface {
     board: Option<Board>,
+    transposition_table: TranspositionTable,
 }
 
 build_info!(fn get_build_info);
 
 impl UciInterface {
+    pub fn new(tt_size_log_2: u8) -> UciInterface {
+        UciInterface {
+            board: None,
+            transposition_table: TranspositionTable::new(tt_size_log_2),
+        }
+    }
+
     // how to communicate with the engine while it is computing? How necessary is that?
     pub fn process_command(&mut self, cmd: String) {
         debug!("Received UCI cmd string '{cmd}'");
@@ -46,6 +60,7 @@ impl UciInterface {
                 }
                 UciMessage::UciNewGame => {
                     self.board = None;
+                    self.transposition_table.clear();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
@@ -101,9 +116,16 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
-                        let move_data = b.iterative_deepening_search(&time_control, &search_control);
+                        let move_data =
+                            b.iterative_deepening_search(&time_control, &search_control, &mut self.transposition_table);
 
-                        println!("bestmove {}", move_data.0.simple_long_algebraic_notation())
+                        println!("bestmove {}", move_data.0.simple_long_algebraic_notation());
+
+                        debug!(
+                            "transposition_table index collisions {}",
+                            self.transposition_table.index_collisions
+                        );
+                        self.transposition_table.index_collisions = 0;
                     }
                 }
                 UciMessage::Stop => {
@@ -122,7 +144,7 @@ impl UciInterface {
         }
     }
 
-    pub fn print_search_info(eval: i32, stats: &SearchStats, elapsed: &Duration) {
+    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
         let score_string;
         let abs_cp = eval.abs();
         if abs_cp >= 19800 {
@@ -133,13 +155,14 @@ impl UciInterface {
             score_string = format!("score cp {eval}");
         }
 
-        let nps = stats.nodes as f64 / elapsed.as_secs_f64();
+        let nps = stats.quiescense_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {}",
-            stats.nodes,
+            "info {score_string} nodes {} depth {} nps {:.0} time {} str leafnodes {}",
+            stats.quiescense_nodes,
             stats.depth,
             nps,
-            elapsed.as_millis()
+            elapsed.as_millis(),
+            stats.leaf_nodes,
         );
     }
 }

@@ -7,22 +7,22 @@ use crate::board::{
 };
 
 // Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES: [i32; 7] = [0, 100, 315, 350, 500, 900, 20000];
+pub static CENTIPAWN_VALUES: [i16; 7] = [0, 100, 315, 350, 500, 900, 20000];
 
-static GAME_STAGE_VALUES: [i32; 7] = [0, 0, 4, 4, 4, 8, 0];
-pub const MAX_GAME_STAGE: i32 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
+static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
+pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_BISHOP as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_ROOK as usize]
     + 2 * GAME_STAGE_VALUES[PIECE_QUEEN as usize]
     + 2 * GAME_STAGE_VALUES[PIECE_KING as usize];
-pub const MIN_GAME_STAGE_FULLY_MIDGAME: i32 = GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2
+pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2
     + GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 3
     + GAME_STAGE_VALUES[PIECE_KNIGHT as usize] * 3;
 
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
-const PAWN_MIDGAME_SQUARE_TABLE: [i32; 64] = [
+const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
     50, 50, 50, 50, 50, 50, 50, 50,
     10, 10, 20, 30, 30, 20, 10, 10,
@@ -34,7 +34,7 @@ const PAWN_MIDGAME_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const PAWN_ENDGAME_SQUARE_TABLE: [i32; 64] = [
+const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
     50, 50, 50, 50, 50, 50, 50, 50,
     30, 30, 30, 30, 30, 30, 30, 30,
@@ -46,7 +46,7 @@ const PAWN_ENDGAME_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const KNIGHT_SQUARE_TABLE: [i32; 64] = [
+const KNIGHT_SQUARE_TABLE: [i16; 64] = [
     -50,-40,-30,-30,-30,-30,-40,-50,
     -40,-20,  0,  0,  0,  0,-20,-40,
     -30,  0, 10, 15, 15, 10,  0,-30,
@@ -58,7 +58,7 @@ const KNIGHT_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const BISHOP_SQUARE_TABLE: [i32; 64] = [
+const BISHOP_SQUARE_TABLE: [i16; 64] = [
     -20,-10,-10,-10,-10,-10,-10,-20,
     -10,  0,  0,  0,  0,  0,  0,-10,
     -10,  0,  5, 10, 10,  5,  0,-10,
@@ -70,7 +70,7 @@ const BISHOP_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const ROOK_SQUARE_TABLE: [i32; 64] = [
+const ROOK_SQUARE_TABLE: [i16; 64] = [
     0,  0,  0,  0,  0,  0,  0,  0,
     5, 10, 10, 10, 10, 10, 10,  5,
    -5,  0,  0,  0,  0,  0,  0, -5,
@@ -82,7 +82,7 @@ const ROOK_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const QUEEN_SQUARE_TABLE: [i32; 64] = [
+const QUEEN_SQUARE_TABLE: [i16; 64] = [
     -20,-10,-10, -5, -5,-10,-10,-20,
     -10,  0,  0,  0,  0,  0,  0,-10,
     -10,  0,  5,  5,  5,  5,  0,-10,
@@ -94,7 +94,7 @@ const QUEEN_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const KING_MIDGAME_SQUARE_TABLE: [i32; 64] = [
+const KING_MIDGAME_SQUARE_TABLE: [i16; 64] = [
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
@@ -106,7 +106,7 @@ const KING_MIDGAME_SQUARE_TABLE: [i32; 64] = [
 ];
 
 #[rustfmt::skip]
-const KING_ENDGAME_SQUARE_TABLE: [i32; 64] = [
+const KING_ENDGAME_SQUARE_TABLE: [i16; 64] = [
     -50,-40,-30,-20,-20,-30,-40,-50,
     -30,-20,-10,  0,  0,-10,-20,-30,
     -30,-10, 20, 30, 30, 20,-10,-30,
@@ -117,7 +117,7 @@ const KING_ENDGAME_SQUARE_TABLE: [i32; 64] = [
     -50,-30,-30,-30,-30,-30,-30,-50
 ];
 
-const ALL_PIECE_SQUARE_TABLES: [[i32; 64]; 12] = [
+const ALL_PIECE_SQUARE_TABLES: [[i16; 64]; 12] = [
     PAWN_MIDGAME_SQUARE_TABLE,
     KNIGHT_SQUARE_TABLE,
     BISHOP_SQUARE_TABLE,
@@ -132,7 +132,7 @@ const ALL_PIECE_SQUARE_TABLES: [[i32; 64]; 12] = [
     KING_ENDGAME_SQUARE_TABLE,
 ];
 
-static PIECE_SQUARE_TABLES: [[[i32; 64]; 12]; 2] = [
+static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     // vertically flip each table for white
     array![x => array![y => ALL_PIECE_SQUARE_TABLES[x][y ^ 0b00111000]; 64]; 12],
     // Evaluate from white's perspective so negate each score for black
@@ -140,7 +140,7 @@ static PIECE_SQUARE_TABLES: [[[i32; 64]; 12]; 2] = [
 ];
 
 impl Board {
-    pub fn evaluate(&self) -> i32 {
+    pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
         let mut position_score_midgame = 0;
         let mut position_score_endgame = 0;
@@ -161,9 +161,9 @@ impl Board {
         }
 
         for i in 1..7 {
-            material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i32;
+            material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
 
-            game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i32;
+            game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i16;
         }
 
         if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
@@ -171,27 +171,26 @@ impl Board {
         }
 
         let position_score_final = ((position_score_midgame * game_stage)
-                + (position_score_endgame
-                    * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
-                / (MIN_GAME_STAGE_FULLY_MIDGAME);
+            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
+            / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         // Add a small variance to try to avoid repetition
-        material_score + position_score_final + (random::<i32>() % 11) - 5
+        material_score + position_score_final + (random::<i16>() % 11) - 5
     }
 
-    pub fn evaluate_checkmate(&self, ply: u8) -> i32 {
+    pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
         if self.white_to_move {
-            -20000 + (ply as i32) * 10
+            -20000 + (ply as i16) * 10
         } else {
-            20000 - (ply as i32) * 10
+            20000 - (ply as i16) * 10
         }
     }
 
-    pub fn evaluate_side_to_move_relative(&self) -> i32 {
+    pub fn evaluate_side_to_move_relative(&self) -> i16 {
         self.evaluate() * if self.white_to_move { 1 } else { -1 }
     }
 
-    pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i32 {
+    pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
 }

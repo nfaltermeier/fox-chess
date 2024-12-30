@@ -31,6 +31,7 @@ pub const FLAGS_MASK_PROMO: u16 = 3;
 
 pub const MOVE_FLAG_CAPTURE_FULL: u16 = MOVE_FLAG_CAPTURE << 12;
 
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Move {
     // from: 6 bits, to: 6 bits: flags: 4 bits. Using flags format from https://www.chessprogramming.org/Encoding_Moves
     pub data: u16,
