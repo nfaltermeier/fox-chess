@@ -11,9 +11,11 @@ use log::{debug, error, info, warn};
 use move_generator::{can_capture_opponent_king, generate_moves, perft, PerftStats, ENABLE_UNMAKE_MOVE_TEST};
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::prioritize_moves;
+use transposition_table::TranspositionTable;
 use uci::UciInterface;
 
 use num_format::{Locale, ToFormattedString};
+use vampirc_uci::UciSearchControl;
 
 mod board;
 mod evaluate;
@@ -45,7 +47,7 @@ fn main() {
 
     run_uci();
 
-    // print_moves_from_pos("4rb1r/pB1k1p2/5p1p/2p5/2P3P1/1P1b3P/P2N1P2/R3K2R w KQ - 1 19");
+    // search_moves_from_pos("4k1K1/R7/P3P3/8/8/r7/8/8 w - - 45 104", 9);
     // do_perft(5, STARTING_FEN);
     // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
@@ -77,7 +79,7 @@ fn do_perft(up_to_depth: u8, fen: &str) {
     }
 }
 
-fn print_moves_from_pos(fen: &str) {
+fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut board = Board::from_fen(fen).unwrap();
     info!("{:?}", &board);
 
@@ -85,8 +87,18 @@ fn print_moves_from_pos(fen: &str) {
 
     prioritize_moves(&mut moves, &board);
 
+    let mut rollback = MoveRollback::default();
+    let mut transposition_table = TranspositionTable::new(23);
     for r#move in moves {
-        info!("{}", r#move.pretty_print(Some(&board)));
+        info!("{}:", r#move.pretty_print(Some(&board)));
+        board.make_move(&r#move, &mut rollback);
+
+        let tc = None;
+        let sc = Some(UciSearchControl::depth(depth));
+
+        board.iterative_deepening_search(&tc, &sc, &mut transposition_table);
+
+        board.unmake_move(&r#move, &mut rollback);
     }
 }
 
@@ -146,7 +158,7 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
             ))
         })
         .level(args.log_level)
-        // .level_for("fox_chess::move_generator", log::LevelFilter::Trace)
+        // .level_for("fox_chess::search", log::LevelFilter::Trace)
         .chain(std::io::stderr())
         .chain(fern::log_file("output.log")?)
         .apply()?;

@@ -1,10 +1,8 @@
 use std::{
-    cmp::Ordering,
-    i16,
-    time::{Duration, Instant},
+    cmp::Ordering, collections::HashSet, i16, time::{Duration, Instant}
 };
 
-use log::error;
+use log::{error, trace};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
@@ -23,6 +21,12 @@ pub struct SearchStats {
     pub quiescense_nodes: u64,
     pub depth: u8,
     pub leaf_nodes: u64,
+    pub pv: Vec<Move>,
+}
+
+enum SearchControl {
+    Time,
+    Depth,
 }
 
 impl Board {
@@ -81,7 +85,9 @@ impl Board {
         transposition_table: &mut TranspositionTable,
     ) -> (Move, i16, SearchStats) {
         let start_time = Instant::now();
-        let target_dur;
+        let mut target_dur = None;
+        let search_control: SearchControl;
+        let mut max_depth = None;
 
         if let Some(t) = time {
             match t {
@@ -106,13 +112,15 @@ impl Board {
                     } else {
                         25
                     };
-                    target_dur = time_left
-                        .as_ref()
-                        .unwrap()
-                        .to_std()
-                        .unwrap()
-                        .checked_div(divisor)
-                        .unwrap();
+                    target_dur = Some(
+                        time_left
+                            .as_ref()
+                            .unwrap()
+                            .to_std()
+                            .unwrap()
+                            .checked_div(divisor)
+                            .unwrap(),
+                    );
 
                     // maybe something like https://www.desmos.com/calculator/47t9iys2fo
                     // let expected_moves_left = if let Some(mtg) = moves_to_go {
@@ -122,7 +130,7 @@ impl Board {
                     // }
                 }
                 UciTimeControl::MoveTime(time_delta) => {
-                    target_dur = time_delta.to_std().unwrap();
+                    target_dur = Some(time_delta.to_std().unwrap());
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
@@ -131,14 +139,33 @@ impl Board {
                     unimplemented!("uci go infinite");
                 }
             }
+            search_control = SearchControl::Time;
+        } else if let Some(s) = search {
+            if s.depth.is_some() {
+                search_control = SearchControl::Depth;
+                max_depth = Some(s.depth.unwrap());
+            } else {
+                error!("Unsupported search option passed to go, use depth.");
+                unimplemented!("Unsupported search option passed to go, use depth.");
+            }
         } else {
-            error!("UCI time control not passed to go, currently required");
-            unimplemented!("UCI time control not passed to go, currently required");
+            error!("One of search or time is required to be passed to go.");
+            panic!("One of search or time is required to be passed to go.");
         }
 
         // Above 5 depth moves can start taking a lot more time
-        let cutoff_low_depth = target_dur.mul_f32(0.55);
-        let cutoff = target_dur.mul_f32(0.25);
+        let cutoff_low_depth;
+        let cutoff;
+        match target_dur {
+            Some(d) => {
+                cutoff_low_depth = Some(d.mul_f32(0.55));
+                cutoff = Some(d.mul_f32(0.25));
+            }
+            None => {
+                cutoff = None;
+                cutoff_low_depth = None;
+            }
+        }
         let mut depth = 1;
 
         loop {
@@ -147,7 +174,14 @@ impl Board {
 
             UciInterface::print_search_info(result.1, &result.2, &elapsed);
 
-            if end_search || (depth >= 5 && elapsed >= cutoff) || elapsed >= cutoff_low_depth || result.1.abs() >= 19800
+            if end_search
+                || result.1.abs() >= 19800
+                || match search_control {
+                    SearchControl::Time => {
+                        (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
+                    }
+                    SearchControl::Depth => depth >= max_depth.unwrap(),
+                }
             {
                 return result;
             }
@@ -173,6 +207,8 @@ impl Board {
                 match tt_data.move_type {
                     transposition_table::MoveType::Best => {
                         // should this be done for the root????
+                        self.gather_pv(&tt_data.important_move, transposition_table, &mut stats, &mut rollback);
+
                         return (
                             (
                                 tt_data.important_move,
@@ -226,7 +262,11 @@ impl Board {
 
         if moves.len() == 1 {
             stats.depth = 1;
-            return ((moves.pop().unwrap(), self.evaluate(), stats), true);
+
+            let m = moves.pop().unwrap();
+            self.gather_pv(&m, transposition_table, &mut stats, &mut rollback);
+
+            return ((m, self.evaluate(), stats), true);
         } else {
             stats.depth = draft;
         }
@@ -265,6 +305,8 @@ impl Board {
                 }
             }
         }
+
+        self.gather_pv(&best_move.unwrap(), transposition_table, &mut stats, &mut rollback);
 
         // Make the score not side-to-move relative
         (
@@ -480,6 +522,46 @@ impl Board {
         }
 
         alpha
+    }
+
+    fn gather_pv(
+        &mut self,
+        first_move: &Move,
+        transposition_table: &mut TranspositionTable,
+        stats: &mut SearchStats,
+        rollback: &mut MoveRollback,
+    ) {
+        stats.pv.clear();
+
+        // Prevent cycles from occurring
+        let mut previous_hashes = HashSet::new();
+        previous_hashes.insert(self.hash);
+        stats.pv.push(*first_move);
+        self.make_move(first_move, rollback);
+
+        let mut next_move = transposition_table.get_entry(self.hash);
+        loop {
+            match next_move {
+                None => {
+                    break;
+                }
+                Some(e) => {
+                    if e.move_type != MoveType::Best || previous_hashes.contains(&self.hash) {
+                        break;
+                    }
+
+                    previous_hashes.insert(self.hash);
+                    stats.pv.push(e.important_move);
+                    // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
+                    self.make_move(&e.important_move, rollback);
+                    next_move = transposition_table.get_entry(self.hash);
+                }
+            }
+        }
+
+        for m in stats.pv.iter().rev() {
+            self.unmake_move(&m, rollback);
+        }
     }
 }
 

@@ -2,7 +2,7 @@ use log::error;
 
 use crate::moves::Move;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum MoveType {
     FailHigh,
     Best,
