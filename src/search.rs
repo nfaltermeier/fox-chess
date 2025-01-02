@@ -147,7 +147,11 @@ impl Board {
 
             UciInterface::print_search_info(result.1, &result.2, &elapsed);
 
-            if end_search || (depth >= 5 && elapsed >= cutoff) || elapsed >= cutoff_low_depth || result.1.abs() >= 19800
+            if end_search
+                || (depth >= 5 && elapsed >= cutoff)
+                || elapsed >= cutoff_low_depth
+                || result.1.abs() >= 19800
+                || depth >= 40
             {
                 return result;
             }
@@ -289,7 +293,7 @@ impl Board {
     ) -> i16 {
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats);
+            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
         }
 
         let mut best_value = -i16::MAX;
@@ -425,15 +429,84 @@ impl Board {
         ply: u8,
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
+        transposition_table: &mut TranspositionTable,
     ) -> i16 {
-        let stand_pat = self.evaluate_side_to_move_relative();
         stats.quiescense_nodes += 1;
+
+        let tt_entry = transposition_table.get_entry(self.hash);
+        if let Some(tt_data) = tt_entry {
+            if tt_data.move_num >= self.fullmove_counter {
+                match tt_data.move_type {
+                    transposition_table::MoveType::FailHigh => {
+                        if tt_data.eval >= beta {
+                            return tt_data.eval;
+                        }
+                    }
+                    transposition_table::MoveType::Best => {
+                        return tt_data.eval;
+                    }
+                    transposition_table::MoveType::FailLow => {
+                        if tt_data.eval < alpha {
+                            return tt_data.eval;
+                        }
+                    }
+                }
+            }
+        }
+
+        let stand_pat = self.evaluate_side_to_move_relative();
 
         if stand_pat >= beta {
             return stand_pat;
         }
+
         if alpha < stand_pat {
             alpha = stand_pat;
+        }
+
+        let mut best_value = stand_pat;
+        let mut best_move = None;
+
+        if let Some(tt_data) = tt_entry {
+            if tt_data.important_move.flags() & MOVE_FLAG_CAPTURE != 0 {
+                let repetitions = self.make_move(&tt_data.important_move, rollback);
+
+                let result;
+                if repetitions >= 3 || self.halfmove_clock >= 50 {
+                    result = 0;
+                } else {
+                    result = -self.quiescense_side_to_move_relative(
+                        -beta,
+                        -alpha,
+                        ply + 1,
+                        rollback,
+                        stats,
+                        transposition_table,
+                    );
+                }
+
+                self.unmake_move(&tt_data.important_move, rollback);
+
+                if result >= beta {
+                    transposition_table.store_entry(TTEntry {
+                        hash: self.hash,
+                        important_move: tt_data.important_move,
+                        move_type: MoveType::FailHigh,
+                        eval: result,
+                        move_num: self.fullmove_counter,
+                    });
+
+                    return result;
+                }
+
+                if result > best_value {
+                    best_value = result;
+                    best_move = Some(tt_data.important_move);
+                    if result > alpha {
+                        alpha = result;
+                    }
+                }
+            }
         }
 
         let moves = generate_moves(self);
@@ -457,8 +530,6 @@ impl Board {
 
         prioritize_moves(&mut capture_moves, self);
 
-        let mut best_score = stand_pat;
-
         for r#move in capture_moves {
             let repetitions = self.make_move(&r#move, rollback);
             // pretty sure checkmate and repetition checks are needed here or in this method somewhere
@@ -468,7 +539,14 @@ impl Board {
             if repetitions >= 3 {
                 result = 0;
             } else {
-                result = -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats);
+                result = -self.quiescense_side_to_move_relative(
+                    -beta,
+                    -alpha,
+                    ply + 1,
+                    rollback,
+                    stats,
+                    transposition_table,
+                );
             }
 
             self.unmake_move(&r#move, rollback);
@@ -476,8 +554,10 @@ impl Board {
             if result >= beta {
                 return result;
             }
-            if best_score < result {
-                best_score = result;
+
+            if best_value < result {
+                best_value = result;
+                best_move = Some(r#move);
 
                 if alpha < result {
                     alpha = result;
@@ -485,7 +565,21 @@ impl Board {
             }
         }
 
-        best_score
+        if let Some(bm) = best_move {
+            transposition_table.store_entry(TTEntry {
+                hash: self.hash,
+                important_move: bm,
+                move_type: if alpha == best_value {
+                    MoveType::Best
+                } else {
+                    MoveType::FailLow
+                },
+                eval: best_value,
+                move_num: self.fullmove_counter,
+            });
+        }
+
+        best_value
     }
 }
 
