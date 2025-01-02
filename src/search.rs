@@ -472,7 +472,7 @@ impl Board {
             self.unmake_move(&r#move, rollback);
 
             if result >= beta {
-                return beta;
+                return result;
             }
             if alpha < result {
                 alpha = result;
