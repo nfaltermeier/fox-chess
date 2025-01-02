@@ -2,6 +2,11 @@ use log::error;
 
 use crate::moves::Move;
 
+pub enum TableType {
+    Main,
+    Quiescense,
+}
+
 #[derive(Copy, Clone)]
 pub enum MoveType {
     FailHigh,
@@ -31,7 +36,8 @@ impl Default for TTEntry {
 }
 
 pub struct TranspositionTable {
-    table: Vec<TTEntry>,
+    main_table: Vec<TTEntry>,
+    quiescense_table: Vec<TTEntry>,
     key_mask: usize,
     pub index_collisions: u64,
 }
@@ -44,16 +50,21 @@ impl TranspositionTable {
         }
 
         TranspositionTable {
-            table: vec![TTEntry::default(); 1 << size_log_2],
-            key_mask: (1 << size_log_2) - 1,
+            main_table: vec![TTEntry::default(); 1 << (size_log_2 - 1)],
+            quiescense_table: vec![TTEntry::default(); 1 << (size_log_2 - 1)],
+            key_mask: (1 << (size_log_2 - 1)) - 1,
             index_collisions: 0,
         }
     }
 
-    pub fn get_entry(&mut self, key: u64) -> Option<TTEntry> {
+    pub fn get_entry(&mut self, key: u64, table: TableType) -> Option<TTEntry> {
         let index = key as usize & self.key_mask;
+        let table = match table {
+            TableType::Main => &self.main_table,
+            TableType::Quiescense => &self.quiescense_table,
+        };
 
-        if let Some(entry) = self.table.get(index) {
+        if let Some(entry) = table.get(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
             if entry.move_num == 0 {
                 return None;
@@ -69,15 +80,21 @@ impl TranspositionTable {
         return None;
     }
 
-    pub fn store_entry(&mut self, val: TTEntry) {
+    pub fn store_entry(&mut self, val: TTEntry, table: TableType) {
         let index = val.hash as usize & self.key_mask;
-        self.table[index] = val;
+        let table = match table {
+            TableType::Main => &mut self.main_table,
+            TableType::Quiescense => &mut self.quiescense_table,
+        };
+
+        table[index] = val;
     }
 
     pub fn clear(&mut self) {
         let default_entry = TTEntry::default();
-        for i in 0..self.table.len() {
-            self.table[i] = default_entry;
+        for i in 0..self.main_table.len() {
+            self.main_table[i] = default_entry;
+            self.quiescense_table[i] = default_entry;
         }
 
         self.index_collisions = 0;

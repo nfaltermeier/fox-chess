@@ -12,7 +12,7 @@ use crate::{
     evaluate::CENTIPAWN_VALUES,
     move_generator::{can_capture_opponent_king, generate_moves},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
-    transposition_table::{self, MoveType, TTEntry, TranspositionTable},
+    transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
 };
 
@@ -174,7 +174,7 @@ impl Board {
         let mut rollback = MoveRollback::default();
         let mut stats = SearchStats::default();
 
-        let tt_entry = transposition_table.get_entry(self.hash);
+        let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.move_num >= self.fullmove_counter + draft as u16 {
                 match tt_data.move_type {
@@ -302,7 +302,7 @@ impl Board {
         let mut best_value = -i16::MAX;
         let mut best_move = None;
 
-        let tt_entry = transposition_table.get_entry(self.hash);
+        let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.move_num >= self.fullmove_counter + draft as u16 {
                 match tt_data.move_type {
@@ -335,13 +335,16 @@ impl Board {
             self.unmake_move(&tt_data.important_move, rollback);
 
             if result >= beta {
-                transposition_table.store_entry(TTEntry {
-                    hash: self.hash,
-                    important_move: tt_data.important_move,
-                    move_type: MoveType::FailHigh,
-                    eval: result,
-                    move_num: self.fullmove_counter + draft as u16,
-                });
+                transposition_table.store_entry(
+                    TTEntry {
+                        hash: self.hash,
+                        important_move: tt_data.important_move,
+                        move_type: MoveType::FailHigh,
+                        eval: result,
+                        move_num: self.fullmove_counter + draft as u16,
+                    },
+                    TableType::Main,
+                );
 
                 return result;
             }
@@ -390,13 +393,16 @@ impl Board {
             self.unmake_move(&r#move, rollback);
 
             if result >= beta {
-                transposition_table.store_entry(TTEntry {
-                    hash: self.hash,
-                    important_move: r#move,
-                    move_type: MoveType::FailHigh,
-                    eval: result,
-                    move_num: self.fullmove_counter + draft as u16,
-                });
+                transposition_table.store_entry(
+                    TTEntry {
+                        hash: self.hash,
+                        important_move: r#move,
+                        move_type: MoveType::FailHigh,
+                        eval: result,
+                        move_num: self.fullmove_counter + draft as u16,
+                    },
+                    TableType::Main,
+                );
 
                 return result;
             }
@@ -410,17 +416,20 @@ impl Board {
             }
         }
 
-        transposition_table.store_entry(TTEntry {
-            hash: self.hash,
-            important_move: best_move.unwrap(),
-            move_type: if alpha == best_value {
-                MoveType::Best
-            } else {
-                MoveType::FailLow
+        transposition_table.store_entry(
+            TTEntry {
+                hash: self.hash,
+                important_move: best_move.unwrap(),
+                move_type: if alpha == best_value {
+                    MoveType::Best
+                } else {
+                    MoveType::FailLow
+                },
+                eval: best_value,
+                move_num: self.fullmove_counter + draft as u16,
             },
-            eval: best_value,
-            move_num: self.fullmove_counter + draft as u16,
-        });
+            TableType::Main,
+        );
 
         best_value
     }
@@ -436,7 +445,7 @@ impl Board {
     ) -> i16 {
         stats.quiescense_nodes += 1;
 
-        let tt_entry = transposition_table.get_entry(self.hash);
+        let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
             if tt_data.move_num >= self.fullmove_counter {
                 match tt_data.move_type {
@@ -491,13 +500,16 @@ impl Board {
                 self.unmake_move(&tt_data.important_move, rollback);
 
                 if result >= beta {
-                    transposition_table.store_entry(TTEntry {
-                        hash: self.hash,
-                        important_move: tt_data.important_move,
-                        move_type: MoveType::FailHigh,
-                        eval: result,
-                        move_num: self.fullmove_counter,
-                    });
+                    transposition_table.store_entry(
+                        TTEntry {
+                            hash: self.hash,
+                            important_move: tt_data.important_move,
+                            move_type: MoveType::FailHigh,
+                            eval: result,
+                            move_num: self.fullmove_counter,
+                        },
+                        TableType::Quiescense,
+                    );
 
                     return result;
                 }
@@ -569,17 +581,20 @@ impl Board {
         }
 
         if let Some(bm) = best_move {
-            transposition_table.store_entry(TTEntry {
-                hash: self.hash,
-                important_move: bm,
-                move_type: if alpha == best_value {
-                    MoveType::Best
-                } else {
-                    MoveType::FailLow
+            transposition_table.store_entry(
+                TTEntry {
+                    hash: self.hash,
+                    important_move: bm,
+                    move_type: if alpha == best_value {
+                        MoveType::Best
+                    } else {
+                        MoveType::FailLow
+                    },
+                    eval: best_value,
+                    move_num: self.fullmove_counter,
                 },
-                eval: best_value,
-                move_num: self.fullmove_counter,
-            });
+                TableType::Quiescense,
+            );
         }
 
         best_value
