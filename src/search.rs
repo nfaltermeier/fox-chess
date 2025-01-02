@@ -457,6 +457,8 @@ impl Board {
 
         prioritize_moves(&mut capture_moves, self);
 
+        let mut best_score = stand_pat;
+
         for r#move in capture_moves {
             let repetitions = self.make_move(&r#move, rollback);
             // pretty sure checkmate and repetition checks are needed here or in this method somewhere
@@ -474,12 +476,16 @@ impl Board {
             if result >= beta {
                 return result;
             }
-            if alpha < result {
-                alpha = result;
+            if best_score < result {
+                best_score = result;
+
+                if alpha < result {
+                    alpha = result;
+                }
             }
         }
 
-        alpha
+        best_score
     }
 }
 
