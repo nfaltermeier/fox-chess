@@ -145,7 +145,10 @@ impl Board {
             let (result, end_search) = self.alpha_beta_init(depth, transposition_table);
             let elapsed = start_time.elapsed();
 
-            UciInterface::print_search_info(result.1, &result.2, &elapsed);
+            // print less when using TT values
+            if result.2.leaf_nodes != 0 || depth == 1 {
+                UciInterface::print_search_info(result.1, &result.2, &elapsed);
+            }
 
             if end_search
                 || (depth >= 5 && elapsed >= cutoff)
@@ -331,14 +334,6 @@ impl Board {
 
             self.unmake_move(&tt_data.important_move, rollback);
 
-            if result > best_value {
-                best_value = result;
-                best_move = Some(tt_data.important_move);
-                if result > alpha {
-                    alpha = result;
-                }
-            }
-
             if result >= beta {
                 transposition_table.store_entry(TTEntry {
                     hash: self.hash,
@@ -348,7 +343,15 @@ impl Board {
                     move_num: self.fullmove_counter + draft as u16,
                 });
 
-                return best_value;
+                return result;
+            }
+
+            if result > best_value {
+                best_value = result;
+                best_move = Some(tt_data.important_move);
+                if result > alpha {
+                    alpha = result;
+                }
             }
         }
 
@@ -386,14 +389,6 @@ impl Board {
 
             self.unmake_move(&r#move, rollback);
 
-            if result > best_value {
-                best_value = result;
-                best_move = Some(r#move);
-                if result > alpha {
-                    alpha = result;
-                }
-            }
-
             if result >= beta {
                 transposition_table.store_entry(TTEntry {
                     hash: self.hash,
@@ -403,7 +398,15 @@ impl Board {
                     move_num: self.fullmove_counter + draft as u16,
                 });
 
-                return best_value;
+                return result;
+            }
+
+            if result > best_value {
+                best_value = result;
+                best_move = Some(r#move);
+                if result > alpha {
+                    alpha = result;
+                }
             }
         }
 
