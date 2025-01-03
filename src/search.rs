@@ -9,7 +9,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
-    evaluate::CENTIPAWN_VALUES,
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
     move_generator::{can_capture_opponent_king, generate_moves},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -22,6 +22,7 @@ use crate::{
 pub struct SearchStats {
     pub quiescense_nodes: u64,
     pub depth: u8,
+    pub quiescense_cut_by_hopeless: u64,
     pub leaf_nodes: u64,
 }
 
@@ -470,6 +471,14 @@ impl Board {
 
         if stand_pat >= beta {
             return stand_pat;
+        }
+
+        if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+            // avoid underflow
+            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
+                stats.quiescense_cut_by_hopeless += 1;
+                return alpha;
+            }
         }
 
         if alpha < stand_pat {

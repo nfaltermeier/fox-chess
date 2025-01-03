@@ -3,6 +3,8 @@ use std::{collections::HashMap, fmt::Debug, sync::LazyLock};
 use log::error;
 use rand::{rngs::StdRng, Fill, SeedableRng};
 
+use crate::evaluate::GAME_STAGE_VALUES;
+
 #[rustfmt::skip]
 static DEFAULT_BOARD: [u8; 120] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -105,6 +107,7 @@ pub struct Board {
     pub fullmove_counter: u16,
     pub hash: u64,
     pub threefold_hashes: HashMap<u64, u8>,
+    pub game_stage: i16,
 }
 
 impl Board {
@@ -338,6 +341,7 @@ impl Default for Board {
             fullmove_counter: 1,
             hash: 0,
             threefold_hashes: HashMap::new(),
+            game_stage: 0,
         }
     }
 }
@@ -354,6 +358,7 @@ impl Debug for Board {
             .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
             .field("threefold_hashes", &self.threefold_hashes)
+            .field("game_stage", &self.game_stage)
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -423,4 +428,5 @@ pub fn get_hash_value(piece_code: u8, white: bool, index: usize, hash_values: &[
 fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) {
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
     board.hash ^= get_hash_value(piece_code, white, index, hash_values);
+    board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
 }

@@ -6,9 +6,7 @@ use crate::{
         file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
-    },
-    move_generator::{generate_moves, ENABLE_UNMAKE_MOVE_TEST},
-    STARTING_FEN,
+    }, evaluate::GAME_STAGE_VALUES, move_generator::{generate_moves, ENABLE_UNMAKE_MOVE_TEST}, STARTING_FEN
 };
 
 // Assumes flags have been shifted to bits 1-4
@@ -189,6 +187,7 @@ impl Board {
             let capture_piece = self.get_piece_64(to);
             self.hash ^= get_hash_value(capture_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_piece);
+            self.game_stage -= GAME_STAGE_VALUES[(capture_piece & PIECE_MASK) as usize];
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
@@ -230,6 +229,8 @@ impl Board {
             self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from, hash_values);
             self.write_piece(promo_to_piece, to);
             self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
+            self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
+            self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
@@ -240,6 +241,7 @@ impl Board {
                     self.write_piece(PIECE_NONE, from + 1);
                     self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
                 }
+                self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -345,6 +347,7 @@ impl Board {
             self.write_piece(captured_piece, to);
             self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
+            self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
@@ -353,6 +356,8 @@ impl Board {
                 let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
                 self.write_piece(PIECE_PAWN | color_flag, from);
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
+                self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
+                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
@@ -389,6 +394,7 @@ impl Board {
                     self.write_piece(PIECE_PAWN | opponent_color, from + 1);
                     self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
                 }
+                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -402,6 +408,8 @@ impl Board {
                 let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
                 self.write_piece(PIECE_PAWN | color_flag, from);
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
+                self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
+                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
         }
 

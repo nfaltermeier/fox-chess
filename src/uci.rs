@@ -157,12 +157,13 @@ impl UciInterface {
 
         let nps = stats.quiescense_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {} str leafnodes {}",
+            "info {score_string} nodes {} depth {} nps {:.0} time {} str leafnodes {} quiescense_cut_by_hopeless {}",
             stats.quiescense_nodes,
             stats.depth,
             nps,
             elapsed.as_millis(),
             stats.leaf_nodes,
+            stats.quiescense_cut_by_hopeless
         );
     }
 }

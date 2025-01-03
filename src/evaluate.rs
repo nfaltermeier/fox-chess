@@ -9,7 +9,7 @@ use crate::board::{
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 100, 315, 350, 500, 900, 20000];
 
-static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
+pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
 pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_BISHOP as usize]
@@ -19,6 +19,7 @@ pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
 pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2
     + GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 3
     + GAME_STAGE_VALUES[PIECE_KNIGHT as usize] * 3;
+pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 = GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
 
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -144,7 +145,7 @@ impl Board {
         let mut material_score = 0;
         let mut position_score_midgame = 0;
         let mut position_score_endgame = 0;
-        let mut game_stage = 0;
+        let mut game_stage = self.game_stage;
 
         // white then black
         let mut piece_counts = [[0i8; 7]; 2];
@@ -162,8 +163,6 @@ impl Board {
 
         for i in 1..7 {
             material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
-
-            game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i16;
         }
 
         if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
