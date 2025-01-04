@@ -2,8 +2,7 @@ use array_macro::array;
 use rand::random;
 
 use crate::board::{
-    Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
-    PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
 };
 
 // Indexed with piece code, so index 0 is no piece
@@ -147,6 +146,9 @@ impl Board {
         let mut position_score_endgame = 0;
         let mut game_stage = self.game_stage;
 
+        // Has an added file on each side to avoid bounds checks
+        let mut pawn_count = [[0_u8; 10]; 2];
+
         // white then black
         let mut piece_counts = [[0i8; 7]; 2];
         for i in 0..64 {
@@ -158,11 +160,23 @@ impl Board {
 
                 position_score_midgame += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
                 position_score_endgame += PIECE_SQUARE_TABLES[color][piece_type - 1 + 6][i];
+
+                if piece_type == PIECE_PAWN as usize {
+                    let file = file_8x8(i as u8) as usize;
+                    pawn_count[color][file + 1] += 1;
+                }
             }
         }
 
         for i in 1..7 {
             material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
+        }
+
+        // positive value: black has more isolated pawns than white
+        let mut isolated_pawns = 0;
+        for i in 1..9 {
+            isolated_pawns -= (pawn_count[0][i - 1] == 0 && pawn_count[0][i] != 0 && pawn_count[0][i + 1] == 0) as i16;
+            isolated_pawns += (pawn_count[1][i - 1] == 0 && pawn_count[1][i] != 0 && pawn_count[1][i + 1] == 0) as i16;
         }
 
         if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
@@ -174,7 +188,7 @@ impl Board {
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         // Add a small variance to try to avoid repetition
-        material_score + position_score_final + (random::<i16>() % 11) - 5
+        material_score + position_score_final + (random::<i16>() % 11) - 5 + isolated_pawns * 35
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
