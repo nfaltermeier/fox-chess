@@ -54,6 +54,7 @@ fn main() {
     // do_perft(4, "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
+    // hash_values_edit_distance();
 }
 
 fn do_perft(up_to_depth: u8, fen: &str) {
@@ -185,4 +186,39 @@ fn spawn_stdin_channel() -> Receiver<String> {
         tx.send(buffer).unwrap();
     });
     rx
+}
+
+fn hash_values_edit_distance() {
+    let hash_values = &*HASH_VALUES;
+    let mut total_distance = 0;
+    let mut total_count = 0;
+    let mut pawn_distance = 0;
+    let mut pawn_count = 0;
+
+    for x in 8..hash_values.len() {
+        // skip unused pawn values
+        if (x >= 56 && x <= 63) || (x >= 6 * 64 && x <= 6 * 64 + 7) || (x >= 6 * 64 + 56 && x <= 6 * 64 + 63) {
+            continue;
+        }
+
+        for y in (x + 1)..hash_values.len() {
+            if (y >= 56 && y <= 63) || (y >= 6 * 64 && y <= 6 * 64 + 7) || (y >= 6 * 64 + 56 && y <= 6 * 64 + 63) {
+                continue;
+            }
+
+            let edit_distance = (hash_values[x] ^ hash_values[y]).count_ones();
+            total_distance += edit_distance;
+            total_count += 1;
+
+            if (x <= 63 || (x >= 6 * 64 && x <= 6 * 64 + 63)) && (y <= 63 || (y >= 6 * 64 && y <= 6 * 64 + 63)) {
+                pawn_distance += edit_distance;
+                pawn_count += 1;
+            }
+        }
+    }
+
+    let total_avg_distance = total_distance as f64 / total_count as f64;
+    let pawn_avg_distance = pawn_distance as f64 / pawn_count as f64;
+
+    debug!("total_avg_distance: {total_avg_distance:.2}, pawn_avg_distance: {pawn_avg_distance:.2}")
 }

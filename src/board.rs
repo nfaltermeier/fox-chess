@@ -78,7 +78,7 @@ pub const CASTLE_BLACK_QUEEN_FLAG: u8 = 1 << CastlingValue::BlackQueen as u8;
 
 pub static HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
     // rand crate doesn't gurantee values are reproducible...
-    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc3);
+    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
     let mut result = [0; 781];
 
     if result.try_fill(&mut rng).is_err() {
