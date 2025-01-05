@@ -145,6 +145,7 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 
 thread_local! {
     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
+    pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
 }
 
 impl Board {
@@ -200,7 +201,7 @@ impl Board {
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + (random::<i16>() % 11) - 5 + doubled_pawns * 25
+        material_score + position_score_final + (random::<i16>() % 11) - 5 + doubled_pawns * DOUBLED_PAWN_PENALTY.get()
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
