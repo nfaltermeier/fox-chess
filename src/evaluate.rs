@@ -201,7 +201,7 @@ impl Board {
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + (random::<i16>() % 11) - 5 + doubled_pawns * DOUBLED_PAWN_PENALTY.get()
+        material_score + position_score_final + (random::<i16>() % 11) - 5 + doubled_pawns * 25 + isolated_pawns * 8
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
