@@ -1,8 +1,11 @@
+use std::cell::Cell;
+
 use array_macro::array;
 use rand::random;
 
 use crate::board::{
-    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
+    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
+    PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
 };
 
 // Indexed with piece code, so index 0 is no piece
@@ -18,7 +21,8 @@ pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
 pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2
     + GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 3
     + GAME_STAGE_VALUES[PIECE_KNIGHT as usize] * 3;
-pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 = GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
+pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
+    GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
 
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -139,6 +143,10 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 12],
 ];
 
+thread_local! {
+    pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
+}
+
 impl Board {
     pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
@@ -188,7 +196,8 @@ impl Board {
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         // Add a small variance to try to avoid repetition
-        material_score + position_score_final + (random::<i16>() % 11) - 5 + isolated_pawns * 35
+        material_score + position_score_final + (random::<i16>() % 11) - 5
+            + isolated_pawns * ISOLATED_PAWN_PENALTY.get()
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {

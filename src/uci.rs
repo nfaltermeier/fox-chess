@@ -10,6 +10,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
+    evaluate::ISOLATED_PAWN_PENALTY,
     moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     search::SearchStats,
     transposition_table::TranspositionTable,
@@ -54,6 +55,7 @@ impl UciInterface {
                     println!("id name FoxChess {} {}", build_info.profile, commit);
                     println!("id author IDK");
                     println!("uciok");
+                    println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
                 }
                 UciMessage::IsReady => {
                     println!("readyok")
@@ -134,6 +136,19 @@ impl UciInterface {
                     // println!("bestmove <>")
                 }
                 UciMessage::Quit => exit(0),
+                UciMessage::SetOption { name, value } => match name.as_str() {
+                    "IsolatedPawnPenalty" => {
+                        if let Some(ipp) = value {
+                            ISOLATED_PAWN_PENALTY.set(
+                                ipp.parse()
+                                    .expect("IsolatedPawnPenalty setoption value was not a valid number"),
+                            );
+                        }
+                    }
+                    _ => {
+                        error!("Unknown UCI setoption name '{name}'");
+                    }
+                },
                 UciMessage::Unknown(message, err) => {
                     error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}")
                 }
