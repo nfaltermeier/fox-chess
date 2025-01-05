@@ -16,8 +16,9 @@ A UCI chess engine
 - [ ] [Some kind of better Move Ordering](https://www.chessprogramming.org/Move_Ordering)
   - [ ] [History heuristic](https://www.chessprogramming.org/History_Heuristic)
   - [ ] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)
-- [ ] Refine piece square evaluations
-  - [ ] Automated tuning?
+- [ ] Refine evaluations
+  - [x] CLOP automated tuning
+  - [ ] [texel's method for All of the eval parameters at once](https://www.chessprogramming.org/Texel%27s_Tuning_Method) aka [Value Adaptation](https://www.chessprogramming.org/Automated_Tuning#Value_Adaptation)
 - [ ] Evaluation
   - [ ] [Consider Mobility (and negative mobility for king)](https://www.chessprogramming.org/Mobility)
   - [ ] Pawn evaluation
