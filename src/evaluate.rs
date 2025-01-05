@@ -182,9 +182,12 @@ impl Board {
 
         // positive value: black has more isolated pawns than white
         let mut isolated_pawns = 0;
+        let mut doubled_pawns = 0;
         for i in 1..9 {
             isolated_pawns -= (pawn_count[0][i - 1] == 0 && pawn_count[0][i] != 0 && pawn_count[0][i + 1] == 0) as i16;
             isolated_pawns += (pawn_count[1][i - 1] == 0 && pawn_count[1][i] != 0 && pawn_count[1][i + 1] == 0) as i16;
+            doubled_pawns -= (pawn_count[0][i] > 1) as i16;
+            doubled_pawns += (pawn_count[1][i] > 1) as i16;
         }
 
         if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
@@ -196,8 +199,8 @@ impl Board {
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         // Add a small variance to try to avoid repetition
-        material_score + position_score_final + (random::<i16>() % 11) - 5
-            + isolated_pawns * ISOLATED_PAWN_PENALTY.get()
+        // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
+        material_score + position_score_final + (random::<i16>() % 11) - 5 + doubled_pawns * 25
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
