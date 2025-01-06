@@ -41,7 +41,7 @@ fn main() {
 
     run_uci();
 
-    // print_moves_from_pos("4rb1r/pB1k1p2/5p1p/2p5/2P3P1/1P1b3P/P2N1P2/R3K2R w KQ - 1 19");
+    // print_moves_from_pos("4k3/8/8/8/3qbrp1/3QPB2/4N3/4K3 w - - 0 1");
     // do_perft(5, STARTING_FEN);
     // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
@@ -83,7 +83,7 @@ fn print_moves_from_pos(fen: &str) {
     moves.sort_by_key(|m| Reverse(m.score));
 
     for r#move in moves {
-        info!("{}", r#move.m.pretty_print(Some(&board)));
+        info!("{} move order score {}", r#move.m.pretty_print(Some(&board)), r#move.score);
     }
 }
 

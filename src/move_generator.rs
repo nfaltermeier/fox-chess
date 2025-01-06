@@ -164,6 +164,8 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                     0,
                                 MOVE_SCORE_QUIET));
                             } else {
+                                let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize];
+
                                 if target_piece & COLOR_FLAG_MASK != color_flag {
                                     // if log_enabled!(log::Level::Trace) {
                                     //     trace!(
@@ -179,7 +181,6 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                     //     );
                                     // }
 
-                                    let score_diff = CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize];
                                     result.push(ScoredMove::new(
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
@@ -308,7 +309,7 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                             && ((target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)
                                 || (target_pos == ep_target && target_piece == PIECE_NONE))
                         {
-                            let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[PIECE_PAWN as usize] - CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize];
+                            let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize] - CENTIPAWN_VALUES[PIECE_PAWN as usize];
                             if can_promo {
                                 result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
