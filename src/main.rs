@@ -1,8 +1,5 @@
 use std::{
-    io,
-    sync::mpsc::{self, Receiver, TryRecvError},
-    thread::{self, sleep},
-    time::{Duration, Instant, SystemTime},
+    cmp::Reverse, io, sync::mpsc::{self, Receiver, TryRecvError}, thread::{self, sleep}, time::{Duration, Instant, SystemTime}
 };
 
 use board::{Board, HASH_VALUES};
@@ -10,7 +7,6 @@ use clap::Parser;
 use log::{debug, error, info, warn};
 use move_generator::{can_capture_opponent_king, generate_moves, perft, PerftStats, ENABLE_UNMAKE_MOVE_TEST};
 use moves::{square_indices_to_moves, Move, MoveRollback};
-use search::prioritize_moves;
 use uci::UciInterface;
 
 use num_format::{Locale, ToFormattedString};
@@ -84,10 +80,10 @@ fn print_moves_from_pos(fen: &str) {
 
     let mut moves = generate_moves(&mut board);
 
-    prioritize_moves(&mut moves, &board);
+    moves.sort_by_key(|m| Reverse(m.score));
 
     for r#move in moves {
-        info!("{}", r#move.pretty_print(Some(&board)));
+        info!("{}", r#move.m.pretty_print(Some(&board)));
     }
 }
 
@@ -96,7 +92,7 @@ fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
     for r#move in moves {
-        board.make_move(&r#move, &mut rollback);
+        board.make_move(&r#move.m, &mut rollback);
     }
 
     let final_pos_moves = generate_moves(&mut board);
@@ -106,7 +102,7 @@ fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
     }
 
     for r#move in final_pos_moves {
-        info!("{}", r#move.pretty_print(Some(&board)));
+        info!("{}", r#move.m.pretty_print(Some(&board)));
     }
 }
 
@@ -131,7 +127,7 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
     }
 
     for r#move in final_pos_moves {
-        info!("{}", r#move.pretty_print(Some(&board)));
+        info!("{}", r#move.m.pretty_print(Some(&board)));
     }
 }
 

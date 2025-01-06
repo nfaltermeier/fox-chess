@@ -1,4 +1,4 @@
-use log::{debug, error, trace};
+use log::{debug, error, log_enabled, trace};
 
 use crate::{
     board::{
@@ -6,11 +6,10 @@ use crate::{
         CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION, HASH_VALUES, PIECE_BISHOP, PIECE_INVALID, PIECE_KING,
         PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-    },
-    moves::{
+    }, evaluate::CENTIPAWN_VALUES, moves::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
         MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
-    },
+    }
 };
 
 const ENABLE_PERFT_STATS: bool = true;
@@ -19,6 +18,12 @@ const ENABLE_PERFT_STATS_CHECKS: bool = false;
 // This option is very slow
 const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
 pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
+
+const MOVE_SCORE_CAPTURE: i16 = 2000;
+const MOVE_SCORE_PROMOTION: i16 = 1000;
+const MOVE_SCORE_KING_CASTLE: i16 = 100;
+const MOVE_SCORE_QUEEN_CASTLE: i16 = 99;
+const MOVE_SCORE_QUIET: i16 = 0;
 
 // Values from https://www.chessprogramming.org/10x12_Board under TSCP
 // If the piece can slide through squares when moving
@@ -34,7 +39,7 @@ const OFFSET: [[i8; 8]; 5] = [
 ];
 
 // if make and unmake move work properly then at the end board should be back to it's original state
-pub fn generate_moves(board: &mut Board) -> Vec<Move> {
+pub fn generate_moves(board: &mut Board) -> Vec<ScoredMove> {
     let mut moves = generate_moves_psuedo_legal(board);
     let mut rollback = MoveRollback::default();
     let mut board_copy = None;
@@ -42,13 +47,16 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
         board_copy = Some(board.clone());
     }
 
-    for m in &moves {
-        trace!("{}", m.pretty_print(Some(board)));
-    }
+    // if log_enabled!(log::Level::Trace) {
+    //     for m in &moves {
+    //         trace!("{}", m.pretty_print(Some(board)));
+    //     }
+    // }
 
     moves.retain(|r#move| {
         let mut result;
-        let flags = r#move.flags();
+        let flags = r#move.m.flags();
+
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             // Check the king isn't in check to begin with
             board.white_to_move = !board.white_to_move;
@@ -60,7 +68,7 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
             }
 
             let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
-            let from = r#move.from();
+            let from = r#move.m.from();
             let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
             let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
 
@@ -78,12 +86,12 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
             }
         }
 
-        board.make_move(r#move, &mut rollback);
+        board.make_move(&r#move.m, &mut rollback);
         result = !can_capture_opponent_king(board, true);
-        board.unmake_move(r#move, &mut rollback);
+        board.unmake_move(&r#move.m, &mut rollback);
 
         if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
-            error!("unmake move did not properly undo move {:?}", r#move);
+            error!("unmake move did not properly undo move {:?}", r#move.m);
 
             let board_copied = board_copy.as_ref().unwrap();
             if board_copied.hash != board.hash {
@@ -105,7 +113,7 @@ pub fn generate_moves(board: &mut Board) -> Vec<Move> {
     moves
 }
 
-pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
+pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
     let mut result = Vec::new();
     let color_flag = if board.white_to_move { 0 } else { COLOR_BLACK };
     let ep_target = match board.en_passant_target_square_index {
@@ -150,29 +158,33 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                 );
 
                                 // Doing this extra translation is probably bad for performance. May as well use 3 bytes per move instead of 2?
-                                result.push(Move::new(
+                                result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
                                     0,
-                                ));
+                                MOVE_SCORE_QUIET));
                             } else {
                                 if target_piece & COLOR_FLAG_MASK != color_flag {
-                                    trace!(
-                                        "{} {} {:#04x} {} {} {} {:#04x} {}",
-                                        i,
-                                        index_10x12_to_pos_str(i as u8),
-                                        piece,
-                                        piece_to_name(piece),
-                                        cur_pos,
-                                        index_10x12_to_pos_str(cur_pos as u8),
-                                        target_piece,
-                                        piece_to_name(target_piece)
-                                    );
+                                    // if log_enabled!(log::Level::Trace) {
+                                    //     trace!(
+                                    //         "{} {} {:#04x} {} {} {} {:#04x} {}",
+                                    //         i,
+                                    //         index_10x12_to_pos_str(i as u8),
+                                    //         piece,
+                                    //         piece_to_name(piece),
+                                    //         cur_pos,
+                                    //         index_10x12_to_pos_str(cur_pos as u8),
+                                    //         target_piece,
+                                    //         piece_to_name(target_piece)
+                                    //     );
+                                    // }
 
-                                    result.push(Move::new(
+                                    let score_diff = CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize];
+                                    result.push(ScoredMove::new(
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
                                         MOVE_FLAG_CAPTURE,
+                                        MOVE_SCORE_CAPTURE + score_diff,
                                     ));
                                 }
                                 break;
@@ -211,15 +223,16 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                         {
                                             let king_to = i.checked_add_signed(offset * 2).unwrap();
 
-                                            let flags = if offset == -1 {
-                                                MOVE_QUEEN_CASTLE
+                                            let (flags, score) = if offset == -1 {
+                                                (MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE)
                                             } else {
-                                                MOVE_KING_CASTLE
+                                                (MOVE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE)
                                             };
-                                            result.push(Move::new(
+                                            result.push(ScoredMove::new(
                                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[king_to],
                                                 flags,
+                                                score,
                                             ));
                                         }
 
@@ -238,31 +251,36 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
 
                     if target_piece == PIECE_NONE {
                         if can_promo {
-                            result.push(Move::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_KNIGHT,
-                            ));
-                            result.push(Move::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_BISHOP,
-                            ));
-                            result.push(Move::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_ROOK,
-                            ));
-                            result.push(Move::new(
+                            result.push(ScoredMove::new(
                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                 MOVE_PROMO_QUEEN,
+                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                            ));
+                            result.push(ScoredMove::new(
+                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                MOVE_PROMO_ROOK,
+                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                            ));
+                            result.push(ScoredMove::new(
+                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                MOVE_PROMO_BISHOP,
+                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                            ));
+                            result.push(ScoredMove::new(
+                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                MOVE_PROMO_KNIGHT,
+                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
                             ));
                         } else {
-                            result.push(Move::new(
+                            result.push(ScoredMove::new(
                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                 0,
+                                MOVE_SCORE_QUIET,
                             ));
 
                             // On starting rank?
@@ -271,10 +289,11 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                 target_piece = board.get_piece(target_pos);
 
                                 if target_piece == PIECE_NONE {
-                                    result.push(Move::new(
+                                    result.push(ScoredMove::new(
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                         MOVE_DOUBLE_PAWN,
+                                        MOVE_SCORE_QUIET,
                                     ));
                                 }
                             }
@@ -289,29 +308,34 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                             && ((target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)
                                 || (target_pos == ep_target && target_piece == PIECE_NONE))
                         {
+                            let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[PIECE_PAWN as usize] - CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize];
                             if can_promo {
-                                result.push(Move::new(
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                    MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                                ));
-                                result.push(Move::new(
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                    MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                                ));
-                                result.push(Move::new(
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                    MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                                ));
-                                result.push(Move::new(
+                                result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                     MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
+                                    score  + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                                ));
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
+                                    score  + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                                ));
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
+                                    score  + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                                ));
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
+                                    score  + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
                                 ));
                             } else {
-                                result.push(Move::new(
+                                result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                     if target_pos == ep_target {
@@ -319,6 +343,7 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<Move> {
                                     } else {
                                         MOVE_FLAG_CAPTURE
                                     },
+                                    score,
                                 ));
                             }
                         }
@@ -429,26 +454,6 @@ pub struct PerftStats {
 }
 
 // Code referenced from https://www.chessprogramming.org/Perft
-pub fn perft_pseudo_legal_optimized(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
-    if depth == 0 {
-        stats.nodes += 1;
-        return;
-    }
-
-    let moves = generate_moves_psuedo_legal(board);
-    for r#move in moves {
-        board.make_move(&r#move, rollback);
-        if !can_capture_opponent_king(board, true) {
-            if ENABLE_PERFT_STATS && depth == 1 {
-                check_perft_stats(&r#move, board, stats);
-            }
-
-            perft_pseudo_legal_optimized(depth - 1, board, rollback, stats);
-        }
-        board.unmake_move(&r#move, rollback);
-    }
-}
-
 pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
     if depth == 0 {
         // slow as all heck
@@ -462,14 +467,14 @@ pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &
 
     let moves = generate_moves(board);
     for r#move in &moves {
-        board.make_move(r#move, rollback);
+        board.make_move(&r#move.m, rollback);
 
         if ENABLE_PERFT_STATS && depth == 1 {
-            check_perft_stats(r#move, board, stats);
+            check_perft_stats(&r#move.m, board, stats);
         }
 
         perft(depth - 1, board, rollback, stats);
-        board.unmake_move(r#move, rollback);
+        board.unmake_move(&r#move.m, rollback);
     }
 }
 
@@ -494,4 +499,18 @@ fn check_perft_stats(r#move: &Move, board: &mut Board, stats: &mut PerftStats) {
         stats.checks += 1;
     }
     board.white_to_move = !board.white_to_move;
+}
+
+pub struct ScoredMove {
+    pub m: Move,
+    pub score: i16,
+}
+
+impl ScoredMove {
+    pub fn new(from_square_index: u8, to_square_index: u8, flags: u16, score: i16) -> Self {
+        Self {
+            m: Move::new(from_square_index, to_square_index, flags),
+            score
+        }
+    }
 }

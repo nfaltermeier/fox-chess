@@ -1,5 +1,5 @@
 use std::{
-    cmp::Ordering,
+    cmp::{Ordering, Reverse},
     i16,
     time::{Duration, Instant},
 };
@@ -10,7 +10,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
-    move_generator::{can_capture_opponent_king, generate_moves},
+    move_generator::{can_capture_opponent_king, generate_moves, ScoredMove},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
@@ -234,19 +234,19 @@ impl Board {
 
         if moves.len() == 1 {
             stats.depth = 1;
-            return ((moves.pop().unwrap(), self.evaluate(), stats), true);
+            return ((moves.pop().unwrap().m, self.evaluate(), stats), true);
         } else {
             stats.depth = draft;
         }
 
-        prioritize_moves(&mut moves, self);
+        moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
-            if tt_entry.is_some_and(|v| v.important_move == r#move) {
+            if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                 continue;
             }
 
-            let repetitions = self.make_move(&r#move, &mut rollback);
+            let repetitions = self.make_move(&r#move.m, &mut rollback);
 
             let result;
             if repetitions >= 3 || self.halfmove_clock >= 50 {
@@ -263,11 +263,11 @@ impl Board {
                 );
             }
 
-            self.unmake_move(&r#move, &mut rollback);
+            self.unmake_move(&r#move.m, &mut rollback);
 
             if result > best_value {
                 best_value = result;
-                best_move = Some(r#move);
+                best_move = Some(r#move.m);
                 if result > alpha {
                     alpha = result;
                 }
@@ -374,14 +374,14 @@ impl Board {
             }
         }
 
-        prioritize_moves(&mut moves, self);
+        moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
-            if tt_entry.is_some_and(|v| v.important_move == r#move) {
+            if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                 continue;
             }
 
-            let repetitions = self.make_move(&r#move, rollback);
+            let repetitions = self.make_move(&r#move.m, rollback);
 
             let result;
             if repetitions >= 3 || self.halfmove_clock >= 50 {
@@ -391,13 +391,13 @@ impl Board {
                     -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, rollback, stats, transposition_table);
             }
 
-            self.unmake_move(&r#move, rollback);
+            self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
-                        important_move: r#move,
+                        important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
                         move_num: self.fullmove_counter + draft as u16,
@@ -410,7 +410,7 @@ impl Board {
 
             if result > best_value {
                 best_value = result;
-                best_move = Some(r#move);
+                best_move = Some(r#move.m);
                 if result > alpha {
                     alpha = result;
                 }
@@ -549,13 +549,13 @@ impl Board {
 
         let mut capture_moves = moves
             .into_iter()
-            .filter(|m| m.flags() & MOVE_FLAG_CAPTURE != 0)
-            .collect::<Vec<Move>>();
+            .filter(|m| m.m.flags() & MOVE_FLAG_CAPTURE != 0)
+            .collect::<Vec<ScoredMove>>();
 
-        prioritize_moves(&mut capture_moves, self);
+        capture_moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in capture_moves {
-            let repetitions = self.make_move(&r#move, rollback);
+            let repetitions = self.make_move(&r#move.m, rollback);
             // pretty sure checkmate and repetition checks are needed here or in this method somewhere
             let result;
 
@@ -573,7 +573,7 @@ impl Board {
                 );
             }
 
-            self.unmake_move(&r#move, rollback);
+            self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
                 return result;
@@ -581,7 +581,7 @@ impl Board {
 
             if best_value < result {
                 best_value = result;
-                best_move = Some(r#move);
+                best_move = Some(r#move.m);
 
                 if alpha < result {
                     alpha = result;
@@ -608,41 +608,4 @@ impl Board {
 
         best_value
     }
-}
-
-pub fn prioritize_moves(moves: &mut Vec<Move>, board: &Board) {
-    moves.sort_by(|m1, m2| {
-        // Should promotions be given a bonus for capture or non-capture?
-        let m1_capture = m1.data & MOVE_FLAG_CAPTURE_FULL != 0;
-        let m2_capture = m2.data & MOVE_FLAG_CAPTURE_FULL != 0;
-        let capture_cmp = m2_capture.cmp(&m1_capture);
-
-        if !m1_capture || capture_cmp != Ordering::Equal {
-            return capture_cmp;
-        }
-
-        let m1_cp_diff;
-        let m2_cp_diff;
-
-        if m1.flags() == MOVE_EP_CAPTURE {
-            m1_cp_diff = 0;
-        } else {
-            let p1_from = board.get_piece_64(m1.from() as usize);
-            let p1_to = board.get_piece_64(m1.to() as usize);
-            m1_cp_diff =
-                CENTIPAWN_VALUES[(p1_to & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(p1_from & PIECE_MASK) as usize];
-        }
-
-        if m2.flags() == MOVE_EP_CAPTURE {
-            m2_cp_diff = 0;
-        } else {
-            let p2_from = board.get_piece_64(m2.from() as usize);
-            let p2_to = board.get_piece_64(m2.to() as usize);
-            m2_cp_diff =
-                CENTIPAWN_VALUES[(p2_to & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(p2_from & PIECE_MASK) as usize];
-        }
-
-        // trace!("{} {} {} {} {:?}", m1.pretty_print(Some(board)), m1_cp_diff, m2.pretty_print(Some(board)), m2_cp_diff, result);
-        m2_cp_diff.cmp(&m1_cp_diff)
-    });
 }

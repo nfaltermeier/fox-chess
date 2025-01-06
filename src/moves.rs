@@ -6,7 +6,7 @@ use crate::{
         file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
-    }, evaluate::GAME_STAGE_VALUES, move_generator::{generate_moves, ENABLE_UNMAKE_MOVE_TEST}, STARTING_FEN
+    }, evaluate::GAME_STAGE_VALUES, move_generator::{generate_moves, ScoredMove, ENABLE_UNMAKE_MOVE_TEST}, STARTING_FEN
 };
 
 // Assumes flags have been shifted to bits 1-4
@@ -474,7 +474,7 @@ pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
     result
 }
 
-pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move> {
+pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<ScoredMove> {
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
@@ -482,12 +482,12 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move>
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = generate_moves(&mut board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
-            if m.from() != r#move.0 as u16 || m.to() != r#move.1 as u16 {
+            if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
             }
 
             match r#move.2 {
-                Some(p) => m.flags() & 0x03 == p,
+                Some(p) => m.m.flags() & 0x03 == p,
                 None => true,
             }
         }) else {
@@ -504,7 +504,7 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move>
         };
         let gen_move = moves.swap_remove(gen_move_pos);
 
-        board.make_move(&gen_move, &mut rollback);
+        board.make_move(&gen_move.m, &mut rollback);
         result.push(gen_move);
     }
 
@@ -517,12 +517,12 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = generate_moves(board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
-            if m.from() != r#move.0 as u16 || m.to() != r#move.1 as u16 {
+            if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
             }
 
             match r#move.2 {
-                Some(p) => m.flags() & FLAGS_MASK_PROMO == p,
+                Some(p) => m.m.flags() & FLAGS_MASK_PROMO == p,
                 None => true,
             }
         }) else {
@@ -540,9 +540,9 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
         let gen_move = moves.swap_remove(gen_move_pos);
 
         // Pawn moves and captures are irreversible so we can clear previous game states.
-        let mut clear_threefold_repetition = gen_move.data & MOVE_FLAG_CAPTURE_FULL != 0;
+        let mut clear_threefold_repetition = gen_move.m.data & MOVE_FLAG_CAPTURE_FULL != 0;
         if !clear_threefold_repetition {
-            let piece = board.get_piece_64(gen_move.from() as usize);
+            let piece = board.get_piece_64(gen_move.m.from() as usize);
             clear_threefold_repetition = piece & PIECE_MASK == PIECE_PAWN;
         }
 
@@ -550,7 +550,7 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             board.threefold_hashes.clear();
         }
 
-        board.make_move(&gen_move, &mut rollback);
+        board.make_move(&gen_move.m, &mut rollback);
     }
 }
 
