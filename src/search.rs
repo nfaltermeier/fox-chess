@@ -490,19 +490,15 @@ impl Board {
             if tt_data.important_move.flags() & MOVE_FLAG_CAPTURE != 0 {
                 self.make_move(&tt_data.important_move, rollback);
 
-                let result;
-                if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
-                    result = 0;
-                } else {
-                    result = -self.quiescense_side_to_move_relative(
-                        -beta,
-                        -alpha,
-                        ply + 1,
-                        rollback,
-                        stats,
-                        transposition_table,
-                    );
-                }
+                // Only doing captures right now so not checking halfmove or threefold repetition here
+                 let result = -self.quiescense_side_to_move_relative(
+                    -beta,
+                    -alpha,
+                    ply + 1,
+                    rollback,
+                    stats,
+                    transposition_table,
+                );
 
                 self.unmake_move(&tt_data.important_move, rollback);
 
@@ -556,19 +552,15 @@ impl Board {
             self.make_move(&r#move.m, rollback);
             let result;
 
-            // Only doing captures right now so not checking halfmove here
-            if RepetitionTracker::test_threefold_repetition(self) {
-                result = 0;
-            } else {
-                result = -self.quiescense_side_to_move_relative(
-                    -beta,
-                    -alpha,
-                    ply + 1,
-                    rollback,
-                    stats,
-                    transposition_table,
-                );
-            }
+            // Only doing captures right now so not checking halfmove or threefold repetition here
+            result = -self.quiescense_side_to_move_relative(
+                -beta,
+                -alpha,
+                ply + 1,
+                rollback,
+                stats,
+                transposition_table,
+            );
 
             self.unmake_move(&r#move.m, rollback);
 
