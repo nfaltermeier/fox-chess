@@ -1,7 +1,7 @@
 use std::{
     cmp::{Ordering, Reverse},
     i16,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use log::error;
@@ -12,6 +12,7 @@ use crate::{
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
     move_generator::{can_capture_opponent_king, generate_moves, ScoredMove},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
+    repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
 };
@@ -178,26 +179,23 @@ impl Board {
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.move_num >= self.fullmove_counter + draft as u16 {
-                match tt_data.move_type {
-                    transposition_table::MoveType::Best => {
-                        // should this be done for the root????
-                        return (
-                            (
-                                tt_data.important_move,
-                                tt_data.eval * if self.white_to_move { 1 } else { -1 },
-                                stats,
-                            ),
-                            false,
-                        );
-                    }
-                    _ => {}
+                if let transposition_table::MoveType::Best = tt_data.move_type {
+                    // should this be done for the root????
+                    return (
+                        (
+                            tt_data.important_move,
+                            tt_data.eval * if self.white_to_move { 1 } else { -1 },
+                            stats,
+                        ),
+                        false,
+                    );
                 }
             }
 
-            let repetitions = self.make_move(&tt_data.important_move, &mut rollback);
+            self.make_move(&tt_data.important_move, &mut rollback);
 
             let result;
-            if repetitions >= 3 || self.halfmove_clock >= 50 {
+            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -246,10 +244,10 @@ impl Board {
                 continue;
             }
 
-            let repetitions = self.make_move(&r#move.m, &mut rollback);
+            self.make_move(&r#move.m, &mut rollback);
 
             let result;
-            if repetitions >= 3 || self.halfmove_clock >= 50 {
+            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -323,10 +321,10 @@ impl Board {
                 }
             }
 
-            let repetitions = self.make_move(&tt_data.important_move, rollback);
+            self.make_move(&tt_data.important_move, rollback);
 
             let result;
-            if repetitions >= 3 || self.halfmove_clock >= 50 {
+            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result =
@@ -381,10 +379,10 @@ impl Board {
                 continue;
             }
 
-            let repetitions = self.make_move(&r#move.m, rollback);
+            self.make_move(&r#move.m, rollback);
 
             let result;
-            if repetitions >= 3 || self.halfmove_clock >= 50 {
+            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result =
@@ -490,10 +488,10 @@ impl Board {
 
         if let Some(tt_data) = tt_entry {
             if tt_data.important_move.flags() & MOVE_FLAG_CAPTURE != 0 {
-                let repetitions = self.make_move(&tt_data.important_move, rollback);
+                self.make_move(&tt_data.important_move, rollback);
 
                 let result;
-                if repetitions >= 3 || self.halfmove_clock >= 50 {
+                if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                     result = 0;
                 } else {
                     result = -self.quiescense_side_to_move_relative(
@@ -555,12 +553,11 @@ impl Board {
         capture_moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in capture_moves {
-            let repetitions = self.make_move(&r#move.m, rollback);
-            // pretty sure checkmate and repetition checks are needed here or in this method somewhere
+            self.make_move(&r#move.m, rollback);
             let result;
 
             // Only doing captures right now so not checking halfmove here
-            if repetitions >= 3 {
+            if RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.quiescense_side_to_move_relative(

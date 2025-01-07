@@ -174,11 +174,10 @@ impl MoveRollback {
 }
 
 impl Board {
-    // Returns how many times the move has been repeated
-    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) -> u8 {
-        let from = (r#move.data & 0x003F) as usize;
-        let to = ((r#move.data >> 6) & 0x003F) as usize;
-        let flags = r#move.data >> 12;
+    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
+        let from = r#move.from() as usize;
+        let to = r#move.to() as usize;
+        let flags = r#move.flags();
         let hash_values = &*HASH_VALUES;
 
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
@@ -298,43 +297,15 @@ impl Board {
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
-        // Could clear the map on capture or pawn moves. I think doing that during search would be bad because of allocation.
-        let repetitions;
-        match self.threefold_hashes.get_mut(&self.hash) {
-            Some(v) => {
-                *v += 1;
-                repetitions = *v;
-            }
-            None => {
-                self.threefold_hashes.insert(self.hash, 1);
-                repetitions = 1;
-            }
-        }
-
-        repetitions
+        self.repetitions.make_move(*r#move, self.hash);
     }
 
     pub fn unmake_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
-        match self.threefold_hashes.get_mut(&self.hash) {
-            Some(v) => {
-                if *v > 1 {
-                    *v -= 1;
-                } else {
-                    self.threefold_hashes.remove(&self.hash);
-                }
-            }
-            None => {
-                error!("Could not find hash in threefold_hashes map. Unmaking move must have not reversed the hash correctly. Move: {}", r#move.pretty_print(Some(self)));
-                // ENABLE_UNMAKE_MOVE_TEST should panic and log more info
-                if !ENABLE_UNMAKE_MOVE_TEST {
-                    panic!("Could not find hash in threefold_hashes map")
-                }
-            }
-        }
+        self.repetitions.unmake_move(self.hash);
 
-        let from = (r#move.data & 0x003F) as usize;
-        let to = ((r#move.data >> 6) & 0x003F) as usize;
-        let flags = r#move.data >> 12;
+        let from = r#move.from() as usize;
+        let to = r#move.to() as usize;
+        let flags = r#move.flags();
         let hash_values = &*HASH_VALUES;
 
         let moved_piece = self.get_piece_64(to);
@@ -442,6 +413,62 @@ impl Board {
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
+
+    /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
+    /// This is a simplified, specialized copy of unmake_move that must stay in sync.
+    pub fn unmake_reversible_move_for_repetitions(&mut self, move_index: usize) {
+        let m = self.repetitions.get_move_ref(move_index);
+        let from = m.from() as usize;
+        let to = m.to() as usize;
+        let hash_values = &*HASH_VALUES;
+
+        debug_assert_eq!(m.flags(), 0);
+
+        let moved_piece = self.get_piece_64(to);
+
+        let moved_piece_val = moved_piece & PIECE_MASK;
+        self.write_piece(PIECE_NONE, to);
+        self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
+        self.write_piece(moved_piece, from);
+        self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
+
+        // Any move that resets this is irreversible so shouldn't need to check for underflow
+        self.halfmove_clock -= 1;
+
+        if self.white_to_move {
+            self.fullmove_counter -= 1;
+        }
+        self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
+
+    /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
+    /// This is a simplified, specialized copy of make_move that must stay in sync.
+    pub fn make_reversible_move_for_repetitions(&mut self, move_index: usize) {
+        let m = self.repetitions.get_move_ref(move_index);
+        let from = m.from() as usize;
+        let to = m.to() as usize;
+        let hash_values = &*HASH_VALUES;
+
+        debug_assert_eq!(m.flags(), 0);
+
+        let moved_piece = self.get_piece_64(from);
+
+        let moved_piece_val = moved_piece & PIECE_MASK;
+        self.write_piece(PIECE_NONE, from);
+        self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, from, hash_values);
+        self.write_piece(moved_piece, to);
+        self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, to, hash_values);
+
+        self.halfmove_clock += 1;
+
+        if !self.white_to_move {
+            self.fullmove_counter += 1;
+        }
+
+        self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
 }
 
 // Not going to be super optimized probably and only support basic PGNs
@@ -540,14 +567,14 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
         let gen_move = moves.swap_remove(gen_move_pos);
 
         // Pawn moves and captures are irreversible so we can clear previous game states.
-        let mut clear_threefold_repetition = gen_move.m.data & MOVE_FLAG_CAPTURE_FULL != 0;
+        let mut clear_threefold_repetition = gen_move.m.flags() != 0;
         if !clear_threefold_repetition {
             let piece = board.get_piece_64(gen_move.m.from() as usize);
             clear_threefold_repetition = piece & PIECE_MASK == PIECE_PAWN;
         }
 
         if clear_threefold_repetition {
-            board.threefold_hashes.clear();
+            board.repetitions.clear();
         }
 
         board.make_move(&gen_move.m, &mut rollback);
