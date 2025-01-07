@@ -19,6 +19,7 @@ mod board;
 mod evaluate;
 mod move_generator;
 mod moves;
+mod repetition_tracker;
 mod search;
 mod transposition_table;
 mod uci;
@@ -156,7 +157,7 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
 
 fn run_uci() {
     if ENABLE_UNMAKE_MOVE_TEST {
-        warn!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded somewhat.")
+        error!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
     // 2^23 entries -> 128MiB

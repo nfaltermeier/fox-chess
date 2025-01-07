@@ -71,13 +71,13 @@ impl TranspositionTable {
             }
 
             if entry.hash == key {
-                return Some(entry.clone());
+                return Some(*entry);
             } else {
                 self.index_collisions += 1;
             }
         }
 
-        return None;
+        None
     }
 
     pub fn store_entry(&mut self, val: TTEntry, table: TableType) {
