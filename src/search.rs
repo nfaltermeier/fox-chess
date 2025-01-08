@@ -652,13 +652,11 @@ fn update_killers(killers: &mut [Move; 2], m: &Move) {
         return;
     }
 
-    if killers[0] == *m {
-        return;
-    }
-
-    if killers[1] == *m {
-        (killers[0], killers[1]) = (killers[1], killers[0]);
-    } else {
-        killers[1] = *m;
+    if killers[0] != *m {
+        if killers[1] == *m {
+            (killers[0], killers[1]) = (killers[1], killers[0]);
+        } else {
+            killers[0] = *m;
+        }
     }
 }
