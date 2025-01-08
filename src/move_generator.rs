@@ -233,7 +233,7 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                             let (flags, score) = if offset == -1 {
                                                 (MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE)
                                             } else {
-                                                (MOVE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE)
+                                                (MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE)
                                             };
                                             result.push(ScoredMove::new(
                                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
