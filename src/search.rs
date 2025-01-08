@@ -10,12 +10,14 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
-    move_generator::{can_capture_opponent_king, generate_moves, ScoredMove},
+    move_generator::{can_capture_opponent_king, generate_moves, ScoredMove, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
 };
+
+const EMPTY_MOVE: Move = Move { data: 0 };
 
 // pub const TEST_TT_FOR_HASH_COLLISION: bool = true;
 
@@ -175,6 +177,7 @@ impl Board {
         let mut best_move = None;
         let mut rollback = MoveRollback::default();
         let mut stats = SearchStats::default();
+        let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
@@ -206,6 +209,7 @@ impl Board {
                     &mut rollback,
                     &mut stats,
                     transposition_table,
+                    &mut killers,
                 );
             }
 
@@ -258,6 +262,7 @@ impl Board {
                     &mut rollback,
                     &mut stats,
                     transposition_table,
+                    &mut killers,
                 );
             }
 
@@ -292,6 +297,7 @@ impl Board {
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
         transposition_table: &mut TranspositionTable,
+        killers: &mut [Move; 2],
     ) -> i16 {
         if draft == 0 {
             stats.leaf_nodes += 1;
@@ -300,6 +306,7 @@ impl Board {
 
         let mut best_value = -i16::MAX;
         let mut best_move = None;
+        let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
@@ -307,6 +314,8 @@ impl Board {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
+                            update_killers(killers, &tt_data.important_move);
+
                             return tt_data.eval;
                         }
                     }
@@ -327,13 +336,23 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                result =
-                    -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, rollback, stats, transposition_table);
+                result = -self.alpha_beta_recurse(
+                    -beta,
+                    -alpha,
+                    draft - 1,
+                    ply + 1,
+                    rollback,
+                    stats,
+                    transposition_table,
+                    &mut new_killers,
+                );
             }
 
             self.unmake_move(&tt_data.important_move, rollback);
 
             if result >= beta {
+                update_killers(killers, &tt_data.important_move);
+
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
@@ -372,6 +391,30 @@ impl Board {
             }
         }
 
+        if killers[0] != EMPTY_MOVE {
+            let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
+
+            for m in moves.iter_mut() {
+                if m.m == killers[0] {
+                    m.score = MOVE_SCORE_KILLER_1;
+
+                    if unmatched_killers == 1 {
+                        break;
+                    } else {
+                        unmatched_killers -= 1;
+                    }
+                } else if m.m == killers[1] {
+                    m.score = MOVE_SCORE_KILLER_2;
+
+                    if unmatched_killers == 1 {
+                        break;
+                    } else {
+                        unmatched_killers -= 1;
+                    }
+                }
+            }
+        }
+
         moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
@@ -385,13 +428,23 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                result =
-                    -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, rollback, stats, transposition_table);
+                result = -self.alpha_beta_recurse(
+                    -beta,
+                    -alpha,
+                    draft - 1,
+                    ply + 1,
+                    rollback,
+                    stats,
+                    transposition_table,
+                    &mut new_killers,
+                );
             }
 
             self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
+                update_killers(killers, &r#move.m);
+
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
@@ -491,7 +544,7 @@ impl Board {
                 self.make_move(&tt_data.important_move, rollback);
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                 let result = -self.quiescense_side_to_move_relative(
+                let result = -self.quiescense_side_to_move_relative(
                     -beta,
                     -alpha,
                     ply + 1,
@@ -553,14 +606,8 @@ impl Board {
             let result;
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            result = -self.quiescense_side_to_move_relative(
-                -beta,
-                -alpha,
-                ply + 1,
-                rollback,
-                stats,
-                transposition_table,
-            );
+            result =
+                -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
 
             self.unmake_move(&r#move.m, rollback);
 
@@ -596,5 +643,22 @@ impl Board {
         }
 
         best_value
+    }
+}
+
+#[inline]
+fn update_killers(killers: &mut [Move; 2], m: &Move) {
+    if m.flags() != 0 {
+        return;
+    }
+
+    if killers[0] == *m {
+        return;
+    }
+
+    if killers[1] == *m {
+        (killers[0], killers[1]) = (killers[1], killers[0]);
+    } else {
+        killers[1] = *m;
     }
 }

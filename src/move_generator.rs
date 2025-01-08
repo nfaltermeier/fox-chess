@@ -6,10 +6,12 @@ use crate::{
         CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION, HASH_VALUES, PIECE_BISHOP, PIECE_INVALID, PIECE_KING,
         PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-    }, evaluate::CENTIPAWN_VALUES, moves::{
+    },
+    evaluate::CENTIPAWN_VALUES,
+    moves::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
         MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
-    }
+    },
 };
 
 const ENABLE_PERFT_STATS: bool = true;
@@ -19,6 +21,8 @@ const ENABLE_PERFT_STATS_CHECKS: bool = false;
 const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
 pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
+pub const MOVE_SCORE_KILLER_1: i16 = 1999;
+pub const MOVE_SCORE_KILLER_2: i16 = 1998;
 const MOVE_SCORE_CAPTURE: i16 = 2000;
 const MOVE_SCORE_PROMOTION: i16 = 1000;
 const MOVE_SCORE_KING_CASTLE: i16 = 100;
@@ -162,9 +166,11 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
                                     0,
-                                MOVE_SCORE_QUIET));
+                                    MOVE_SCORE_QUIET,
+                                ));
                             } else {
-                                let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize] - CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize];
+                                let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                                    - CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize];
 
                                 if target_piece & COLOR_FLAG_MASK != color_flag {
                                     // if log_enabled!(log::Level::Trace) {
@@ -309,31 +315,32 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                             && ((target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)
                                 || (target_pos == ep_target && target_piece == PIECE_NONE))
                         {
-                            let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize] - CENTIPAWN_VALUES[PIECE_PAWN as usize];
+                            let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                                - CENTIPAWN_VALUES[PIECE_PAWN as usize];
                             if can_promo {
                                 result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                     MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                                    score  + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                                    score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
                                 ));
                                 result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                     MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                                    score  + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                                    score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
                                 ));
                                 result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                     MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                                    score  + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                                    score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
                                 ));
                                 result.push(ScoredMove::new(
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                     MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                                    score  + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                                    score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
                                 ));
                             } else {
                                 result.push(ScoredMove::new(
@@ -511,7 +518,7 @@ impl ScoredMove {
     pub fn new(from_square_index: u8, to_square_index: u8, flags: u16, score: i16) -> Self {
         Self {
             m: Move::new(from_square_index, to_square_index, flags),
-            score
+            score,
         }
     }
 }

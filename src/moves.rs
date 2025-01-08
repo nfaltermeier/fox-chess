@@ -6,7 +6,10 @@ use crate::{
         file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
-    }, evaluate::GAME_STAGE_VALUES, move_generator::{generate_moves, ScoredMove, ENABLE_UNMAKE_MOVE_TEST}, STARTING_FEN
+    },
+    evaluate::GAME_STAGE_VALUES,
+    move_generator::{generate_moves, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
+    STARTING_FEN,
 };
 
 // Assumes flags have been shifted to bits 1-4

@@ -1,5 +1,9 @@
 use std::{
-    cmp::Reverse, io, sync::mpsc::{self, Receiver, TryRecvError}, thread::{self, sleep}, time::{Duration, Instant, SystemTime}
+    cmp::Reverse,
+    io,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread::{self, sleep},
+    time::{Duration, Instant, SystemTime},
 };
 
 use board::{Board, HASH_VALUES};
@@ -84,7 +88,11 @@ fn print_moves_from_pos(fen: &str) {
     moves.sort_by_key(|m| Reverse(m.score));
 
     for r#move in moves {
-        info!("{} move order score {}", r#move.m.pretty_print(Some(&board)), r#move.score);
+        info!(
+            "{} move order score {}",
+            r#move.m.pretty_print(Some(&board)),
+            r#move.score
+        );
     }
 }
 

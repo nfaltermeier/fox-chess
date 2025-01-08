@@ -14,6 +14,7 @@ A UCI chess engine
   - [ ] [Aspiration window?](https://www.chessprogramming.org/Aspiration_Windows)
 - [ ] [Null move pruning](https://www.chessprogramming.org/Null_Move_Pruning)
 - [ ] [Some kind of better Move Ordering](https://www.chessprogramming.org/Move_Ordering)
+  - [x] [Killer heuristic](https://www.chessprogramming.org/Killer_Heuristic)
   - [ ] [History heuristic](https://www.chessprogramming.org/History_Heuristic)
   - [ ] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)
 - [ ] Refine piece square evaluations
