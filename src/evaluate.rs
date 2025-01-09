@@ -1,15 +1,17 @@
+use std::cell::Cell;
+
 use array_macro::array;
 use rand::random;
 
 use crate::board::{
-    Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
-    PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
+    PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
 };
 
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 100, 315, 350, 500, 900, 20000];
 
-static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
+pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
 pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_BISHOP as usize]
@@ -19,6 +21,8 @@ pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
 pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2
     + GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 3
     + GAME_STAGE_VALUES[PIECE_KNIGHT as usize] * 3;
+pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
+    GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
 
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -139,12 +143,20 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 12],
 ];
 
+thread_local! {
+    pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
+    pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
+}
+
 impl Board {
     pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
         let mut position_score_midgame = 0;
         let mut position_score_endgame = 0;
-        let mut game_stage = 0;
+        let mut game_stage = self.game_stage;
+
+        // Has an added file on each side to avoid bounds checks
+        let mut pawn_count = [[0_u8; 10]; 2];
 
         // white then black
         let mut piece_counts = [[0i8; 7]; 2];
@@ -157,13 +169,26 @@ impl Board {
 
                 position_score_midgame += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
                 position_score_endgame += PIECE_SQUARE_TABLES[color][piece_type - 1 + 6][i];
+
+                if piece_type == PIECE_PAWN as usize {
+                    let file = file_8x8(i as u8) as usize;
+                    pawn_count[color][file + 1] += 1;
+                }
             }
         }
 
         for i in 1..7 {
             material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
+        }
 
-            game_stage += GAME_STAGE_VALUES[i] * (piece_counts[0][i] + piece_counts[1][i]) as i16;
+        // positive value: black has more isolated pawns than white
+        let mut isolated_pawns = 0;
+        let mut doubled_pawns = 0;
+        for i in 1..9 {
+            isolated_pawns -= (pawn_count[0][i - 1] == 0 && pawn_count[0][i] != 0 && pawn_count[0][i + 1] == 0) as i16;
+            isolated_pawns += (pawn_count[1][i - 1] == 0 && pawn_count[1][i] != 0 && pawn_count[1][i + 1] == 0) as i16;
+            doubled_pawns -= (pawn_count[0][i] > 1) as i16;
+            doubled_pawns += (pawn_count[1][i] > 1) as i16;
         }
 
         if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
@@ -175,7 +200,8 @@ impl Board {
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         // Add a small variance to try to avoid repetition
-        material_score + position_score_final + (random::<i16>() % 11) - 5
+        // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
+        material_score + position_score_final + (random::<i16>() % 11) - 5 + doubled_pawns * 25
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {

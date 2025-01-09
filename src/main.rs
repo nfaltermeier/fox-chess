@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     io,
     sync::mpsc::{self, Receiver, TryRecvError},
     thread::{self, sleep},
@@ -8,9 +9,12 @@ use std::{
 use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
-use move_generator::{can_capture_opponent_king, generate_moves, perft, PerftStats, ENABLE_UNMAKE_MOVE_TEST};
+use move_generator::{
+    can_capture_opponent_king, generate_moves, generate_moves_without_history, perft, PerftStats,
+    ENABLE_UNMAKE_MOVE_TEST,
+};
 use moves::{square_indices_to_moves, Move, MoveRollback};
-use search::prioritize_moves;
+use search::DEFAULT_HISTORY_TABLE;
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 
@@ -21,6 +25,7 @@ mod board;
 mod evaluate;
 mod move_generator;
 mod moves;
+mod repetition_tracker;
 mod search;
 mod transposition_table;
 mod uci;
@@ -56,6 +61,7 @@ fn main() {
     // do_perft(4, "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
+    // hash_values_edit_distance();
 }
 
 fn do_perft(up_to_depth: u8, fen: &str) {
@@ -83,22 +89,40 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut board = Board::from_fen(fen).unwrap();
     info!("{:?}", &board);
 
-    let mut moves = generate_moves(&mut board);
+    let mut moves = generate_moves_without_history(&mut board);
 
-    prioritize_moves(&mut moves, &board);
+    moves.sort_by_key(|m| Reverse(m.score));
 
     let mut rollback = MoveRollback::default();
     let mut transposition_table = TranspositionTable::new(23);
+    let mut history = DEFAULT_HISTORY_TABLE;
     for r#move in moves {
-        info!("{}:", r#move.pretty_print(Some(&board)));
-        board.make_move(&r#move, &mut rollback);
+        info!("{}:", r#move.m.pretty_print(Some(&board)));
+        board.make_move(&r#move.m, &mut rollback);
 
         let tc = None;
         let sc = Some(UciSearchControl::depth(depth));
 
-        board.iterative_deepening_search(&tc, &sc, &mut transposition_table);
+        board.iterative_deepening_search(&tc, &sc, &mut transposition_table, &mut history);
 
-        board.unmake_move(&r#move, &mut rollback);
+        board.unmake_move(&r#move.m, &mut rollback);
+    }
+}
+
+fn print_moves_from_pos(fen: &str) {
+    let mut board = Board::from_fen(fen).unwrap();
+    info!("{:?}", &board);
+
+    let mut moves = generate_moves_without_history(&mut board);
+
+    moves.sort_by_key(|m| Reverse(m.score));
+
+    for r#move in moves {
+        info!(
+            "{} move order score {}",
+            r#move.m.pretty_print(Some(&board)),
+            r#move.score
+        );
     }
 }
 
@@ -107,17 +131,17 @@ fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
     for r#move in moves {
-        board.make_move(&r#move, &mut rollback);
+        board.make_move(&r#move.m, &mut rollback);
     }
 
-    let final_pos_moves = generate_moves(&mut board);
+    let final_pos_moves = generate_moves_without_history(&mut board);
 
     if final_pos_moves.is_empty() {
         warn!("No moves found")
     }
 
     for r#move in final_pos_moves {
-        info!("{}", r#move.pretty_print(Some(&board)));
+        info!("{}", r#move.m.pretty_print(Some(&board)));
     }
 }
 
@@ -135,14 +159,14 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
     debug!("After all moves");
     debug!("{:?}", board);
 
-    let final_pos_moves = generate_moves(&mut board);
+    let final_pos_moves = generate_moves_without_history(&mut board);
 
     if final_pos_moves.is_empty() {
         warn!("No moves found")
     }
 
     for r#move in final_pos_moves {
-        info!("{}", r#move.pretty_print(Some(&board)));
+        info!("{}", r#move.m.pretty_print(Some(&board)));
     }
 }
 
@@ -167,7 +191,7 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
 
 fn run_uci() {
     if ENABLE_UNMAKE_MOVE_TEST {
-        warn!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded somewhat.")
+        error!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
     // 2^23 entries -> 128MiB
@@ -197,4 +221,39 @@ fn spawn_stdin_channel() -> Receiver<String> {
         tx.send(buffer).unwrap();
     });
     rx
+}
+
+fn hash_values_edit_distance() {
+    let hash_values = &*HASH_VALUES;
+    let mut total_distance = 0;
+    let mut total_count = 0;
+    let mut pawn_distance = 0;
+    let mut pawn_count = 0;
+
+    for x in 8..hash_values.len() {
+        // skip unused pawn values
+        if (x >= 56 && x <= 63) || (x >= 6 * 64 && x <= 6 * 64 + 7) || (x >= 6 * 64 + 56 && x <= 6 * 64 + 63) {
+            continue;
+        }
+
+        for y in (x + 1)..hash_values.len() {
+            if (y >= 56 && y <= 63) || (y >= 6 * 64 && y <= 6 * 64 + 7) || (y >= 6 * 64 + 56 && y <= 6 * 64 + 63) {
+                continue;
+            }
+
+            let edit_distance = (hash_values[x] ^ hash_values[y]).count_ones();
+            total_distance += edit_distance;
+            total_count += 1;
+
+            if (x <= 63 || (x >= 6 * 64 && x <= 6 * 64 + 63)) && (y <= 63 || (y >= 6 * 64 && y <= 6 * 64 + 63)) {
+                pawn_distance += edit_distance;
+                pawn_count += 1;
+            }
+        }
+    }
+
+    let total_avg_distance = total_distance as f64 / total_count as f64;
+    let pawn_avg_distance = pawn_distance as f64 / pawn_count as f64;
+
+    debug!("total_avg_distance: {total_avg_distance:.2}, pawn_avg_distance: {pawn_avg_distance:.2}")
 }

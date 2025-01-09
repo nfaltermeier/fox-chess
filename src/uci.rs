@@ -10,8 +10,9 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
+    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY},
     moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
-    search::SearchStats,
+    search::{HistoryTable, SearchStats},
     transposition_table::TranspositionTable,
     STARTING_FEN,
 };
@@ -19,6 +20,7 @@ use crate::{
 pub struct UciInterface {
     board: Option<Board>,
     transposition_table: TranspositionTable,
+    history_table: HistoryTable,
 }
 
 build_info!(fn get_build_info);
@@ -28,6 +30,7 @@ impl UciInterface {
         UciInterface {
             board: None,
             transposition_table: TranspositionTable::new(tt_size_log_2),
+            history_table: [[[0; 64]; 6]; 2],
         }
     }
 
@@ -54,6 +57,8 @@ impl UciInterface {
                     println!("id name FoxChess {} {}", build_info.profile, commit);
                     println!("id author IDK");
                     println!("uciok");
+                    println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
+                    println!("option name DoubledPawnPenalty type spin default 25 min 0 max 100");
                 }
                 UciMessage::IsReady => {
                     println!("readyok")
@@ -61,6 +66,7 @@ impl UciInterface {
                 UciMessage::UciNewGame => {
                     self.board = None;
                     self.transposition_table.clear();
+                    self.history_table = [[[0; 64]; 6]; 2];
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
@@ -116,8 +122,12 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
-                        let move_data =
-                            b.iterative_deepening_search(&time_control, &search_control, &mut self.transposition_table);
+                        let move_data = b.iterative_deepening_search(
+                            &time_control,
+                            &search_control,
+                            &mut self.transposition_table,
+                            &mut self.history_table,
+                        );
 
                         println!("bestmove {}", move_data.0.simple_long_algebraic_notation());
 
@@ -134,6 +144,27 @@ impl UciInterface {
                     // println!("bestmove <>")
                 }
                 UciMessage::Quit => exit(0),
+                UciMessage::SetOption { name, value } => match name.as_str() {
+                    "IsolatedPawnPenalty" => {
+                        if let Some(ipp) = value {
+                            ISOLATED_PAWN_PENALTY.set(
+                                ipp.parse()
+                                    .expect("IsolatedPawnPenalty setoption value was not a valid number"),
+                            );
+                        }
+                    }
+                    "DoubledPawnPenalty" => {
+                        if let Some(ipp) = value {
+                            DOUBLED_PAWN_PENALTY.set(
+                                ipp.parse()
+                                    .expect("DoubledPawnPenalty setoption value was not a valid number"),
+                            );
+                        }
+                    }
+                    _ => {
+                        error!("Unknown UCI setoption name '{name}'");
+                    }
+                },
                 UciMessage::Unknown(message, err) => {
                     error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}")
                 }
@@ -157,13 +188,14 @@ impl UciInterface {
 
         let nps = stats.quiescense_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} str leafnodes {}",
+            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} str leafnodes {} quiescense_cut_by_hopeless {}",
             stats.quiescense_nodes,
             stats.depth,
             nps,
             elapsed.as_millis(),
             stats.pv.iter().map(|m| m.simple_long_algebraic_notation()).collect::<Vec<String>>().join(" "),
             stats.leaf_nodes,
+            stats.quiescense_cut_by_hopeless
         );
     }
 }

@@ -1,10 +1,12 @@
-use std::{collections::HashMap, fmt::Debug, sync::LazyLock};
+use std::{fmt::Debug, sync::LazyLock};
 
 use log::error;
 use rand::{rngs::StdRng, Fill, SeedableRng};
 
+use crate::{evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker};
+
 #[rustfmt::skip]
-static DEFAULT_BOARD: [u8; 120] = [
+static EMPTY_BOARD: [u8; 120] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
@@ -76,7 +78,7 @@ pub const CASTLE_BLACK_QUEEN_FLAG: u8 = 1 << CastlingValue::BlackQueen as u8;
 
 pub static HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
     // rand crate doesn't gurantee values are reproducible...
-    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc3);
+    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
     let mut result = [0; 781];
 
     if result.try_fill(&mut rng).is_err() {
@@ -104,7 +106,8 @@ pub struct Board {
     // Is this needed?
     pub fullmove_counter: u16,
     pub hash: u64,
-    pub threefold_hashes: HashMap<u64, u8>,
+    pub game_stage: i16,
+    pub repetitions: RepetitionTracker,
 }
 
 impl Board {
@@ -133,7 +136,17 @@ impl Board {
             ));
         }
 
-        let mut board = Board::default();
+        let mut board = Board {
+            squares: EMPTY_BOARD,
+            white_to_move: true,
+            castling_rights: 0,
+            en_passant_target_square_index: None,
+            halfmove_clock: 0,
+            fullmove_counter: 1,
+            hash: 0,
+            game_stage: 0,
+            repetitions: RepetitionTracker::default(),
+        };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;
 
@@ -309,6 +322,8 @@ impl Board {
             }
         }
 
+        board.repetitions.add_start_position(board.hash);
+
         Ok(board)
     }
 
@@ -327,21 +342,6 @@ impl Board {
     }
 }
 
-impl Default for Board {
-    fn default() -> Self {
-        Self {
-            squares: DEFAULT_BOARD,
-            white_to_move: true,
-            castling_rights: 0,
-            en_passant_target_square_index: None,
-            halfmove_clock: 0,
-            fullmove_counter: 1,
-            hash: 0,
-            threefold_hashes: HashMap::new(),
-        }
-    }
-}
-
 impl Debug for Board {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let result = f
@@ -353,7 +353,8 @@ impl Debug for Board {
             .field("halfmove_clock", &self.halfmove_clock)
             .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
-            .field("threefold_hashes", &self.threefold_hashes)
+            .field("game_stage", &self.game_stage)
+            .field("repetitions", &self.repetitions)
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -423,4 +424,5 @@ pub fn get_hash_value(piece_code: u8, white: bool, index: usize, hash_values: &[
 fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) {
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
     board.hash ^= get_hash_value(piece_code, white, index, hash_values);
+    board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
 }

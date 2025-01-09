@@ -7,7 +7,9 @@ use crate::{
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
-    move_generator::{generate_moves, ENABLE_UNMAKE_MOVE_TEST},
+    evaluate::GAME_STAGE_VALUES,
+    move_generator::{generate_moves, generate_moves_without_history, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
+    search::DEFAULT_HISTORY_TABLE,
     STARTING_FEN,
 };
 
@@ -176,11 +178,10 @@ impl MoveRollback {
 }
 
 impl Board {
-    // Returns how many times the move has been repeated
-    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) -> u8 {
-        let from = (r#move.data & 0x003F) as usize;
-        let to = ((r#move.data >> 6) & 0x003F) as usize;
-        let flags = r#move.data >> 12;
+    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
+        let from = r#move.from() as usize;
+        let to = r#move.to() as usize;
+        let flags = r#move.flags();
         let hash_values = &*HASH_VALUES;
 
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
@@ -189,6 +190,7 @@ impl Board {
             let capture_piece = self.get_piece_64(to);
             self.hash ^= get_hash_value(capture_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_piece);
+            self.game_stage -= GAME_STAGE_VALUES[(capture_piece & PIECE_MASK) as usize];
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
@@ -230,6 +232,8 @@ impl Board {
             self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from, hash_values);
             self.write_piece(promo_to_piece, to);
             self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
+            self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
+            self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
@@ -240,6 +244,7 @@ impl Board {
                     self.write_piece(PIECE_NONE, from + 1);
                     self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
                 }
+                self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -296,43 +301,15 @@ impl Board {
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
-        // Could clear the map on capture or pawn moves. I think doing that during search would be bad because of allocation.
-        let repetitions;
-        match self.threefold_hashes.get_mut(&self.hash) {
-            Some(v) => {
-                *v += 1;
-                repetitions = *v;
-            }
-            None => {
-                self.threefold_hashes.insert(self.hash, 1);
-                repetitions = 1;
-            }
-        }
-
-        repetitions
+        self.repetitions.make_move(*r#move, self.hash);
     }
 
     pub fn unmake_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
-        match self.threefold_hashes.get_mut(&self.hash) {
-            Some(v) => {
-                if *v > 1 {
-                    *v -= 1;
-                } else {
-                    self.threefold_hashes.remove(&self.hash);
-                }
-            }
-            None => {
-                error!("Could not find hash in threefold_hashes map. Unmaking move must have not reversed the hash correctly. Move: {}", r#move.pretty_print(Some(self)));
-                // ENABLE_UNMAKE_MOVE_TEST should panic and log more info
-                if !ENABLE_UNMAKE_MOVE_TEST {
-                    panic!("Could not find hash in threefold_hashes map")
-                }
-            }
-        }
+        self.repetitions.unmake_move(self.hash);
 
-        let from = (r#move.data & 0x003F) as usize;
-        let to = ((r#move.data >> 6) & 0x003F) as usize;
-        let flags = r#move.data >> 12;
+        let from = r#move.from() as usize;
+        let to = r#move.to() as usize;
+        let flags = r#move.flags();
         let hash_values = &*HASH_VALUES;
 
         let moved_piece = self.get_piece_64(to);
@@ -345,6 +322,7 @@ impl Board {
             self.write_piece(captured_piece, to);
             self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
+            self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
@@ -353,6 +331,8 @@ impl Board {
                 let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
                 self.write_piece(PIECE_PAWN | color_flag, from);
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
+                self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
+                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
@@ -389,6 +369,7 @@ impl Board {
                     self.write_piece(PIECE_PAWN | opponent_color, from + 1);
                     self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
                 }
+                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -402,6 +383,8 @@ impl Board {
                 let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
                 self.write_piece(PIECE_PAWN | color_flag, from);
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
+                self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
+                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
             }
         }
 
@@ -431,6 +414,62 @@ impl Board {
         if self.white_to_move {
             self.fullmove_counter -= 1;
         }
+        self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
+
+    /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
+    /// This is a simplified, specialized copy of unmake_move that must stay in sync.
+    pub fn unmake_reversible_move_for_repetitions(&mut self, move_index: usize) {
+        let m = self.repetitions.get_move_ref(move_index);
+        let from = m.from() as usize;
+        let to = m.to() as usize;
+        let hash_values = &*HASH_VALUES;
+
+        debug_assert_eq!(m.flags(), 0);
+
+        let moved_piece = self.get_piece_64(to);
+
+        let moved_piece_val = moved_piece & PIECE_MASK;
+        self.write_piece(PIECE_NONE, to);
+        self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
+        self.write_piece(moved_piece, from);
+        self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
+
+        // Any move that resets this is irreversible so shouldn't need to check for underflow
+        self.halfmove_clock -= 1;
+
+        if self.white_to_move {
+            self.fullmove_counter -= 1;
+        }
+        self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
+
+    /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
+    /// This is a simplified, specialized copy of make_move that must stay in sync.
+    pub fn make_reversible_move_for_repetitions(&mut self, move_index: usize) {
+        let m = self.repetitions.get_move_ref(move_index);
+        let from = m.from() as usize;
+        let to = m.to() as usize;
+        let hash_values = &*HASH_VALUES;
+
+        debug_assert_eq!(m.flags(), 0);
+
+        let moved_piece = self.get_piece_64(from);
+
+        let moved_piece_val = moved_piece & PIECE_MASK;
+        self.write_piece(PIECE_NONE, from);
+        self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, from, hash_values);
+        self.write_piece(moved_piece, to);
+        self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, to, hash_values);
+
+        self.halfmove_clock += 1;
+
+        if !self.white_to_move {
+            self.fullmove_counter += 1;
+        }
+
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
@@ -466,20 +505,21 @@ pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
     result
 }
 
-pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move> {
+pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<ScoredMove> {
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
+    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = generate_moves(&mut board);
+        let mut moves = generate_moves_without_history(&mut board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
-            if m.from() != r#move.0 as u16 || m.to() != r#move.1 as u16 {
+            if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
             }
 
             match r#move.2 {
-                Some(p) => m.flags() & 0x03 == p,
+                Some(p) => m.m.flags() & 0x03 == p,
                 None => true,
             }
         }) else {
@@ -496,7 +536,7 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move>
         };
         let gen_move = moves.swap_remove(gen_move_pos);
 
-        board.make_move(&gen_move, &mut rollback);
+        board.make_move(&gen_move.m, &mut rollback);
         result.push(gen_move);
     }
 
@@ -505,16 +545,17 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Move>
 
 pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
     let mut rollback = MoveRollback::default();
+    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = generate_moves(board);
+        let mut moves = generate_moves_without_history(board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
-            if m.from() != r#move.0 as u16 || m.to() != r#move.1 as u16 {
+            if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
             }
 
             match r#move.2 {
-                Some(p) => m.flags() & FLAGS_MASK_PROMO == p,
+                Some(p) => m.m.flags() & FLAGS_MASK_PROMO == p,
                 None => true,
             }
         }) else {
@@ -532,17 +573,17 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
         let gen_move = moves.swap_remove(gen_move_pos);
 
         // Pawn moves and captures are irreversible so we can clear previous game states.
-        let mut clear_threefold_repetition = gen_move.data & MOVE_FLAG_CAPTURE_FULL != 0;
+        let mut clear_threefold_repetition = gen_move.m.flags() != 0;
         if !clear_threefold_repetition {
-            let piece = board.get_piece_64(gen_move.from() as usize);
+            let piece = board.get_piece_64(gen_move.m.from() as usize);
             clear_threefold_repetition = piece & PIECE_MASK == PIECE_PAWN;
         }
 
         if clear_threefold_repetition {
-            board.threefold_hashes.clear();
+            board.repetitions.clear();
         }
 
-        board.make_move(&gen_move, &mut rollback);
+        board.make_move(&gen_move.m, &mut rollback);
     }
 }
 
