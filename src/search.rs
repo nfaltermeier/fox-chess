@@ -100,7 +100,7 @@ impl Board {
 
         // Above 5 depth moves can start taking a lot more time
         let cutoff_low_depth = target_dur.mul_f32(0.55);
-        let cutoff = target_dur.mul_f32(0.25);
+        let cutoff = target_dur.mul_f32(0.35);
         let mut depth = 1;
 
         loop {
