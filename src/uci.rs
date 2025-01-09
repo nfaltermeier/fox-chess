@@ -12,7 +12,7 @@ use crate::{
     board::Board,
     evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY},
     moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
-    search::SearchStats,
+    search::{HistoryTable, SearchStats},
     transposition_table::TranspositionTable,
     STARTING_FEN,
 };
@@ -20,6 +20,7 @@ use crate::{
 pub struct UciInterface {
     board: Option<Board>,
     transposition_table: TranspositionTable,
+    history_table: HistoryTable,
 }
 
 build_info!(fn get_build_info);
@@ -29,6 +30,7 @@ impl UciInterface {
         UciInterface {
             board: None,
             transposition_table: TranspositionTable::new(tt_size_log_2),
+            history_table: [[[0; 64]; 6]; 2],
         }
     }
 
@@ -64,6 +66,7 @@ impl UciInterface {
                 UciMessage::UciNewGame => {
                     self.board = None;
                     self.transposition_table.clear();
+                    self.history_table = [[[0; 64]; 6]; 2];
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
@@ -119,8 +122,12 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
-                        let move_data =
-                            b.iterative_deepening_search(&time_control, &search_control, &mut self.transposition_table);
+                        let move_data = b.iterative_deepening_search(
+                            &time_control,
+                            &search_control,
+                            &mut self.transposition_table,
+                            &mut self.history_table,
+                        );
 
                         println!("bestmove {}", move_data.0.simple_long_algebraic_notation());
 

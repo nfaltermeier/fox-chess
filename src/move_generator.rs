@@ -12,28 +12,35 @@ use crate::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
         MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
     },
+    search::{HistoryTable, DEFAULT_HISTORY_TABLE},
 };
 
 const ENABLE_PERFT_STATS: bool = true;
-// This option is slow
+/// This option is slow
 const ENABLE_PERFT_STATS_CHECKS: bool = false;
-// This option is very slow
+/// This option is very slow
 const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
 pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
+/// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
+/// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800
+const MOVE_SCORE_CAPTURE: i16 = 2000;
 pub const MOVE_SCORE_KILLER_1: i16 = 1999;
 pub const MOVE_SCORE_KILLER_2: i16 = 1998;
-const MOVE_SCORE_CAPTURE: i16 = 2000;
+/// Has value of piece is becomes added so really the range is +300 to +900
 const MOVE_SCORE_PROMOTION: i16 = 1000;
-const MOVE_SCORE_KING_CASTLE: i16 = 100;
-const MOVE_SCORE_QUEEN_CASTLE: i16 = 99;
+const MOVE_SCORE_KING_CASTLE: i16 = 502;
+const MOVE_SCORE_QUEEN_CASTLE: i16 = 501;
+/// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
+pub const MOVE_SCORE_HISTORY_MAX: i16 = 500;
 const MOVE_SCORE_QUIET: i16 = 0;
 
-// Values from https://www.chessprogramming.org/10x12_Board under TSCP
-// If the piece can slide through squares when moving
+
+/// Values from https://www.chessprogramming.org/10x12_Board under TSCP
+/// If the piece can slide through squares when moving
 const SLIDES: [bool; 5] = [false, true, true, true, false];
 #[rustfmt::skip]
-// 10x12 repr offsets for moving in each piece's valid directions
+/// 10x12 repr offsets for moving in each piece's valid directions
 const OFFSET: [[i8; 8]; 5] = [
 	[ -21, -19,-12, -8, 8, 12, 19, 21 ], /* KNIGHT */
 	[ -11,  -9,  9, 11, 0,  0,  0,  0 ], /* BISHOP */
@@ -42,9 +49,19 @@ const OFFSET: [[i8; 8]; 5] = [
 	[ -11, -10, -9, -1, 1,  9, 10, 11 ]  /* KING */
 ];
 
-// if make and unmake move work properly then at the end board should be back to it's original state
-pub fn generate_moves(board: &mut Board) -> Vec<ScoredMove> {
-    let mut moves = generate_moves_psuedo_legal(board);
+#[inline]
+pub fn generate_moves_with_history(board: &mut Board, history_table: &HistoryTable) -> Vec<ScoredMove> {
+    generate_moves::<true>(board, history_table)
+}
+
+#[inline]
+pub fn generate_moves_without_history(board: &mut Board) -> Vec<ScoredMove> {
+    generate_moves::<false>(board, &DEFAULT_HISTORY_TABLE)
+}
+
+/// if make and unmake move work properly then at the end board should be back to it's original state
+pub fn generate_moves<const USE_HISTORY: bool>(board: &mut Board, history_table: &HistoryTable) -> Vec<ScoredMove> {
+    let mut moves = generate_moves_psuedo_legal::<USE_HISTORY>(board, history_table);
     let mut rollback = MoveRollback::default();
     let mut board_copy = None;
     if ENABLE_UNMAKE_MOVE_TEST {
@@ -117,9 +134,13 @@ pub fn generate_moves(board: &mut Board) -> Vec<ScoredMove> {
     moves
 }
 
-pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
+pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
+    board: &Board,
+    history_table: &HistoryTable,
+) -> Vec<ScoredMove> {
     let mut result = Vec::new();
     let color_flag = if board.white_to_move { 0 } else { COLOR_BLACK };
+    let history_color_value = if board.white_to_move { 0 } else { 1 };
     let ep_target = match board.en_passant_target_square_index {
         Some(ep_target_untranslated) => BOARD_SQUARE_INDEX_TRANSLATION_64[ep_target_untranslated as usize],
         None => 0xFF,
@@ -166,7 +187,13 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                     DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
                                     0,
-                                    MOVE_SCORE_QUIET,
+                                    MOVE_SCORE_QUIET
+                                        + if USE_HISTORY {
+                                            history_table[history_color_value][piece_type - 1]
+                                                [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos] as usize]
+                                        } else {
+                                            0
+                                        },
                                 ));
                             } else {
                                 let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
@@ -287,7 +314,13 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                 DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                 0,
-                                MOVE_SCORE_QUIET,
+                                MOVE_SCORE_QUIET
+                                    + if USE_HISTORY {
+                                        history_table[history_color_value][PIECE_PAWN as usize - 1]
+                                            [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos] as usize]
+                                    } else {
+                                        0
+                                    },
                             ));
 
                             // On starting rank?
@@ -300,7 +333,14 @@ pub fn generate_moves_psuedo_legal(board: &Board) -> Vec<ScoredMove> {
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
                                         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
                                         MOVE_DOUBLE_PAWN,
-                                        MOVE_SCORE_QUIET,
+                                        MOVE_SCORE_QUIET
+                                            + if USE_HISTORY {
+                                                history_table[history_color_value][PIECE_PAWN as usize - 1]
+                                                    [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos]
+                                                        as usize]
+                                            } else {
+                                                0
+                                            },
                                     ));
                                 }
                             }
@@ -381,7 +421,7 @@ pub fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: boo
 
     if king_pos_opt.is_none() {
         if is_legality_test_after_move {
-            // The king is gone, checkmate alredy happened
+            // The king is gone, checkmate already happened
             return true;
         } else {
             panic!("Could not find opponent king in can_capture_opponent_king")
@@ -465,7 +505,7 @@ pub struct PerftStats {
 pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
     if depth == 0 {
         // slow as all heck
-        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES && generate_moves(board).is_empty() {
+        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES && generate_moves_without_history(board).is_empty() {
             stats.checkmates += 1;
         }
 
@@ -473,7 +513,7 @@ pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &
         return;
     }
 
-    let moves = generate_moves(board);
+    let moves = generate_moves_without_history(board);
     for r#move in &moves {
         board.make_move(&r#move.m, rollback);
 

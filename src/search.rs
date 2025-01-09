@@ -10,12 +10,17 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
-    move_generator::{can_capture_opponent_king, generate_moves, ScoredMove, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
+    move_generator::{
+        can_capture_opponent_king, generate_moves_with_history, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
+    },
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
 };
+
+pub type HistoryTable = [[[i16; 64]; 6]; 2];
+pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 
 const EMPTY_MOVE: Move = Move { data: 0 };
 
@@ -30,59 +35,12 @@ pub struct SearchStats {
 }
 
 impl Board {
-    pub fn search(
-        &mut self,
-        time: &Option<UciTimeControl>,
-        transposition_table: &mut TranspositionTable,
-    ) -> (Move, i16, SearchStats) {
-        let mut draft;
-        if cfg!(debug_assertions) {
-            draft = 4;
-        } else {
-            draft = 5;
-        }
-
-        if time.is_some() {
-            let t = time.as_ref().unwrap();
-            match t {
-                UciTimeControl::TimeLeft {
-                    white_time,
-                    black_time,
-                    white_increment,
-                    black_increment,
-                    moves_to_go,
-                } => {
-                    if self.white_to_move {
-                        if white_time.is_some() && white_time.as_ref().unwrap().num_seconds() < 30 {
-                            draft -= 1;
-                        }
-                    } else if black_time.is_some() && black_time.as_ref().unwrap().num_seconds() < 30 {
-                        draft -= 1;
-                    }
-                }
-                UciTimeControl::MoveTime(dur) => {
-                    if dur.num_seconds() < 5 {
-                        draft -= 1;
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let start_time = Instant::now();
-        let result = self.alpha_beta_init(draft, transposition_table).0;
-        let elapsed = start_time.elapsed();
-
-        UciInterface::print_search_info(result.1, &result.2, &elapsed);
-
-        result
-    }
-
     pub fn iterative_deepening_search(
         &mut self,
         time: &Option<UciTimeControl>,
         search: &Option<UciSearchControl>,
         transposition_table: &mut TranspositionTable,
+        history_table: &mut HistoryTable,
     ) -> (Move, i16, SearchStats) {
         let start_time = Instant::now();
         let target_dur;
@@ -146,7 +104,7 @@ impl Board {
         let mut depth = 1;
 
         loop {
-            let (result, end_search) = self.alpha_beta_init(depth, transposition_table);
+            let (result, end_search) = self.alpha_beta_init(depth, transposition_table, history_table);
             let elapsed = start_time.elapsed();
 
             // print less when using TT values
@@ -171,6 +129,7 @@ impl Board {
         &mut self,
         draft: u8,
         transposition_table: &mut TranspositionTable,
+        history_table: &mut HistoryTable,
     ) -> ((Move, i16, SearchStats), bool) {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
@@ -210,6 +169,7 @@ impl Board {
                     &mut stats,
                     transposition_table,
                     &mut killers,
+                    history_table,
                 );
             }
 
@@ -224,7 +184,7 @@ impl Board {
             }
         }
 
-        let mut moves = generate_moves(self);
+        let mut moves = generate_moves_with_history(self, history_table);
 
         if moves.is_empty() {
             error!(
@@ -263,6 +223,7 @@ impl Board {
                     &mut stats,
                     transposition_table,
                     &mut killers,
+                    history_table,
                 );
             }
 
@@ -298,10 +259,19 @@ impl Board {
         stats: &mut SearchStats,
         transposition_table: &mut TranspositionTable,
         killers: &mut [Move; 2],
+        history_table: &mut HistoryTable,
     ) -> i16 {
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
+            return self.quiescense_side_to_move_relative(
+                alpha,
+                beta,
+                ply + 1,
+                rollback,
+                stats,
+                transposition_table,
+                history_table,
+            );
         }
 
         let mut best_value = -i16::MAX;
@@ -314,7 +284,7 @@ impl Board {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
-                            update_killers(killers, &tt_data.important_move);
+                            self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
                             return tt_data.eval;
                         }
@@ -345,13 +315,14 @@ impl Board {
                     stats,
                     transposition_table,
                     &mut new_killers,
+                    history_table,
                 );
             }
 
             self.unmake_move(&tt_data.important_move, rollback);
 
             if result >= beta {
-                update_killers(killers, &tt_data.important_move);
+                self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
                 transposition_table.store_entry(
                     TTEntry {
@@ -376,7 +347,8 @@ impl Board {
             }
         }
 
-        let mut moves = generate_moves(self);
+        let mut moves = generate_moves_with_history(self, history_table);
+        let mut searched_quiet_moves = Vec::new();
 
         // Assuming no bug with move generation...
         if moves.is_empty() {
@@ -437,13 +409,19 @@ impl Board {
                     stats,
                     transposition_table,
                     &mut new_killers,
+                    history_table,
                 );
             }
 
             self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
-                update_killers(killers, &r#move.m);
+                self.update_killers_and_history(killers, &r#move.m, history_table, ply);
+
+                let penalty = -(ply as i16) * (ply as i16);
+                for m in searched_quiet_moves {
+                    self.update_history(history_table, &m, penalty);
+                }
 
                 transposition_table.store_entry(
                     TTEntry {
@@ -465,6 +443,10 @@ impl Board {
                 if result > alpha {
                     alpha = result;
                 }
+            }
+
+            if r#move.m.flags() == 0 {
+                searched_quiet_moves.push(r#move.m);
             }
         }
 
@@ -494,6 +476,7 @@ impl Board {
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
         transposition_table: &mut TranspositionTable,
+        history_table: &mut HistoryTable,
     ) -> i16 {
         stats.quiescense_nodes += 1;
 
@@ -551,6 +534,7 @@ impl Board {
                     rollback,
                     stats,
                     transposition_table,
+                    history_table,
                 );
 
                 self.unmake_move(&tt_data.important_move, rollback);
@@ -580,7 +564,7 @@ impl Board {
             }
         }
 
-        let moves = generate_moves(self);
+        let moves = generate_moves_with_history(self, history_table);
 
         if moves.is_empty() {
             self.white_to_move = !self.white_to_move;
@@ -606,8 +590,15 @@ impl Board {
             let result;
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            result =
-                -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
+            result = -self.quiescense_side_to_move_relative(
+                -beta,
+                -alpha,
+                ply + 1,
+                rollback,
+                stats,
+                transposition_table,
+                history_table,
+            );
 
             self.unmake_move(&r#move.m, rollback);
 
@@ -644,21 +635,34 @@ impl Board {
 
         best_value
     }
-}
 
-#[inline]
-fn update_killers(killers: &mut [Move; 2], m: &Move) {
-    if m.flags() != 0 {
-        return;
+    #[inline]
+    fn update_killers_and_history(&self, killers: &mut [Move; 2], m: &Move, history_table: &mut HistoryTable, ply_depth: u8) {
+        if m.flags() != 0 {
+            return;
+        }
+
+        self.update_history(history_table, m, (ply_depth as i16) * (ply_depth as i16));
+
+        if killers[0] == *m {
+            return;
+        }
+
+        if killers[1] == *m {
+            (killers[0], killers[1]) = (killers[1], killers[0]);
+        } else {
+            killers[1] = *m;
+        }
     }
 
-    if killers[0] == *m {
-        return;
-    }
+    #[inline]
+    fn update_history(&self, history_table: &mut HistoryTable, m: &Move, bonus: i16) {
+        // from https://www.chessprogramming.org/History_Heuristic
+        let piece_type = (self.get_piece_64(m.from() as usize) & PIECE_MASK) as usize;
+        let history_color_value = if self.white_to_move { 0 } else { 1 };
 
-    if killers[1] == *m {
-        (killers[0], killers[1]) = (killers[1], killers[0]);
-    } else {
-        killers[1] = *m;
+        let current_value = &mut history_table[history_color_value][piece_type - 1][m.to() as usize];
+        let clamped_bonus = bonus.clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
+        *current_value += clamped_bonus - ((*current_value) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX);
     }
 }

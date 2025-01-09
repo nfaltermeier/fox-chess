@@ -8,7 +8,8 @@ use crate::{
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
     evaluate::GAME_STAGE_VALUES,
-    move_generator::{generate_moves, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
+    move_generator::{generate_moves, generate_moves_without_history, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
+    search::DEFAULT_HISTORY_TABLE,
     STARTING_FEN,
 };
 
@@ -508,9 +509,10 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
+    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = generate_moves(&mut board);
+        let mut moves = generate_moves_without_history(&mut board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
             if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
@@ -543,9 +545,10 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
 
 pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
     let mut rollback = MoveRollback::default();
+    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = generate_moves(board);
+        let mut moves = generate_moves_without_history(board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
             if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
