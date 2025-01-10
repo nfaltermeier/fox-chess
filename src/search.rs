@@ -704,6 +704,7 @@ impl Board {
         *current_value += clamped_bonus - ((*current_value) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX);
     }
 
+    #[inline(never)]
     fn gather_pv(
         &mut self,
         first_move: &Move,
