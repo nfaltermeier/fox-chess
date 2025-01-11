@@ -34,3 +34,5 @@ A UCI chess engine
   - [ ] Judge the opponent's moves based on our PV and how they change the eval like described in [this thread](https://www.talkchess.com/forum/viewtopic.php?p=531133#p531133)
 - [ ] Redo mate scoring so at mate it returns the full 20000cp and then lower it as it walks up the tree. That way each node in tt will have the proper score.
 - [ ] Redo something about evaluation so it reports 0 as the eval for forced draws
+- [ ] Stop search if it is taking way too long - needs threading?
+- [ ] Always track position of kings to quickly check for move legality
