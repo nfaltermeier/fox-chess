@@ -410,12 +410,21 @@ pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
 
 pub fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: bool) -> bool {
     let mut king_pos_opt = None;
-    let opponent_color = if board.white_to_move { COLOR_BLACK } else { 0 };
-    let opponent_king_piece = PIECE_KING | opponent_color;
-    for i in 0..64 {
-        if board.get_piece_64(i) == opponent_king_piece {
-            king_pos_opt = Some(i);
-            break;
+    if board.white_to_move {
+        let opponent_king_piece = PIECE_KING | COLOR_BLACK;
+        for i in (0..64).rev() {
+            if board.get_piece_64(i) == opponent_king_piece {
+                king_pos_opt = Some(i);
+                break;
+            }
+        }
+    } else {
+        let opponent_king_piece = PIECE_KING;
+        for i in 0..64 {
+            if board.get_piece_64(i) == opponent_king_piece {
+                king_pos_opt = Some(i);
+                break;
+            }
         }
     }
 
