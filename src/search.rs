@@ -566,18 +566,6 @@ impl Board {
 
         let moves = generate_moves_with_history(self, history_table);
 
-        if moves.is_empty() {
-            self.white_to_move = !self.white_to_move;
-            let is_check = can_capture_opponent_king(self, false);
-            self.white_to_move = !self.white_to_move;
-
-            if is_check {
-                return self.evaluate_checkmate_side_to_move_relative(ply);
-            } else {
-                return 0;
-            }
-        }
-
         let mut capture_moves = moves
             .into_iter()
             .filter(|m| m.m.flags() & MOVE_FLAG_CAPTURE != 0)
