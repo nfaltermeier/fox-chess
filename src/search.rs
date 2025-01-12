@@ -183,7 +183,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                let search_result = self.alpha_beta_recurse(
+                result = -self.alpha_beta_recurse(
                     -i16::MAX,
                     -alpha,
                     draft - 1,
@@ -193,17 +193,7 @@ impl Board {
                     transposition_table,
                     &mut killers,
                     history_table,
-                    cancel_search_at,
                 );
-
-                if let Some(r) = search_result {
-                    result = -r;
-                } else {
-                    return AlphaBetaResult {
-                        search_result: None,
-                        end_search: true,
-                    };
-                }
             }
 
             self.unmake_move(&tt_data.important_move, &mut rollback);
@@ -248,13 +238,20 @@ impl Board {
                 continue;
             }
 
+            if Instant::now() >= *cancel_search_at {
+                return AlphaBetaResult {
+                    search_result: None,
+                    end_search: true,
+                };
+            }
+
             self.make_move(&r#move.m, &mut rollback);
 
             let result;
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                let search_result = self.alpha_beta_recurse(
+                result = -self.alpha_beta_recurse(
                     -i16::MAX,
                     -alpha,
                     draft - 1,
@@ -264,17 +261,7 @@ impl Board {
                     transposition_table,
                     &mut killers,
                     history_table,
-                    cancel_search_at,
                 );
-
-                if let Some(r) = search_result {
-                    result = -r;
-                } else {
-                    return AlphaBetaResult {
-                        search_result: None,
-                        end_search: true,
-                    };
-                }
             }
 
             self.unmake_move(&r#move.m, &mut rollback);
@@ -310,22 +297,10 @@ impl Board {
         transposition_table: &mut TranspositionTable,
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
-        cancel_search_at: &Instant,
-    ) -> Option<i16> {
-        if draft % 4 == 3 && Instant::now() >= *cancel_search_at {
-            return None;
-        }
-
+    ) -> i16 {
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return Some(self.quiescense_side_to_move_relative(
-                alpha,
-                beta,
-                ply + 1,
-                rollback,
-                stats,
-                transposition_table,
-            ));
+            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
         }
 
         let mut best_value = -i16::MAX;
@@ -340,15 +315,15 @@ impl Board {
                         if tt_data.eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
-                            return Some(tt_data.eval);
+                            return tt_data.eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return Some(tt_data.eval);
+                        return tt_data.eval;
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_data.eval < alpha {
-                            return Some(tt_data.eval);
+                            return tt_data.eval;
                         }
                     }
                 }
@@ -360,7 +335,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                let search_result = self.alpha_beta_recurse(
+                result = -self.alpha_beta_recurse(
                     -beta,
                     -alpha,
                     draft - 1,
@@ -370,14 +345,7 @@ impl Board {
                     transposition_table,
                     &mut new_killers,
                     history_table,
-                    cancel_search_at,
                 );
-
-                if let Some(r) = search_result {
-                    result = -r;
-                } else {
-                    return None;
-                }
             }
 
             self.unmake_move(&tt_data.important_move, rollback);
@@ -396,7 +364,7 @@ impl Board {
                     TableType::Main,
                 );
 
-                return Some(result);
+                return result;
             }
 
             if result > best_value {
@@ -418,9 +386,9 @@ impl Board {
             self.white_to_move = !self.white_to_move;
 
             if is_check {
-                return Some(self.evaluate_checkmate_side_to_move_relative(ply));
+                return self.evaluate_checkmate_side_to_move_relative(ply);
             } else {
-                return Some(0);
+                return 0;
             }
         }
 
@@ -461,7 +429,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                let search_result = self.alpha_beta_recurse(
+                result = -self.alpha_beta_recurse(
                     -beta,
                     -alpha,
                     draft - 1,
@@ -471,14 +439,7 @@ impl Board {
                     transposition_table,
                     &mut new_killers,
                     history_table,
-                    cancel_search_at,
                 );
-
-                if let Some(r) = search_result {
-                    result = -r;
-                } else {
-                    return None;
-                }
             }
 
             self.unmake_move(&r#move.m, rollback);
@@ -502,7 +463,7 @@ impl Board {
                     TableType::Main,
                 );
 
-                return Some(result);
+                return result;
             }
 
             if result > best_value {
@@ -533,7 +494,7 @@ impl Board {
             TableType::Main,
         );
 
-        Some(best_value)
+        best_value
     }
 
     pub fn quiescense_side_to_move_relative(
