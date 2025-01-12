@@ -170,17 +170,19 @@ pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
                             }
 
                             if target_piece == PIECE_NONE {
-                                trace!(
-                                    "{} {} {:#04x} {} {} {} {:#04x} {}",
-                                    i,
-                                    index_10x12_to_pos_str(i as u8),
-                                    piece,
-                                    piece_to_name(piece),
-                                    cur_pos,
-                                    index_10x12_to_pos_str(cur_pos as u8),
-                                    target_piece,
-                                    piece_to_name(target_piece)
-                                );
+                                // if log_enabled!(log::Level::Trace) {
+                                //     trace!(
+                                //         "{} {} {:#04x} {} {} {} {:#04x} {}",
+                                //         i,
+                                //         index_10x12_to_pos_str(i as u8),
+                                //         piece,
+                                //         piece_to_name(piece),
+                                //         cur_pos,
+                                //         index_10x12_to_pos_str(cur_pos as u8),
+                                //         target_piece,
+                                //         piece_to_name(target_piece)
+                                //     );
+                                // }
 
                                 // Doing this extra translation is probably bad for performance. May as well use 3 bytes per move instead of 2?
                                 result.push(ScoredMove::new(
