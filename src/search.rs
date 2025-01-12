@@ -11,7 +11,7 @@ use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
     move_generator::{
-        can_capture_opponent_king, generate_moves_with_history, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
+        can_capture_opponent_king, generate_moves_with_history, ScoredMove, MOVE_SCORE_CAPTURE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
@@ -509,7 +509,7 @@ impl Board {
 
         if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
             // avoid underflow
-            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
+            if alpha >= i16::MIN + 2000 && stand_pat < alpha - 2000 {
                 stats.quiescense_cut_by_hopeless += 1;
                 return alpha;
             }
@@ -590,6 +590,17 @@ impl Board {
         capture_moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in capture_moves {
+            if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+                // To account for pawn promotion
+                if stand_pat + r#move.score - MOVE_SCORE_CAPTURE + 200 < alpha {
+                    let target_piece = self.get_piece_64(r#move.m.to() as usize);
+                    // To account for equal trades like rook takes rook
+                    if stand_pat + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize] + 200 < alpha {
+                        return alpha;
+                    }
+                }
+            }
+
             self.make_move(&r#move.m, rollback);
             let result;
 

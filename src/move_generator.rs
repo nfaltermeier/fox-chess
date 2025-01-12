@@ -24,7 +24,7 @@ pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
 /// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800
-const MOVE_SCORE_CAPTURE: i16 = 2000;
+pub const MOVE_SCORE_CAPTURE: i16 = 2000;
 pub const MOVE_SCORE_KILLER_1: i16 = 1999;
 pub const MOVE_SCORE_KILLER_2: i16 = 1998;
 /// Has value of piece is becomes added so really the range is +300 to +900
