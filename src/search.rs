@@ -11,7 +11,8 @@ use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
     move_generator::{
-        can_capture_opponent_king, generate_moves_with_history, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
+        can_capture_opponent_king, generate_capture_moves, generate_moves_with_history, ScoredMove,
+        MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
     },
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
@@ -263,15 +264,7 @@ impl Board {
     ) -> i16 {
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(
-                alpha,
-                beta,
-                ply + 1,
-                rollback,
-                stats,
-                transposition_table,
-                history_table,
-            );
+            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
         }
 
         let mut best_value = -i16::MAX;
@@ -476,7 +469,6 @@ impl Board {
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
         transposition_table: &mut TranspositionTable,
-        history_table: &mut HistoryTable,
     ) -> i16 {
         stats.quiescense_nodes += 1;
 
@@ -534,7 +526,6 @@ impl Board {
                     rollback,
                     stats,
                     transposition_table,
-                    history_table,
                 );
 
                 self.unmake_move(&tt_data.important_move, rollback);
@@ -564,45 +555,17 @@ impl Board {
             }
         }
 
-        let moves = generate_moves_with_history(self, history_table);
+        let mut moves = generate_capture_moves(self);
 
-        if moves.is_empty() {
-            self.white_to_move = !self.white_to_move;
-            let is_check = can_capture_opponent_king(self, false);
-            self.white_to_move = !self.white_to_move;
+        moves.sort_by_key(|m| Reverse(m.score));
 
-            if is_check {
-                return stand_pat + if self.white_to_move { 50 } else { -50 };
-            } else {
-                return if self.white_to_move {
-                    0.max(stand_pat - 50)
-                } else {
-                    0.min(stand_pat + 50)
-                }
-            }
-        }
-
-        let mut capture_moves = moves
-            .into_iter()
-            .filter(|m| m.m.flags() & MOVE_FLAG_CAPTURE != 0)
-            .collect::<Vec<ScoredMove>>();
-
-        capture_moves.sort_by_key(|m| Reverse(m.score));
-
-        for r#move in capture_moves {
+        for r#move in moves {
             self.make_move(&r#move.m, rollback);
             let result;
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            result = -self.quiescense_side_to_move_relative(
-                -beta,
-                -alpha,
-                ply + 1,
-                rollback,
-                stats,
-                transposition_table,
-                history_table,
-            );
+            result =
+                -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
 
             self.unmake_move(&r#move.m, rollback);
 
@@ -652,7 +615,13 @@ impl Board {
     }
 
     #[inline]
-    fn update_killers_and_history(&self, killers: &mut [Move; 2], m: &Move, history_table: &mut HistoryTable, ply_depth: u8) {
+    fn update_killers_and_history(
+        &self,
+        killers: &mut [Move; 2],
+        m: &Move,
+        history_table: &mut HistoryTable,
+        ply_depth: u8,
+    ) {
         if m.flags() != 0 {
             return;
         }

@@ -35,7 +35,6 @@ const MOVE_SCORE_QUEEN_CASTLE: i16 = 501;
 pub const MOVE_SCORE_HISTORY_MAX: i16 = 500;
 const MOVE_SCORE_QUIET: i16 = 0;
 
-
 /// Values from https://www.chessprogramming.org/10x12_Board under TSCP
 /// If the piece can slide through squares when moving
 const SLIDES: [bool; 5] = [false, true, true, true, false];
@@ -51,17 +50,25 @@ const OFFSET: [[i8; 8]; 5] = [
 
 #[inline]
 pub fn generate_moves_with_history(board: &mut Board, history_table: &HistoryTable) -> Vec<ScoredMove> {
-    generate_moves::<true>(board, history_table)
+    generate_moves::<true, false>(board, history_table)
 }
 
 #[inline]
 pub fn generate_moves_without_history(board: &mut Board) -> Vec<ScoredMove> {
-    generate_moves::<false>(board, &DEFAULT_HISTORY_TABLE)
+    generate_moves::<false, false>(board, &DEFAULT_HISTORY_TABLE)
+}
+
+#[inline]
+pub fn generate_capture_moves(board: &mut Board) -> Vec<ScoredMove> {
+    generate_moves::<false, true>(board, &DEFAULT_HISTORY_TABLE)
 }
 
 /// if make and unmake move work properly then at the end board should be back to it's original state
-pub fn generate_moves<const USE_HISTORY: bool>(board: &mut Board, history_table: &HistoryTable) -> Vec<ScoredMove> {
-    let mut moves = generate_moves_psuedo_legal::<USE_HISTORY>(board, history_table);
+pub fn generate_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
+    board: &mut Board,
+    history_table: &HistoryTable,
+) -> Vec<ScoredMove> {
+    let mut moves = generate_moves_psuedo_legal::<USE_HISTORY, ONLY_CAPTURES>(board, history_table);
     let mut rollback = MoveRollback::default();
     let mut board_copy = None;
     if ENABLE_UNMAKE_MOVE_TEST {
@@ -134,7 +141,7 @@ pub fn generate_moves<const USE_HISTORY: bool>(board: &mut Board, history_table:
     moves
 }
 
-pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
+pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
     board: &Board,
     history_table: &HistoryTable,
 ) -> Vec<ScoredMove> {
@@ -170,38 +177,40 @@ pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
                             }
 
                             if target_piece == PIECE_NONE {
-                                // if log_enabled!(log::Level::Trace) {
-                                //     trace!(
-                                //         "{} {} {:#04x} {} {} {} {:#04x} {}",
-                                //         i,
-                                //         index_10x12_to_pos_str(i as u8),
-                                //         piece,
-                                //         piece_to_name(piece),
-                                //         cur_pos,
-                                //         index_10x12_to_pos_str(cur_pos as u8),
-                                //         target_piece,
-                                //         piece_to_name(target_piece)
-                                //     );
-                                // }
+                                if !ONLY_CAPTURES {
+                                    // if log_enabled!(log::Level::Trace) {
+                                    //     trace!(
+                                    //         "{} {} {:#04x} {} {} {} {:#04x} {}",
+                                    //         i,
+                                    //         index_10x12_to_pos_str(i as u8),
+                                    //         piece,
+                                    //         piece_to_name(piece),
+                                    //         cur_pos,
+                                    //         index_10x12_to_pos_str(cur_pos as u8),
+                                    //         target_piece,
+                                    //         piece_to_name(target_piece)
+                                    //     );
+                                    // }
 
-                                // Doing this extra translation is probably bad for performance. May as well use 3 bytes per move instead of 2?
-                                result.push(ScoredMove::new(
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
-                                    0,
-                                    MOVE_SCORE_QUIET
-                                        + if USE_HISTORY {
-                                            history_table[history_color_value][piece_type - 1]
-                                                [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos] as usize]
-                                        } else {
-                                            0
-                                        },
-                                ));
+                                    // Doing this extra translation is probably bad for performance. May as well use 3 bytes per move instead of 2?
+                                    result.push(ScoredMove::new(
+                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
+                                        0,
+                                        MOVE_SCORE_QUIET
+                                            + if USE_HISTORY {
+                                                history_table[history_color_value][piece_type - 1]
+                                                    [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos] as usize]
+                                            } else {
+                                                0
+                                            },
+                                    ));
+                                }
                             } else {
-                                let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                                    - CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize];
-
                                 if target_piece & COLOR_FLAG_MASK != color_flag {
+                                    let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                                        - CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize];
+
                                     // if log_enabled!(log::Level::Trace) {
                                     //     trace!(
                                     //         "{} {} {:#04x} {} {} {} {:#04x} {}",
@@ -232,7 +241,7 @@ pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
                         }
                     }
 
-                    if piece_type == PIECE_KING as usize {
+                    if piece_type == PIECE_KING as usize && !ONLY_CAPTURES {
                         for offset in [-1, 1] {
                             if (offset == -1
                                 && board.white_to_move
@@ -281,77 +290,82 @@ pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool>(
                 } else {
                     // Do pawn movement
                     let direction_sign: isize = if board.white_to_move { 1 } else { -1 };
-                    let mut target_pos = i.checked_add_signed(10 * direction_sign).unwrap();
-                    let mut target_piece = board.get_piece(target_pos);
-                    let can_promo = (target_pos > 20 && target_pos < 30) || (target_pos > 90 && target_pos < 100);
+                    let can_promo =
+                        (!board.white_to_move && i > 30 && i < 40) || (board.white_to_move && i > 80 && i < 900);
 
-                    if target_piece == PIECE_NONE {
-                        if can_promo {
-                            result.push(ScoredMove::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_QUEEN,
-                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
-                            ));
-                            result.push(ScoredMove::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_ROOK,
-                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
-                            ));
-                            result.push(ScoredMove::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_BISHOP,
-                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
-                            ));
-                            result.push(ScoredMove::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                MOVE_PROMO_KNIGHT,
-                                MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
-                            ));
-                        } else {
-                            result.push(ScoredMove::new(
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                0,
-                                MOVE_SCORE_QUIET
-                                    + if USE_HISTORY {
-                                        history_table[history_color_value][PIECE_PAWN as usize - 1]
-                                            [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos] as usize]
-                                    } else {
-                                        0
-                                    },
-                            ));
+                    if !ONLY_CAPTURES {
+                        let mut target_pos = i.checked_add_signed(10 * direction_sign).unwrap();
+                        let mut target_piece = board.get_piece(target_pos);
+                        if target_piece == PIECE_NONE {
+                            if can_promo {
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_QUEEN,
+                                    MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                                ));
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_ROOK,
+                                    MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                                ));
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_BISHOP,
+                                    MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                                ));
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    MOVE_PROMO_KNIGHT,
+                                    MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                                ));
+                            } else {
+                                result.push(ScoredMove::new(
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                    0,
+                                    MOVE_SCORE_QUIET
+                                        + if USE_HISTORY {
+                                            history_table[history_color_value][PIECE_PAWN as usize - 1]
+                                                [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos] as usize]
+                                        } else {
+                                            0
+                                        },
+                                ));
 
-                            // On starting rank?
-                            if (board.white_to_move && i > 30 && i < 40) || (!board.white_to_move && i > 80 && i < 90) {
-                                target_pos = target_pos.checked_add_signed(10 * direction_sign).unwrap();
-                                target_piece = board.get_piece(target_pos);
+                                // On starting rank?
+                                if (board.white_to_move && i > 30 && i < 40)
+                                    || (!board.white_to_move && i > 80 && i < 90)
+                                {
+                                    target_pos = target_pos.checked_add_signed(10 * direction_sign).unwrap();
+                                    target_piece = board.get_piece(target_pos);
 
-                                if target_piece == PIECE_NONE {
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_DOUBLE_PAWN,
-                                        MOVE_SCORE_QUIET
-                                            + if USE_HISTORY {
-                                                history_table[history_color_value][PIECE_PAWN as usize - 1]
-                                                    [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos]
-                                                        as usize]
-                                            } else {
-                                                0
-                                            },
-                                    ));
+                                    if target_piece == PIECE_NONE {
+                                        result.push(ScoredMove::new(
+                                            DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
+                                            DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
+                                            MOVE_DOUBLE_PAWN,
+                                            MOVE_SCORE_QUIET
+                                                + if USE_HISTORY {
+                                                    history_table[history_color_value][PIECE_PAWN as usize - 1]
+                                                        [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos]
+                                                            as usize]
+                                                } else {
+                                                    0
+                                                },
+                                        ));
+                                    }
                                 }
                             }
                         }
                     }
 
                     for offset in [9, 11] {
-                        target_pos = i.checked_add_signed(offset * direction_sign).unwrap();
-                        target_piece = board.get_piece(target_pos);
+                        let target_pos = i.checked_add_signed(offset * direction_sign).unwrap();
+                        let target_piece = board.get_piece(target_pos);
 
                         if target_piece != PIECE_INVALID
                             && ((target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)

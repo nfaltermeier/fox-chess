@@ -49,10 +49,9 @@ fn main() {
     let _ = *HASH_VALUES;
 
     run_uci();
-    
+
     // print_moves_from_pos("4k3/8/8/8/3qbrp1/3QPB2/4N3/4K3 w - - 0 1");
     // do_perft(5, STARTING_FEN);
-    // do_perft(5, "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
     // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
     // do_perft(5, "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
