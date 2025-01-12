@@ -607,6 +607,17 @@ impl Board {
             self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
+                transposition_table.store_entry(
+                    TTEntry {
+                        hash: self.hash,
+                        important_move: r#move.m,
+                        move_type: MoveType::FailHigh,
+                        eval: result,
+                        move_num: self.fullmove_counter,
+                    },
+                    TableType::Quiescense,
+                );
+
                 return result;
             }
 
