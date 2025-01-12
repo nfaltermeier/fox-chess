@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use log::error;
+use log::{debug, error};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
@@ -35,6 +35,17 @@ pub struct SearchStats {
     pub leaf_nodes: u64,
 }
 
+pub struct SearchResult {
+    pub best_move: Move,
+    pub eval: i16,
+    pub stats: SearchStats,
+}
+
+pub struct AlphaBetaResult {
+    pub search_result: Option<SearchResult>,
+    pub end_search: bool,
+}
+
 impl Board {
     pub fn iterative_deepening_search(
         &mut self,
@@ -42,7 +53,7 @@ impl Board {
         search: &Option<UciSearchControl>,
         transposition_table: &mut TranspositionTable,
         history_table: &mut HistoryTable,
-    ) -> (Move, i16, SearchStats) {
+    ) -> SearchResult {
         let start_time = Instant::now();
         let target_dur;
 
@@ -102,24 +113,34 @@ impl Board {
         // Above 5 depth moves can start taking a lot more time
         let cutoff_low_depth = target_dur.mul_f32(0.55);
         let cutoff = target_dur.mul_f32(0.35);
+        let cancel_search_time = start_time.checked_add(target_dur.mul_f32(2.0)).unwrap();
+
         let mut depth = 1;
-
+        let mut latest_result = None;
         loop {
-            let (result, end_search) = self.alpha_beta_init(depth, transposition_table, history_table);
-            let elapsed = start_time.elapsed();
+            let result = self.alpha_beta_init(depth, transposition_table, history_table, &cancel_search_time);
+            if let Some(search_result) = result.search_result {
+                let elapsed = start_time.elapsed();
 
-            // print less when using TT values
-            if result.2.leaf_nodes != 0 || depth == 1 {
-                UciInterface::print_search_info(result.1, &result.2, &elapsed);
-            }
+                // print less when using TT values
+                if search_result.stats.leaf_nodes != 0 || depth == 1 {
+                    UciInterface::print_search_info(search_result.eval, &search_result.stats, &elapsed);
+                }
 
-            if end_search
-                || (depth >= 5 && elapsed >= cutoff)
-                || elapsed >= cutoff_low_depth
-                || result.1.abs() >= 19800
-                || depth >= 40
-            {
-                return result;
+                if result.end_search
+                    || (depth >= 5 && elapsed >= cutoff)
+                    || elapsed >= cutoff_low_depth
+                    || search_result.eval.abs() >= 19800
+                    || depth >= 40
+                {
+                    return search_result;
+                }
+
+                latest_result = Some(search_result);
+            } else {
+                debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                return latest_result
+                    .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
             }
 
             depth += 1;
@@ -131,7 +152,8 @@ impl Board {
         draft: u8,
         transposition_table: &mut TranspositionTable,
         history_table: &mut HistoryTable,
-    ) -> ((Move, i16, SearchStats), bool) {
+        cancel_search_at: &Instant,
+    ) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
         let mut best_move = None;
@@ -144,14 +166,14 @@ impl Board {
             if tt_data.move_num >= self.fullmove_counter + draft as u16 {
                 if let transposition_table::MoveType::Best = tt_data.move_type {
                     // should this be done for the root????
-                    return (
-                        (
-                            tt_data.important_move,
-                            tt_data.eval * if self.white_to_move { 1 } else { -1 },
+                    return AlphaBetaResult {
+                        search_result: Some(SearchResult {
+                            best_move: tt_data.important_move,
+                            eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
                             stats,
-                        ),
-                        false,
-                    );
+                        }),
+                        end_search: false,
+                    };
                 }
             }
 
@@ -161,7 +183,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                result = -self.alpha_beta_recurse(
+                let search_result = self.alpha_beta_recurse(
                     -i16::MAX,
                     -alpha,
                     draft - 1,
@@ -171,7 +193,17 @@ impl Board {
                     transposition_table,
                     &mut killers,
                     history_table,
+                    cancel_search_at,
                 );
+
+                if let Some(r) = search_result {
+                    result = -r;
+                } else {
+                    return AlphaBetaResult {
+                        search_result: None,
+                        end_search: true,
+                    };
+                }
             }
 
             self.unmake_move(&tt_data.important_move, &mut rollback);
@@ -197,7 +229,14 @@ impl Board {
 
         if moves.len() == 1 {
             stats.depth = 1;
-            return ((moves.pop().unwrap().m, self.evaluate(), stats), true);
+            return AlphaBetaResult {
+                search_result: Some(SearchResult {
+                    best_move: moves.pop().unwrap().m,
+                    eval: self.evaluate(),
+                    stats,
+                }),
+                end_search: true,
+            };
         } else {
             stats.depth = draft;
         }
@@ -215,7 +254,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                result = -self.alpha_beta_recurse(
+                let search_result = self.alpha_beta_recurse(
                     -i16::MAX,
                     -alpha,
                     draft - 1,
@@ -225,7 +264,17 @@ impl Board {
                     transposition_table,
                     &mut killers,
                     history_table,
+                    cancel_search_at,
                 );
+
+                if let Some(r) = search_result {
+                    result = -r;
+                } else {
+                    return AlphaBetaResult {
+                        search_result: None,
+                        end_search: true,
+                    };
+                }
             }
 
             self.unmake_move(&r#move.m, &mut rollback);
@@ -240,14 +289,14 @@ impl Board {
         }
 
         // Make the score not side-to-move relative
-        (
-            (
-                best_move.unwrap(),
-                best_value * if self.white_to_move { 1 } else { -1 },
+        AlphaBetaResult {
+            search_result: Some(SearchResult {
+                best_move: best_move.unwrap(),
+                eval: best_value * if self.white_to_move { 1 } else { -1 },
                 stats,
-            ),
-            false,
-        )
+            }),
+            end_search: false,
+        }
     }
 
     fn alpha_beta_recurse(
@@ -261,10 +310,22 @@ impl Board {
         transposition_table: &mut TranspositionTable,
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
-    ) -> i16 {
+        cancel_search_at: &Instant,
+    ) -> Option<i16> {
+        if draft % 4 == 3 && Instant::now() >= *cancel_search_at {
+            return None;
+        }
+
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
+            return Some(self.quiescense_side_to_move_relative(
+                alpha,
+                beta,
+                ply + 1,
+                rollback,
+                stats,
+                transposition_table,
+            ));
         }
 
         let mut best_value = -i16::MAX;
@@ -279,15 +340,15 @@ impl Board {
                         if tt_data.eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
-                            return tt_data.eval;
+                            return Some(tt_data.eval);
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return tt_data.eval;
+                        return Some(tt_data.eval);
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_data.eval < alpha {
-                            return tt_data.eval;
+                            return Some(tt_data.eval);
                         }
                     }
                 }
@@ -299,7 +360,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                result = -self.alpha_beta_recurse(
+                let search_result = self.alpha_beta_recurse(
                     -beta,
                     -alpha,
                     draft - 1,
@@ -309,7 +370,14 @@ impl Board {
                     transposition_table,
                     &mut new_killers,
                     history_table,
+                    cancel_search_at,
                 );
+
+                if let Some(r) = search_result {
+                    result = -r;
+                } else {
+                    return None;
+                }
             }
 
             self.unmake_move(&tt_data.important_move, rollback);
@@ -328,7 +396,7 @@ impl Board {
                     TableType::Main,
                 );
 
-                return result;
+                return Some(result);
             }
 
             if result > best_value {
@@ -350,9 +418,9 @@ impl Board {
             self.white_to_move = !self.white_to_move;
 
             if is_check {
-                return self.evaluate_checkmate_side_to_move_relative(ply);
+                return Some(self.evaluate_checkmate_side_to_move_relative(ply));
             } else {
-                return 0;
+                return Some(0);
             }
         }
 
@@ -393,7 +461,7 @@ impl Board {
             if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
-                result = -self.alpha_beta_recurse(
+                let search_result = self.alpha_beta_recurse(
                     -beta,
                     -alpha,
                     draft - 1,
@@ -403,7 +471,14 @@ impl Board {
                     transposition_table,
                     &mut new_killers,
                     history_table,
+                    cancel_search_at,
                 );
+
+                if let Some(r) = search_result {
+                    result = -r;
+                } else {
+                    return None;
+                }
             }
 
             self.unmake_move(&r#move.m, rollback);
@@ -427,7 +502,7 @@ impl Board {
                     TableType::Main,
                 );
 
-                return result;
+                return Some(result);
             }
 
             if result > best_value {
@@ -458,7 +533,7 @@ impl Board {
             TableType::Main,
         );
 
-        best_value
+        Some(best_value)
     }
 
     pub fn quiescense_side_to_move_relative(
