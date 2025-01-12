@@ -36,3 +36,5 @@ A UCI chess engine
 - [ ] Redo something about evaluation so it reports 0 as the eval for forced draws
 - [ ] Stop search if it is taking way too long - needs threading?
 - [ ] Always track position of kings to quickly check for move legality
+- [ ] [Ronald de Man's ideas on Scoring Root Moves](https://www.chessprogramming.org/Ronald_de_Man#ScoringRootMoves)
+  - Need to be careful around draws. I think I need to not apply randomness in range of a draw.
