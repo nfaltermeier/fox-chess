@@ -596,7 +596,7 @@ impl Board {
                     let target_piece = self.get_piece_64(r#move.m.to() as usize);
                     // To account for equal trades like rook takes rook
                     if stand_pat + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize] + 200 < alpha {
-                        return alpha;
+                        break;
                     }
                 }
             }
