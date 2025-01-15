@@ -122,14 +122,14 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
-                        let move_data = b.iterative_deepening_search(
+                        let search_result = b.iterative_deepening_search(
                             &time_control,
                             &search_control,
                             &mut self.transposition_table,
                             &mut self.history_table,
                         );
 
-                        println!("bestmove {}", move_data.0.simple_long_algebraic_notation());
+                        println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
 
                         debug!(
                             "transposition_table index collisions {}",

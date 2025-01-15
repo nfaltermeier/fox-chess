@@ -2,14 +2,15 @@ use std::{
     cmp::{Ordering, Reverse}, collections::HashSet, i16, time::Instant
 };
 
-use log::{error, trace};
+use log::{debug, error, trace};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
     move_generator::{
-        can_capture_opponent_king, generate_moves_with_history, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
+        can_capture_opponent_king, generate_capture_moves, generate_moves_with_history, ScoredMove,
+        MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
     },
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
@@ -38,6 +39,17 @@ enum SearchControl {
     Depth,
 }
 
+pub struct SearchResult {
+    pub best_move: Move,
+    pub eval: i16,
+    pub stats: SearchStats,
+}
+
+pub struct AlphaBetaResult {
+    pub search_result: Option<SearchResult>,
+    pub end_search: bool,
+}
+
 impl Board {
     pub fn iterative_deepening_search(
         &mut self,
@@ -45,7 +57,7 @@ impl Board {
         search: &Option<UciSearchControl>,
         transposition_table: &mut TranspositionTable,
         history_table: &mut HistoryTable,
-    ) -> (Move, i16, SearchStats) {
+    ) -> SearchResult {
         let start_time = Instant::now();
         let mut target_dur = None;
         let search_control: SearchControl;
@@ -118,37 +130,49 @@ impl Board {
         // Above 5 depth moves can start taking a lot more time
         let cutoff_low_depth;
         let cutoff;
+        let cancel_search_time;
         match target_dur {
             Some(d) => {
                 cutoff_low_depth = Some(d.mul_f32(0.55));
                 cutoff = Some(d.mul_f32(0.35));
+                cancel_search_time  = Some(start_time.checked_add(d.mul_f32(2.0)).unwrap());
             }
             None => {
                 cutoff = None;
                 cutoff_low_depth = None;
+                cancel_search_time = None;
             }
         }
         let mut depth = 1;
-
+        let mut latest_result = None;
         loop {
-            let (result, end_search) = self.alpha_beta_init(depth, transposition_table, history_table);
-            let elapsed = start_time.elapsed();
+            let result = self.alpha_beta_init(depth, transposition_table, history_table, &cancel_search_time);
+            if let Some(search_result) = result.search_result {
+                let elapsed = start_time.elapsed();
 
-            // print less when using TT values
-            if result.2.leaf_nodes != 0 || depth == 1 {
-                UciInterface::print_search_info(result.1, &result.2, &elapsed);
-            }
-
-            if end_search
-                || result.1.abs() >= 19800
-                || match search_control {
-                    SearchControl::Time => {
-                        (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
-                    }
-                    SearchControl::Depth => depth >= max_depth,
+                // print less when using TT values
+                if search_result.stats.leaf_nodes != 0 || depth == 1 {
+                    UciInterface::print_search_info(search_result.eval, &search_result.stats, &elapsed);
                 }
-            {
-                return result;
+
+                if result.end_search
+                    || search_result.eval.abs() >= 19800
+                    || depth >= max_depth
+                    || match search_control {
+                        SearchControl::Time => {
+                            (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
+                        }
+                        SearchControl::Depth => false,
+                    }
+                {
+                    return search_result;
+                }
+
+                latest_result = Some(search_result);
+            } else {
+                debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                return latest_result
+                    .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
             }
 
             depth += 1;
@@ -160,7 +184,8 @@ impl Board {
         draft: u8,
         transposition_table: &mut TranspositionTable,
         history_table: &mut HistoryTable,
-    ) -> ((Move, i16, SearchStats), bool) {
+        cancel_search_at: &Option<Instant>,
+    ) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
         let mut best_move = None;
@@ -175,14 +200,14 @@ impl Board {
                     self.gather_pv(&tt_data.important_move, transposition_table, &mut stats, &mut rollback);
 
                     // should this be done for the root????
-                    return (
-                        (
-                            tt_data.important_move,
-                            tt_data.eval * if self.white_to_move { 1 } else { -1 },
+                    return AlphaBetaResult {
+                        search_result: Some(SearchResult {
+                            best_move: tt_data.important_move,
+                            eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
                             stats,
-                        ),
-                        false,
-                    );
+                        }),
+                        end_search: false,
+                    };
                 }
             }
 
@@ -232,7 +257,14 @@ impl Board {
             let m = moves.pop().unwrap().m;
             self.gather_pv(&m, transposition_table, &mut stats, &mut rollback);
 
-            return ((m, self.evaluate(), stats), true);
+            return AlphaBetaResult {
+                search_result: Some(SearchResult {
+                    best_move: m,
+                    eval: self.evaluate(),
+                    stats,
+                }),
+                end_search: true,
+            };
         } else {
             stats.depth = draft;
         }
@@ -242,6 +274,13 @@ impl Board {
         for r#move in moves {
             if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                 continue;
+            }
+
+            if cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+                return AlphaBetaResult {
+                    search_result: None,
+                    end_search: true,
+                };
             }
 
             self.make_move(&r#move.m, &mut rollback);
@@ -277,14 +316,14 @@ impl Board {
         self.gather_pv(&best_move.unwrap(), transposition_table, &mut stats, &mut rollback);
 
         // Make the score not side-to-move relative
-        (
-            (
-                best_move.unwrap(),
-                best_value * if self.white_to_move { 1 } else { -1 },
+        AlphaBetaResult {
+            search_result: Some(SearchResult {
+                best_move: best_move.unwrap(),
+                eval: best_value * if self.white_to_move { 1 } else { -1 },
                 stats,
-            ),
-            false,
-        )
+            }),
+            end_search: false,
+        }
     }
 
     fn alpha_beta_recurse(
@@ -301,15 +340,7 @@ impl Board {
     ) -> i16 {
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(
-                alpha,
-                beta,
-                ply + 1,
-                rollback,
-                stats,
-                transposition_table,
-                history_table,
-            );
+            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
         }
 
         let mut best_value = -i16::MAX;
@@ -514,7 +545,6 @@ impl Board {
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
         transposition_table: &mut TranspositionTable,
-        history_table: &mut HistoryTable,
     ) -> i16 {
         stats.quiescense_nodes += 1;
 
@@ -572,7 +602,6 @@ impl Board {
                     rollback,
                     stats,
                     transposition_table,
-                    history_table,
                 );
 
                 self.unmake_move(&tt_data.important_move, rollback);
@@ -602,33 +631,32 @@ impl Board {
             }
         }
 
-        let moves = generate_moves_with_history(self, history_table);
+        let mut moves = generate_capture_moves(self);
 
-        let mut capture_moves = moves
-            .into_iter()
-            .filter(|m| m.m.flags() & MOVE_FLAG_CAPTURE != 0)
-            .collect::<Vec<ScoredMove>>();
+        moves.sort_by_key(|m| Reverse(m.score));
 
-        capture_moves.sort_by_key(|m| Reverse(m.score));
-
-        for r#move in capture_moves {
+        for r#move in moves {
             self.make_move(&r#move.m, rollback);
             let result;
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            result = -self.quiescense_side_to_move_relative(
-                -beta,
-                -alpha,
-                ply + 1,
-                rollback,
-                stats,
-                transposition_table,
-                history_table,
-            );
+            result =
+                -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
 
             self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
+                transposition_table.store_entry(
+                    TTEntry {
+                        hash: self.hash,
+                        important_move: r#move.m,
+                        move_type: MoveType::FailHigh,
+                        eval: result,
+                        move_num: self.fullmove_counter,
+                    },
+                    TableType::Quiescense,
+                );
+
                 return result;
             }
 
@@ -663,7 +691,13 @@ impl Board {
     }
 
     #[inline]
-    fn update_killers_and_history(&self, killers: &mut [Move; 2], m: &Move, history_table: &mut HistoryTable, ply_depth: u8) {
+    fn update_killers_and_history(
+        &self,
+        killers: &mut [Move; 2],
+        m: &Move,
+        history_table: &mut HistoryTable,
+        ply_depth: u8,
+    ) {
         if m.flags() != 0 {
             return;
         }
