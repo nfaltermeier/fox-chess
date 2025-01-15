@@ -682,7 +682,7 @@ impl Board {
         let history_color_value = if self.white_to_move { 0 } else { 1 };
 
         let current_value = &mut history_table[history_color_value][piece_type - 1][m.to() as usize];
-        let clamped_bonus = bonus.clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-        *current_value += clamped_bonus - ((*current_value) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX);
+        let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
+        *current_value += (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
     }
 }
