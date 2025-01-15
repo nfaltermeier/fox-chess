@@ -10,7 +10,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
-    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY},
+    move_generator::MOVE_SCORE_HISTORY_MAX,
     moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     search::{HistoryTable, SearchStats},
     transposition_table::TranspositionTable,
@@ -57,8 +57,7 @@ impl UciInterface {
                     println!("id name FoxChess {} {}", build_info.profile, commit);
                     println!("id author IDK");
                     println!("uciok");
-                    println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
-                    println!("option name DoubledPawnPenalty type spin default 25 min 0 max 100");
+                    println!("option name HistoryMax type spin default 500 min 0 max 1100");
                 }
                 UciMessage::IsReady => {
                     println!("readyok")
@@ -145,20 +144,10 @@ impl UciInterface {
                 }
                 UciMessage::Quit => exit(0),
                 UciMessage::SetOption { name, value } => match name.as_str() {
-                    "IsolatedPawnPenalty" => {
+                    "HistoryMax" => {
                         if let Some(ipp) = value {
-                            ISOLATED_PAWN_PENALTY.set(
-                                ipp.parse()
-                                    .expect("IsolatedPawnPenalty setoption value was not a valid number"),
-                            );
-                        }
-                    }
-                    "DoubledPawnPenalty" => {
-                        if let Some(ipp) = value {
-                            DOUBLED_PAWN_PENALTY.set(
-                                ipp.parse()
-                                    .expect("DoubledPawnPenalty setoption value was not a valid number"),
-                            );
+                            MOVE_SCORE_HISTORY_MAX
+                                .set(ipp.parse().expect("HistoryMax setoption value was not a valid number"));
                         }
                     }
                     _ => {

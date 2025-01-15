@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use log::{debug, error, log_enabled, trace};
 
 use crate::{
@@ -31,9 +33,12 @@ pub const MOVE_SCORE_KILLER_2: i16 = 1998;
 const MOVE_SCORE_PROMOTION: i16 = 1000;
 const MOVE_SCORE_KING_CASTLE: i16 = 502;
 const MOVE_SCORE_QUEEN_CASTLE: i16 = 501;
-/// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i32 = 500;
 const MOVE_SCORE_QUIET: i16 = 0;
+
+thread_local! {
+    /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
+    pub static MOVE_SCORE_HISTORY_MAX: Cell<i32> = const { Cell::new(500) };
+}
 
 /// Values from https://www.chessprogramming.org/10x12_Board under TSCP
 /// If the piece can slide through squares when moving
