@@ -180,7 +180,7 @@ impl Board {
             self.make_move(&tt_data.important_move, &mut rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -248,7 +248,7 @@ impl Board {
             self.make_move(&r#move.m, &mut rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -332,7 +332,7 @@ impl Board {
             self.make_move(&tt_data.important_move, rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -426,7 +426,7 @@ impl Board {
             self.make_move(&r#move.m, rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
