@@ -373,14 +373,25 @@ impl Board {
                         if tt_data.eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
+                            if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                                debug!("Board hash of interest using evaluation from tt fail high: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                            }
+
                             return tt_data.eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
+                        if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                            debug!("Board hash of interest using evaluation from tt best move: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                        }
                         return tt_data.eval;
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_data.eval < alpha {
+                            if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                                debug!("Board hash of interest using evaluation from tt fail low: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                            }
+
                             return tt_data.eval;
                         }
                     }
