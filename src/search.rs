@@ -359,7 +359,7 @@ impl Board {
                         important_move: tt_data.important_move,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        move_num: self.fullmove_counter + draft as u16,
+                        move_num: self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16,
                     },
                     TableType::Main,
                 );
@@ -458,7 +458,7 @@ impl Board {
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        move_num: self.fullmove_counter + draft as u16,
+                        move_num: self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16,
                     },
                     TableType::Main,
                 );
@@ -489,7 +489,7 @@ impl Board {
                     MoveType::FailLow
                 },
                 eval: best_value,
-                move_num: self.fullmove_counter + draft as u16,
+                move_num: self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16,
             },
             TableType::Main,
         );
