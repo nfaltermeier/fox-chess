@@ -32,7 +32,6 @@ pub struct SearchStats {
     pub depth: u8,
     pub quiescense_cut_by_hopeless: u64,
     pub leaf_nodes: u64,
-    pub pv: Vec<Move>,
 }
 
 enum SearchControl {
@@ -44,6 +43,7 @@ pub struct SearchResult {
     pub best_move: Move,
     pub eval: i16,
     pub stats: SearchStats,
+    pub pv: Vec<Move>,
 }
 
 pub struct AlphaBetaResult {
@@ -153,7 +153,7 @@ impl Board {
 
                 // print less when using TT values
                 if search_result.stats.leaf_nodes != 0 || depth == 1 {
-                    UciInterface::print_search_info(search_result.eval, &search_result.stats, &elapsed);
+                    UciInterface::print_search_info(search_result.eval, &search_result.stats, &elapsed, &search_result.pv);
                 }
 
                 if result.end_search
@@ -193,19 +193,20 @@ impl Board {
         let mut rollback = MoveRollback::default();
         let mut stats = SearchStats::default();
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
+        let mut pv = Vec::new();
+        let mut line = Box::new(Vec::new());
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.move_num >= self.fullmove_counter + draft as u16 {
                 if let transposition_table::MoveType::Best = tt_data.move_type {
-                    self.gather_pv(&tt_data.important_move, transposition_table, &mut stats, &mut rollback);
-
                     // should this be done for the root????
                     return AlphaBetaResult {
                         search_result: Some(SearchResult {
                             best_move: tt_data.important_move,
                             eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
                             stats,
+                            pv: Vec::from([tt_data.important_move]),
                         }),
                         end_search: false,
                     };
@@ -228,6 +229,7 @@ impl Board {
                     transposition_table,
                     &mut killers,
                     history_table,
+                    &mut line,
                 );
             }
 
@@ -239,6 +241,9 @@ impl Board {
                 if result > alpha {
                     alpha = result;
                 }
+
+                line.push(tt_data.important_move);
+                pv = *line.clone();
             }
         }
 
@@ -256,13 +261,13 @@ impl Board {
             stats.depth = 1;
 
             let m = moves.pop().unwrap().m;
-            self.gather_pv(&m, transposition_table, &mut stats, &mut rollback);
 
             return AlphaBetaResult {
                 search_result: Some(SearchResult {
                     best_move: m,
                     eval: self.evaluate(),
                     stats,
+                    pv: Vec::from([m]),
                 }),
                 end_search: true,
             };
@@ -300,6 +305,7 @@ impl Board {
                     transposition_table,
                     &mut killers,
                     history_table,
+                    &mut line,
                 );
             }
 
@@ -311,10 +317,11 @@ impl Board {
                 if result > alpha {
                     alpha = result;
                 }
+
+                line.push(r#move.m);
+                pv = *line.clone();
             }
         }
-
-        self.gather_pv(&best_move.unwrap(), transposition_table, &mut stats, &mut rollback);
 
         // Make the score not side-to-move relative
         AlphaBetaResult {
@@ -322,6 +329,7 @@ impl Board {
                 best_move: best_move.unwrap(),
                 eval: best_value * if self.white_to_move { 1 } else { -1 },
                 stats,
+                pv,
             }),
             end_search: false,
         }
@@ -338,6 +346,7 @@ impl Board {
         transposition_table: &mut TranspositionTable,
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
+        pv: &mut Box<Vec<Move>>,
     ) -> i16 {
         if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
             debug!("Board hash of interest found: {self:#?}")
@@ -345,12 +354,16 @@ impl Board {
 
         if draft == 0 {
             stats.leaf_nodes += 1;
+
+            pv.clear();
+
             return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
         }
 
         let mut best_value = -i16::MAX;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
+        let mut line = Box::new(Vec::new());
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
@@ -390,6 +403,7 @@ impl Board {
                     transposition_table,
                     &mut new_killers,
                     history_table,
+                    &mut line,
                 );
             }
 
@@ -426,6 +440,9 @@ impl Board {
                 if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
                     debug!("Board hash of interest new best move from tt: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
                 }
+
+                line.push(tt_data.important_move);
+                *pv = line.clone();
             }
         }
 
@@ -496,6 +513,7 @@ impl Board {
                     transposition_table,
                     &mut new_killers,
                     history_table,
+                    &mut line,
                 );
             }
 
@@ -537,6 +555,8 @@ impl Board {
                 if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
                     debug!("Board hash of interest new best move from move gen: {} {:04x}", r#move.m.pretty_print(Some(self)), r#move.m.data);
                 }
+                line.push(r#move.m);
+                *pv = line.clone();
             }
 
             if r#move.m.flags() == 0 {
@@ -749,45 +769,5 @@ impl Board {
         let current_value = &mut history_table[history_color_value][piece_type - 1][m.to() as usize];
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
         *current_value += (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
-    }
-
-    fn gather_pv(
-        &mut self,
-        first_move: &Move,
-        transposition_table: &mut TranspositionTable,
-        stats: &mut SearchStats,
-        rollback: &mut MoveRollback,
-    ) {
-        stats.pv.clear();
-
-        // Prevent cycles from occurring
-        let mut previous_hashes = HashSet::new();
-        previous_hashes.insert(self.hash);
-        stats.pv.push(*first_move);
-        self.make_move(first_move, rollback);
-
-        let mut next_move = transposition_table.get_entry(self.hash, TableType::Main);
-        loop {
-            match next_move {
-                None => {
-                    break;
-                }
-                Some(e) => {
-                    if e.move_type != MoveType::Best || previous_hashes.contains(&self.hash) {
-                        break;
-                    }
-
-                    previous_hashes.insert(self.hash);
-                    stats.pv.push(e.important_move);
-                    // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
-                    self.make_move(&e.important_move, rollback);
-                    next_move = transposition_table.get_entry(self.hash, TableType::Main);
-                }
-            }
-        }
-
-        for m in stats.pv.iter().rev() {
-            self.unmake_move(&m, rollback);
-        }
     }
 }

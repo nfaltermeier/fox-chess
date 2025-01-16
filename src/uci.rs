@@ -11,7 +11,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 use crate::{
     board::Board,
     evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY},
-    moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
+    moves::{find_and_run_moves, Move, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     search::{HistoryTable, SearchStats},
     transposition_table::TranspositionTable,
     STARTING_FEN,
@@ -175,7 +175,7 @@ impl UciInterface {
         }
     }
 
-    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
+    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &Vec<Move>) {
         let score_string;
         let abs_cp = eval.abs();
         if abs_cp >= 19800 {
@@ -193,7 +193,7 @@ impl UciInterface {
             stats.depth,
             nps,
             elapsed.as_millis(),
-            stats.pv.iter().map(|m| m.simple_long_algebraic_notation()).collect::<Vec<String>>().join(" "),
+            pv.iter().rev().map(|m| m.simple_long_algebraic_notation()).collect::<Vec<String>>().join(" "),
             stats.leaf_nodes,
             stats.quiescense_cut_by_hopeless
         );
