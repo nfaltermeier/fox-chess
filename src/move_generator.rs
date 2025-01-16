@@ -32,7 +32,7 @@ const MOVE_SCORE_PROMOTION: i16 = 1000;
 const MOVE_SCORE_KING_CASTLE: i16 = 502;
 const MOVE_SCORE_QUEEN_CASTLE: i16 = 501;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i16 = 500;
+pub const MOVE_SCORE_HISTORY_MAX: i32 = 500;
 const MOVE_SCORE_QUIET: i16 = 0;
 
 /// Values from https://www.chessprogramming.org/10x12_Board under TSCP

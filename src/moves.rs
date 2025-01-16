@@ -289,6 +289,7 @@ impl Board {
                 check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
             }
         }
+
         if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
             self.halfmove_clock = 0;
         } else {

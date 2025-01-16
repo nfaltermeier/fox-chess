@@ -214,7 +214,7 @@ impl Board {
             self.make_move(&tt_data.important_move, &mut rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -286,7 +286,7 @@ impl Board {
             self.make_move(&r#move.m, &mut rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -372,7 +372,7 @@ impl Board {
             self.make_move(&tt_data.important_move, rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -466,7 +466,7 @@ impl Board {
             self.make_move(&r#move.m, rollback);
 
             let result;
-            if self.halfmove_clock >= 50 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -722,8 +722,8 @@ impl Board {
         let history_color_value = if self.white_to_move { 0 } else { 1 };
 
         let current_value = &mut history_table[history_color_value][piece_type - 1][m.to() as usize];
-        let clamped_bonus = bonus.clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-        *current_value += clamped_bonus - ((*current_value) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX);
+        let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
+        *current_value += (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
     }
 
     fn gather_pv(
