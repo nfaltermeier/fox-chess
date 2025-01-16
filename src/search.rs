@@ -22,6 +22,7 @@ pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 
 const EMPTY_MOVE: Move = Move { data: 0 };
+const DEBUG_BOARD_HASH_OF_INTEREST: Option<u64> = None;
 
 // pub const TEST_TT_FOR_HASH_COLLISION: bool = true;
 
@@ -338,6 +339,10 @@ impl Board {
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
     ) -> i16 {
+        if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+            debug!("Board hash of interest found: {self:#?}")
+        }
+
         if draft == 0 {
             stats.leaf_nodes += 1;
             return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
@@ -404,6 +409,10 @@ impl Board {
                     TableType::Main,
                 );
 
+                if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                    debug!("Board hash of interest had fail high from tt: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                }
+
                 return result;
             }
 
@@ -412,6 +421,10 @@ impl Board {
                 best_move = Some(tt_data.important_move);
                 if result > alpha {
                     alpha = result;
+                }
+
+                if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                    debug!("Board hash of interest new best move from tt: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
                 }
             }
         }
@@ -424,6 +437,10 @@ impl Board {
             self.white_to_move = !self.white_to_move;
             let is_check = can_capture_opponent_king(self, false);
             self.white_to_move = !self.white_to_move;
+
+            if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                debug!("Board hash of interest generated no moves");
+            }
 
             if is_check {
                 return self.evaluate_checkmate_side_to_move_relative(ply);
@@ -503,6 +520,10 @@ impl Board {
                     TableType::Main,
                 );
 
+                if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                    debug!("Board hash of interest had fail high from move gen: {} {:04x}", r#move.m.pretty_print(Some(self)), r#move.m.data);
+                }
+
                 return result;
             }
 
@@ -511,6 +532,10 @@ impl Board {
                 best_move = Some(r#move.m);
                 if result > alpha {
                     alpha = result;
+                }
+
+                if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
+                    debug!("Board hash of interest new best move from move gen: {} {:04x}", r#move.m.pretty_print(Some(self)), r#move.m.data);
                 }
             }
 

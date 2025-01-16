@@ -63,6 +63,7 @@ fn main() {
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
     // hash_values_edit_distance();
+    // print_moves_from_pos("3k1b1r/1R5p/3p1p2/3N1P2/2n2p2/3Q3P/2P3P1/6K1 b - - 0 30");
 }
 
 fn do_perft(up_to_depth: u8, fen: &str) {
@@ -88,7 +89,7 @@ fn do_perft(up_to_depth: u8, fen: &str) {
 
 fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut board = Board::from_fen(fen).unwrap();
-    info!("{:?}", &board);
+    info!("{:#?}", &board);
 
     let mut moves = generate_moves_without_history(&mut board);
 
@@ -112,7 +113,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
 
 fn print_moves_from_pos(fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
-    info!("{:?}", &board);
+    info!("{:#?}", &board);
 
     let mut moves = generate_moves_without_history(&mut board);
 
@@ -149,8 +150,9 @@ fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
 fn make_moves(moves: Vec<Move>, fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
     let mut rollback = MoveRollback::default();
+    debug!("{:?}", board);
+
     for r#move in moves {
-        debug!("{:?}", board);
         debug!("{}", r#move.pretty_print(Some(&board)));
         board.make_move(&r#move, &mut rollback);
         let legal = !can_capture_opponent_king(&board, true);
