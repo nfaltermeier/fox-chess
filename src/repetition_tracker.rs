@@ -42,7 +42,7 @@ impl RepetitionTracker {
     }
 
     pub fn test_threefold_repetition(board: &mut Board) -> bool {
-        if board.repetitions.repetitions[(board.hash & TABLE_MASK) as usize] >= 3 {
+        if board.repetitions.repetitions[(board.hash & TABLE_MASK) as usize] >= 2 {
             let mut check = true;
             let mut repetitions = 0;
             let target_hash = board.hash;
@@ -57,7 +57,7 @@ impl RepetitionTracker {
             loop {
                 if check && board.hash == target_hash {
                     repetitions += 1;
-                    if repetitions == 3 {
+                    if repetitions == 2 {
                         break;
                     }
                 }
@@ -96,7 +96,7 @@ impl RepetitionTracker {
                 assert_eq!(board_copy.as_ref().unwrap(), board);
             }
 
-            repetitions >= 3
+            repetitions >= 2
         } else {
             false
         }
