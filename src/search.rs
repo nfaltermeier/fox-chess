@@ -163,7 +163,7 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter + draft as u16 {
+            if tt_data.move_num >= self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16 {
                 if let transposition_table::MoveType::Best = tt_data.move_type {
                     // should this be done for the root????
                     return AlphaBetaResult {
@@ -309,7 +309,7 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter + draft as u16 {
+            if tt_data.move_num >= self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16 {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
