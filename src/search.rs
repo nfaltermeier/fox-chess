@@ -163,7 +163,7 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16 {
+            if tt_data.ply >= self.total_ply + draft as u16 {
                 if let transposition_table::MoveType::Best = tt_data.move_type {
                     // should this be done for the root????
                     return AlphaBetaResult {
@@ -309,7 +309,7 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16 {
+            if tt_data.ply >= self.total_ply + draft as u16 {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
@@ -359,7 +359,7 @@ impl Board {
                         important_move: tt_data.important_move,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        move_num: self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16,
+                        ply: self.total_ply + draft as u16,
                     },
                     TableType::Main,
                 );
@@ -458,7 +458,7 @@ impl Board {
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        move_num: self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16,
+                        ply: self.total_ply + draft as u16,
                     },
                     TableType::Main,
                 );
@@ -489,7 +489,7 @@ impl Board {
                     MoveType::FailLow
                 },
                 eval: best_value,
-                move_num: self.fullmove_counter + ((draft + (self.white_to_move == false) as u8) / 2) as u16,
+                ply: self.total_ply + draft as u16,
             },
             TableType::Main,
         );
@@ -510,7 +510,7 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter {
+            if tt_data.ply >= self.total_ply {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
@@ -573,7 +573,7 @@ impl Board {
                             important_move: tt_data.important_move,
                             move_type: MoveType::FailHigh,
                             eval: result,
-                            move_num: self.fullmove_counter,
+                            ply: self.total_ply,
                         },
                         TableType::Quiescense,
                     );
@@ -612,7 +612,7 @@ impl Board {
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        move_num: self.fullmove_counter,
+                        ply: self.total_ply,
                     },
                     TableType::Quiescense,
                 );
@@ -641,7 +641,7 @@ impl Board {
                         MoveType::FailLow
                     },
                     eval: best_value,
-                    move_num: self.fullmove_counter,
+                    ply: self.total_ply,
                 },
                 TableType::Quiescense,
             );

@@ -20,7 +20,7 @@ pub struct TTEntry {
     pub important_move: Move,
     pub move_type: MoveType,
     pub eval: i16,
-    pub move_num: u16,
+    pub ply: u16,
 }
 
 impl Default for TTEntry {
@@ -30,7 +30,7 @@ impl Default for TTEntry {
             important_move: Move { data: 0 },
             move_type: MoveType::FailHigh,
             eval: 0,
-            move_num: 0,
+            ply: 0,
         }
     }
 }
@@ -66,7 +66,7 @@ impl TranspositionTable {
 
         if let Some(entry) = table.get(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
-            if entry.move_num == 0 {
+            if entry.ply == 0 {
                 return None;
             }
 

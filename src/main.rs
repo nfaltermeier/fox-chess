@@ -85,7 +85,7 @@ fn do_perft(up_to_depth: u8, fen: &str) {
 
 fn print_moves_from_pos(fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
-    info!("{:?}", &board);
+    info!("{:#?}", &board);
 
     let mut moves = generate_moves_without_history(&mut board);
 
