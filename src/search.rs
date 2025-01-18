@@ -163,19 +163,19 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.ply >= self.total_ply + draft as u16 {
-                if let transposition_table::MoveType::Best = tt_data.move_type {
-                    // should this be done for the root????
-                    return AlphaBetaResult {
-                        search_result: Some(SearchResult {
-                            best_move: tt_data.important_move,
-                            eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
-                            stats,
-                        }),
-                        end_search: false,
-                    };
-                }
-            }
+            // if tt_data.ply >= self.total_ply + draft as u16 {
+            //     if let transposition_table::MoveType::Best = tt_data.move_type {
+            //         // should this be done for the root????
+            //         return AlphaBetaResult {
+            //             search_result: Some(SearchResult {
+            //                 best_move: tt_data.important_move,
+            //                 eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
+            //                 stats,
+            //             }),
+            //             end_search: false,
+            //         };
+            //     }
+            // }
 
             self.make_move(&tt_data.important_move, &mut rollback);
 
