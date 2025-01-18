@@ -33,6 +33,8 @@ pub struct SearchStats {
     pub depth: u8,
     pub quiescense_cut_by_hopeless: u64,
     pub leaf_nodes: u64,
+    pub normal_tt_hits: u64,
+    pub q_tt_hits: u64,
 }
 
 pub struct SearchResult {
@@ -165,6 +167,7 @@ impl Board {
         if let Some(tt_data) = tt_entry {
             if tt_data.move_num >= self.fullmove_counter + draft as u16 {
                 if let transposition_table::MoveType::Best = tt_data.move_type {
+                    stats.normal_tt_hits += 1;
                     // should this be done for the root????
                     return AlphaBetaResult {
                         search_result: Some(SearchResult {
@@ -313,16 +316,19 @@ impl Board {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
+                            stats.normal_tt_hits += 1;
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
                             return tt_data.eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
+                        stats.normal_tt_hits += 1;
                         return tt_data.eval;
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_data.eval < alpha {
+                            stats.normal_tt_hits += 1;
                             return tt_data.eval;
                         }
                     }
@@ -514,14 +520,17 @@ impl Board {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
+                            stats.q_tt_hits += 1;
                             return tt_data.eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
+                        stats.q_tt_hits += 1;
                         return tt_data.eval;
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_data.eval < alpha {
+                            stats.q_tt_hits += 1;
                             return tt_data.eval;
                         }
                     }
