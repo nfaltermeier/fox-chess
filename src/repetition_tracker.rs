@@ -9,7 +9,7 @@ use crate::{
 };
 
 const TABLE_LOG_2_SIZE: usize = 14;
-const MAX_MOVE_HISTORY: usize = 128;
+const MAX_MOVE_HISTORY: usize = 201;
 const TABLE_MASK: u64 = (1 << TABLE_LOG_2_SIZE) - 1;
 
 #[derive(Clone, Eq)]
