@@ -510,20 +510,18 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
-            if tt_data.ply >= self.total_ply {
-                match tt_data.move_type {
-                    transposition_table::MoveType::FailHigh => {
-                        if tt_data.eval >= beta {
-                            return tt_data.eval;
-                        }
-                    }
-                    transposition_table::MoveType::Best => {
+            match tt_data.move_type {
+                transposition_table::MoveType::FailHigh => {
+                    if tt_data.eval >= beta {
                         return tt_data.eval;
                     }
-                    transposition_table::MoveType::FailLow => {
-                        if tt_data.eval < alpha {
-                            return tt_data.eval;
-                        }
+                }
+                transposition_table::MoveType::Best => {
+                    return tt_data.eval;
+                }
+                transposition_table::MoveType::FailLow => {
+                    if tt_data.eval < alpha {
+                        return tt_data.eval;
                     }
                 }
             }
