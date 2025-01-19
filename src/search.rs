@@ -209,7 +209,7 @@ impl Board {
         let mut legal_moves: u16 = 0;
         let mut moves = generate_pseudo_legal_moves_with_history(self, history_table);
 
-        moves.sort_by_key(|m| Reverse(m.score));
+        moves.sort_unstable_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
             if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
@@ -415,7 +415,7 @@ impl Board {
             }
         }
 
-        moves.sort_by_key(|m| Reverse(m.score));
+        moves.sort_unstable_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
             if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
@@ -616,7 +616,7 @@ impl Board {
 
         let mut moves = generate_pseudo_legal_capture_moves(self);
 
-        moves.sort_by_key(|m| Reverse(m.score));
+        moves.sort_unstable_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
             let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, rollback);
