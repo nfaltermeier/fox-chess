@@ -215,7 +215,7 @@ impl Board {
         let mut stats = SearchStats::default();
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
         let mut pv = Vec::new();
-        let mut line = Box::new(Vec::new());
+        let mut line = Vec::new();
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
@@ -265,7 +265,7 @@ impl Board {
                 }
 
                 line.push(tt_data.important_move);
-                pv = *line.clone();
+                pv = line.clone();
             }
         }
 
@@ -305,7 +305,7 @@ impl Board {
                 continue;
             }
 
-            let stop_received = if let Ok(()) = stop_rx.try_recv() { true } else { false };
+            let stop_received = matches!(stop_rx.try_recv(), Ok(()));
             if stop_received || cancel_search_at.is_some_and(|t| Instant::now() >= t) {
                 return AlphaBetaResult {
                     search_result: None,
@@ -344,7 +344,7 @@ impl Board {
                 }
 
                 line.push(r#move.m);
-                pv = *line.clone();
+                pv = line.clone();
             }
         }
 
@@ -372,7 +372,7 @@ impl Board {
         transposition_table: &mut TranspositionTable,
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
-        pv: &mut Box<Vec<Move>>,
+        pv: &mut Vec<Move>,
     ) -> i16 {
         if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
             debug!("Board hash of interest found: {self:#?}")
@@ -389,7 +389,7 @@ impl Board {
         let mut best_value = -i16::MAX;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
-        let mut line = Box::new(Vec::new());
+        let mut line = Vec::new();
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
