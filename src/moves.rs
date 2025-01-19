@@ -8,7 +8,7 @@ use crate::{
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
     evaluate::GAME_STAGE_VALUES,
-    move_generator::{generate_moves, generate_moves_without_history, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
+    move_generator::{generate_legal_moves, generate_legal_moves_without_history, generate_pseudo_legal_moves_without_history, test_legality_and_maybe_make_move, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
     search::DEFAULT_HISTORY_TABLE,
     STARTING_FEN,
 };
@@ -516,7 +516,7 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
     let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = generate_moves_without_history(&mut board);
+        let mut moves = generate_legal_moves_without_history(&mut board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
             if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
@@ -552,7 +552,7 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
     let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = generate_moves_without_history(board);
+        let mut moves = generate_pseudo_legal_moves_without_history(board);
         let Some(gen_move_pos) = moves.iter().position(|m| {
             if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;
@@ -563,7 +563,6 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
                 None => true,
             }
         }) else {
-            debug!("{:?}", board);
             error!(
                 "Requested move {} from {} {} to {} {} but it was not found in the board state",
                 i + 1,
@@ -572,6 +571,7 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
                 r#move.1,
                 index_8x8_to_pos_str(r#move.1)
             );
+            error!("{:#?}", board);
             panic!("Requested move not found");
         };
         let gen_move = moves.swap_remove(gen_move_pos);
@@ -587,7 +587,19 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             board.repetitions.clear();
         }
 
-        board.make_move(&gen_move.m, &mut rollback);
+        let (legal, _) = test_legality_and_maybe_make_move(board, gen_move.m, &mut rollback);
+        if !legal {
+            error!(
+                "Requested move {} from {} {} to {} {}. Move is pseudo legal but not legal.",
+                i + 1,
+                r#move.0,
+                index_8x8_to_pos_str(r#move.0),
+                r#move.1,
+                index_8x8_to_pos_str(r#move.1)
+            );
+            error!("{:#?}", board);
+            panic!("Requested move is pseudo legal but not legal");
+        }
     }
 }
 
