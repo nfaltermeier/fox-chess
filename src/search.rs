@@ -1,5 +1,9 @@
 use std::{
-    cmp::{Ordering, Reverse}, collections::HashSet, i16, sync::mpsc::Receiver, time::Instant
+    cmp::{Ordering, Reverse},
+    collections::HashSet,
+    i16,
+    sync::mpsc::Receiver,
+    time::Instant,
 };
 
 use log::{debug, error, trace};
@@ -142,7 +146,7 @@ impl Board {
             Some(d) => {
                 cutoff_low_depth = Some(d.mul_f32(0.55));
                 cutoff = Some(d.mul_f32(0.35));
-                cancel_search_time  = Some(start_time.checked_add(d.mul_f32(2.0)).unwrap());
+                cancel_search_time = Some(start_time.checked_add(d.mul_f32(2.0)).unwrap());
             }
             None => {
                 cutoff = None;
@@ -153,24 +157,37 @@ impl Board {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth, transposition_table, history_table, &cancel_search_time, stop_rx, search_control == SearchControl::Infinite);
+            let result = self.alpha_beta_init(
+                depth,
+                transposition_table,
+                history_table,
+                &cancel_search_time,
+                stop_rx,
+                search_control == SearchControl::Infinite,
+            );
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
                 // print less when using TT values
                 if search_result.stats.leaf_nodes != 0 || depth == 1 {
-                    UciInterface::print_search_info(search_result.eval, &search_result.stats, &elapsed, &search_result.pv);
+                    UciInterface::print_search_info(
+                        search_result.eval,
+                        &search_result.stats,
+                        &elapsed,
+                        &search_result.pv,
+                    );
                 }
 
-                if search_control != SearchControl::Infinite && (result.end_search
-                    || search_result.eval.abs() >= 19800
-                    || depth >= max_depth
-                    || match search_control {
-                        SearchControl::Time => {
-                            (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
-                        }
-                        SearchControl::Depth | SearchControl::Infinite => false,
-                    })
+                if search_control != SearchControl::Infinite
+                    && (result.end_search
+                        || search_result.eval.abs() >= 19800
+                        || depth >= max_depth
+                        || match search_control {
+                            SearchControl::Time => {
+                                (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
+                            }
+                            SearchControl::Depth | SearchControl::Infinite => false,
+                        })
                 {
                     return search_result;
                 }
@@ -179,11 +196,11 @@ impl Board {
             } else {
                 if !result.stop_received {
                     debug!("Cancelled search of depth {depth} due to exceeding time budget");
-                    return latest_result
-                        .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
+                    return latest_result.expect(
+                        "iterative_deepening_search exceeded cancel_search_time before completing any searches",
+                    );
                 } else {
-                    return latest_result
-                        .expect("stop received before completing any searches");
+                    return latest_result.expect("stop received before completing any searches");
                 }
             }
 
@@ -392,7 +409,11 @@ impl Board {
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
                             if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                                debug!("Board hash of interest using evaluation from tt fail high: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                                debug!(
+                                    "Board hash of interest using evaluation from tt fail high: {} {:04x}",
+                                    tt_data.important_move.pretty_print(Some(self)),
+                                    tt_data.important_move.data
+                                );
                             }
 
                             return tt_data.eval;
@@ -400,14 +421,22 @@ impl Board {
                     }
                     transposition_table::MoveType::Best => {
                         if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                            debug!("Board hash of interest using evaluation from tt best move: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                            debug!(
+                                "Board hash of interest using evaluation from tt best move: {} {:04x}",
+                                tt_data.important_move.pretty_print(Some(self)),
+                                tt_data.important_move.data
+                            );
                         }
                         return tt_data.eval;
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_data.eval < alpha {
                             if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                                debug!("Board hash of interest using evaluation from tt fail low: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                                debug!(
+                                    "Board hash of interest using evaluation from tt fail low: {} {:04x}",
+                                    tt_data.important_move.pretty_print(Some(self)),
+                                    tt_data.important_move.data
+                                );
                             }
 
                             return tt_data.eval;
@@ -453,7 +482,11 @@ impl Board {
                 );
 
                 if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                    debug!("Board hash of interest had fail high from tt: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                    debug!(
+                        "Board hash of interest had fail high from tt: {} {:04x}",
+                        tt_data.important_move.pretty_print(Some(self)),
+                        tt_data.important_move.data
+                    );
                 }
 
                 return result;
@@ -467,7 +500,11 @@ impl Board {
                 }
 
                 if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                    debug!("Board hash of interest new best move from tt: {} {:04x}", tt_data.important_move.pretty_print(Some(self)), tt_data.important_move.data);
+                    debug!(
+                        "Board hash of interest new best move from tt: {} {:04x}",
+                        tt_data.important_move.pretty_print(Some(self)),
+                        tt_data.important_move.data
+                    );
                 }
 
                 line.push(tt_data.important_move);
@@ -568,7 +605,11 @@ impl Board {
                 );
 
                 if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                    debug!("Board hash of interest had fail high from move gen: {} {:04x}", r#move.m.pretty_print(Some(self)), r#move.m.data);
+                    debug!(
+                        "Board hash of interest had fail high from move gen: {} {:04x}",
+                        r#move.m.pretty_print(Some(self)),
+                        r#move.m.data
+                    );
                 }
 
                 return result;
@@ -582,7 +623,11 @@ impl Board {
                 }
 
                 if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
-                    debug!("Board hash of interest new best move from move gen: {} {:04x}", r#move.m.pretty_print(Some(self)), r#move.m.data);
+                    debug!(
+                        "Board hash of interest new best move from move gen: {} {:04x}",
+                        r#move.m.pretty_print(Some(self)),
+                        r#move.m.data
+                    );
                 }
                 line.push(r#move.m);
                 *pv = line.clone();
@@ -797,6 +842,7 @@ impl Board {
 
         let current_value = &mut history_table[history_color_value][piece_type - 1][m.to() as usize];
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-        *current_value += (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
+        *current_value +=
+            (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
     }
 }

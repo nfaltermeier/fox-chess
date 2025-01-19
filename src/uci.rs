@@ -1,5 +1,9 @@
 use std::{
-    io, process::exit, sync::mpsc::{self, Receiver}, thread, time::{Duration, Instant}
+    io,
+    process::exit,
+    sync::mpsc::{self, Receiver},
+    thread,
+    time::{Duration, Instant},
 };
 
 use build_info::build_info;
@@ -122,7 +126,6 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
-
                         // Drain the queue before searching
                         for _ in self.stop_rx.try_iter() {}
 
@@ -210,7 +213,7 @@ impl UciInterface {
             let mut buffer = String::new();
             io::stdin().read_line(&mut buffer).unwrap();
             let messages = parse_with_unknown(&buffer);
-    
+
             for m in &messages {
                 match m {
                     UciMessage::Stop | UciMessage::Quit => {
@@ -219,8 +222,10 @@ impl UciInterface {
                     _ => {}
                 }
             }
-    
-            message_tx.send((buffer, messages)).expect("sending uci commands failed");
+
+            message_tx
+                .send((buffer, messages))
+                .expect("sending uci commands failed");
         });
         (message_rx, stop_rx)
     }
