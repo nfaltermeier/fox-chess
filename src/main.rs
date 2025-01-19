@@ -19,7 +19,7 @@ use transposition_table::TranspositionTable;
 use uci::UciInterface;
 
 use num_format::{Locale, ToFormattedString};
-use vampirc_uci::UciSearchControl;
+use vampirc_uci::{parse_with_unknown, UciMessage, UciSearchControl};
 
 mod board;
 mod evaluate;
@@ -66,6 +66,48 @@ fn main() {
     // print_moves_from_pos("3k1b1r/1R5p/3p1p2/3N1P2/2n2p2/3Q3P/2P3P1/6K1 b - - 0 30");
 }
 
+fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(args.log_level)
+        // .level_for("fox_chess::search", log::LevelFilter::Trace)
+        .chain(std::io::stderr())
+        .chain(fern::log_file("output.log")?)
+        .apply()?;
+    Ok(())
+}
+
+fn run_uci() {
+    if ENABLE_UNMAKE_MOVE_TEST {
+        error!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
+    }
+
+    // 2^23 entries -> 128MiB
+    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
+    let mut uci = UciInterface::new(23, stop_rx);
+    loop {
+        match message_rx.try_recv() {
+            Ok(val) => {
+                uci.process_command(val);
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                error!("stdin channel disconnected");
+                panic!("stdin channel disconnected")
+            }
+        }
+        sleep(Duration::from_millis(50));
+    }
+}
+
 fn do_perft(up_to_depth: u8, fen: &str) {
     for depth in 1..=up_to_depth {
         let mut board = Board::from_fen(fen).unwrap();
@@ -98,6 +140,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut rollback = MoveRollback::default();
     let mut transposition_table = TranspositionTable::new(23);
     let mut history = DEFAULT_HISTORY_TABLE;
+    let (_, rx) = mpsc::channel::<()>();
     for r#move in moves {
         info!("{}:", r#move.m.pretty_print(Some(&board)));
         board.make_move(&r#move.m, &mut rollback);
@@ -105,7 +148,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         let tc = None;
         let sc = Some(UciSearchControl::depth(depth));
 
-        board.iterative_deepening_search(&tc, &sc, &mut transposition_table, &mut history);
+        board.iterative_deepening_search(&tc, &sc, &mut transposition_table, &mut history, &rx);
 
         board.unmake_move(&r#move.m, &mut rollback);
     }
@@ -171,59 +214,6 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
     for r#move in final_pos_moves {
         info!("{}", r#move.m.pretty_print(Some(&board)));
     }
-}
-
-fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{} {} {}] {}",
-                humantime::format_rfc3339_seconds(SystemTime::now()),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .level(args.log_level)
-        // .level_for("fox_chess::search", log::LevelFilter::Trace)
-        .chain(std::io::stderr())
-        .chain(fern::log_file("output.log")?)
-        .apply()?;
-    Ok(())
-}
-
-fn run_uci() {
-    if ENABLE_UNMAKE_MOVE_TEST {
-        error!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
-    }
-
-    // 2^23 entries -> 128MiB
-    let mut uci = UciInterface::new(23);
-    let stdin_channel = spawn_stdin_channel();
-    loop {
-        match stdin_channel.try_recv() {
-            Ok(val) => {
-                uci.process_command(val);
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                error!("stdin channel disconnected");
-                panic!("stdin channel disconnected")
-            }
-        }
-        sleep(Duration::from_millis(50));
-    }
-}
-
-// From https://stackoverflow.com/a/55201400
-fn spawn_stdin_channel() -> Receiver<String> {
-    let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer).unwrap();
-    });
-    rx
 }
 
 fn hash_values_edit_distance() {

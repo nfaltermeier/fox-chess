@@ -1,5 +1,5 @@
 use std::{
-    cmp::{Ordering, Reverse}, collections::HashSet, i16, time::Instant
+    cmp::{Ordering, Reverse}, collections::HashSet, i16, sync::mpsc::Receiver, time::Instant
 };
 
 use log::{debug, error, trace};
@@ -34,9 +34,11 @@ pub struct SearchStats {
     pub leaf_nodes: u64,
 }
 
+#[derive(PartialEq, Eq)]
 enum SearchControl {
     Time,
     Depth,
+    Infinite,
 }
 
 pub struct SearchResult {
@@ -49,6 +51,7 @@ pub struct SearchResult {
 pub struct AlphaBetaResult {
     pub search_result: Option<SearchResult>,
     pub end_search: bool,
+    pub stop_received: bool,
 }
 
 impl Board {
@@ -58,6 +61,7 @@ impl Board {
         search: &Option<UciSearchControl>,
         transposition_table: &mut TranspositionTable,
         history_table: &mut HistoryTable,
+        stop_rx: &Receiver<()>,
     ) -> SearchResult {
         let start_time = Instant::now();
         let mut target_dur = None;
@@ -103,18 +107,20 @@ impl Board {
                     // } else {
                     //     let eval = self.evaluate();
                     // }
+
+                    search_control = SearchControl::Time;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
                     target_dur = Some(time_delta.to_std().unwrap());
+                    search_control = SearchControl::Time;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
-                    unimplemented!("uci go infinite");
+                    search_control = SearchControl::Infinite;
                 }
             }
-            search_control = SearchControl::Time;
         } else if let Some(s) = search {
             if s.depth.is_some() {
                 search_control = SearchControl::Depth;
@@ -147,7 +153,7 @@ impl Board {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth, transposition_table, history_table, &cancel_search_time);
+            let result = self.alpha_beta_init(depth, transposition_table, history_table, &cancel_search_time, stop_rx, search_control == SearchControl::Infinite);
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
@@ -156,24 +162,29 @@ impl Board {
                     UciInterface::print_search_info(search_result.eval, &search_result.stats, &elapsed, &search_result.pv);
                 }
 
-                if result.end_search
+                if search_control != SearchControl::Infinite && (result.end_search
                     || search_result.eval.abs() >= 19800
                     || depth >= max_depth
                     || match search_control {
                         SearchControl::Time => {
                             (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
                         }
-                        SearchControl::Depth => false,
-                    }
+                        SearchControl::Depth | SearchControl::Infinite => false,
+                    })
                 {
                     return search_result;
                 }
 
                 latest_result = Some(search_result);
             } else {
-                debug!("Cancelled search of depth {depth} due to exceeding time budget");
-                return latest_result
-                    .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
+                if !result.stop_received {
+                    debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                    return latest_result
+                        .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
+                } else {
+                    return latest_result
+                        .expect("stop received before completing any searches");
+                }
             }
 
             depth += 1;
@@ -186,6 +197,8 @@ impl Board {
         transposition_table: &mut TranspositionTable,
         history_table: &mut HistoryTable,
         cancel_search_at: &Option<Instant>,
+        stop_rx: &Receiver<()>,
+        infinite_search: bool,
     ) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
@@ -209,6 +222,7 @@ impl Board {
                             pv: Vec::from([tt_data.important_move]),
                         }),
                         end_search: false,
+                        stop_received: false,
                     };
                 }
             }
@@ -257,7 +271,7 @@ impl Board {
             panic!("Tried to search on a position but found no moves");
         }
 
-        if moves.len() == 1 {
+        if moves.len() == 1 && !infinite_search {
             stats.depth = 1;
 
             let m = moves.pop().unwrap().m;
@@ -270,6 +284,7 @@ impl Board {
                     pv: Vec::from([m]),
                 }),
                 end_search: true,
+                stop_received: false,
             };
         } else {
             stats.depth = draft;
@@ -282,10 +297,12 @@ impl Board {
                 continue;
             }
 
-            if cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+            let stop_received = if let Ok(()) = stop_rx.try_recv() { true } else { false };
+            if stop_received || cancel_search_at.is_some_and(|t| Instant::now() >= t) {
                 return AlphaBetaResult {
                     search_result: None,
                     end_search: true,
+                    stop_received: true,
                 };
             }
 
@@ -332,6 +349,7 @@ impl Board {
                 pv,
             }),
             end_search: false,
+            stop_received: false,
         }
     }
 

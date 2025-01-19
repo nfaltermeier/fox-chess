@@ -1,6 +1,5 @@
 use std::{
-    process::exit,
-    time::{Duration, Instant},
+    io, process::exit, sync::mpsc::{self, Receiver}, thread, time::{Duration, Instant}
 };
 
 use build_info::build_info;
@@ -21,24 +20,25 @@ pub struct UciInterface {
     board: Option<Board>,
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
+    stop_rx: Receiver<()>,
 }
 
 build_info!(fn get_build_info);
 
 impl UciInterface {
-    pub fn new(tt_size_log_2: u8) -> UciInterface {
+    pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
         UciInterface {
             board: None,
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
+            stop_rx,
         }
     }
 
     // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmd: String) {
-        debug!("Received UCI cmd string '{cmd}'");
-        let messages = parse_with_unknown(&cmd);
-        for m in messages {
+    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
+        debug!("Received UCI cmd string '{}'", cmds.0);
+        for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
                     let build_info = get_build_info();
@@ -122,11 +122,16 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = self.board.as_mut() {
+
+                        // Drain the queue before searching
+                        for _ in self.stop_rx.try_iter() {}
+
                         let search_result = b.iterative_deepening_search(
                             &time_control,
                             &search_control,
                             &mut self.transposition_table,
                             &mut self.history_table,
+                            &self.stop_rx,
                         );
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
@@ -139,9 +144,7 @@ impl UciInterface {
                     }
                 }
                 UciMessage::Stop => {
-                    // error!("UCI stop command but this is not implemented");
-                    // unimplemented!("UCI stop command")
-                    // println!("bestmove <>")
+                    // Stop is handled with a separate receiver that is monitored in alpha_beta_init
                 }
                 UciMessage::Quit => exit(0),
                 UciMessage::SetOption { name, value } => match name.as_str() {
@@ -169,7 +172,7 @@ impl UciInterface {
                     error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}")
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in '{cmd}'")
+                    error!("Unhandled UCI cmd in '{}'", cmds.0)
                 }
             }
         }
@@ -197,5 +200,28 @@ impl UciInterface {
             stats.leaf_nodes,
             stats.quiescense_cut_by_hopeless
         );
+    }
+
+    // Based off of https://stackoverflow.com/a/55201400
+    pub fn process_stdin_uci() -> (Receiver<(String, Vec<UciMessage>)>, Receiver<()>) {
+        let (message_tx, message_rx) = mpsc::channel::<(String, Vec<UciMessage>)>();
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        thread::spawn(move || loop {
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).unwrap();
+            let messages = parse_with_unknown(&buffer);
+    
+            for m in &messages {
+                match m {
+                    UciMessage::Stop | UciMessage::Quit => {
+                        stop_tx.send(()).expect("sending stop command failed");
+                    }
+                    _ => {}
+                }
+            }
+    
+            message_tx.send((buffer, messages)).expect("sending uci commands failed");
+        });
+        (message_rx, stop_rx)
     }
 }
