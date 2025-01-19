@@ -1,22 +1,16 @@
-use std::{
-    cmp::{Ordering, Reverse},
-    collections::HashSet,
-    i16,
-    sync::mpsc::Receiver,
-    time::Instant,
-};
+use std::{cmp::Reverse, i16, sync::mpsc::Receiver, time::Instant};
 
-use log::{debug, error, trace};
+use log::{debug, error};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
+    evaluate::ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
     move_generator::{
-        can_capture_opponent_king, generate_capture_moves, generate_moves_with_history, ScoredMove,
-        MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
+        can_capture_opponent_king, generate_capture_moves, generate_moves_with_history, MOVE_SCORE_HISTORY_MAX,
+        MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
     },
-    moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
+    moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
@@ -193,15 +187,12 @@ impl Board {
                 }
 
                 latest_result = Some(search_result);
+            } else if !result.stop_received {
+                debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                return latest_result
+                    .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
             } else {
-                if !result.stop_received {
-                    debug!("Cancelled search of depth {depth} due to exceeding time budget");
-                    return latest_result.expect(
-                        "iterative_deepening_search exceeded cancel_search_time before completing any searches",
-                    );
-                } else {
-                    return latest_result.expect("stop received before completing any searches");
-                }
+                return latest_result.expect("stop received before completing any searches");
             }
 
             depth += 1;
@@ -756,10 +747,9 @@ impl Board {
 
         for r#move in moves {
             self.make_move(&r#move.m, rollback);
-            let result;
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            result =
+            let result =
                 -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
 
             self.unmake_move(&r#move.m, rollback);

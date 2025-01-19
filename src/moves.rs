@@ -8,8 +8,7 @@ use crate::{
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
     evaluate::GAME_STAGE_VALUES,
-    move_generator::{generate_moves, generate_moves_without_history, ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
-    search::DEFAULT_HISTORY_TABLE,
+    move_generator::{generate_moves_without_history, ScoredMove},
     STARTING_FEN,
 };
 
@@ -478,9 +477,9 @@ impl Board {
 
 // Not going to be super optimized probably and only support basic PGNs
 pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
-    let mut result = Vec::new();
-    let mut board = Board::from_fen(STARTING_FEN);
-    let mut rollback = MoveRollback::default();
+    let result = Vec::new();
+    let board = Board::from_fen(STARTING_FEN);
+    let rollback = MoveRollback::default();
 
     let parts = pgn.split_ascii_whitespace();
     let turn_pattern = Regex::new(r"[1-9][0-9]*\.").unwrap();
@@ -510,7 +509,7 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
-    let mut history_table = [[[0; 64]; 6]; 2];
+    let history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = generate_moves_without_history(&mut board);
@@ -546,7 +545,7 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
 
 pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
     let mut rollback = MoveRollback::default();
-    let mut history_table = [[[0; 64]; 6]; 2];
+    let history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = generate_moves_without_history(board);

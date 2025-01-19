@@ -1,8 +1,7 @@
 use std::{
     cmp::Reverse,
-    io,
-    sync::mpsc::{self, Receiver, TryRecvError},
-    thread::{self, sleep},
+    sync::mpsc::{self, TryRecvError},
+    thread::sleep,
     time::{Duration, Instant, SystemTime},
 };
 
@@ -10,8 +9,7 @@ use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
 use move_generator::{
-    can_capture_opponent_king, generate_moves, generate_moves_without_history, perft, PerftStats,
-    ENABLE_UNMAKE_MOVE_TEST,
+    can_capture_opponent_king, generate_moves_without_history, perft, PerftStats, ENABLE_UNMAKE_MOVE_TEST,
 };
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::DEFAULT_HISTORY_TABLE;
@@ -19,7 +17,7 @@ use transposition_table::TranspositionTable;
 use uci::UciInterface;
 
 use num_format::{Locale, ToFormattedString};
-use vampirc_uci::{parse_with_unknown, UciMessage, UciSearchControl};
+use vampirc_uci::UciSearchControl;
 
 mod board;
 mod evaluate;
@@ -225,12 +223,13 @@ fn hash_values_edit_distance() {
 
     for x in 8..hash_values.len() {
         // skip unused pawn values
-        if (x >= 56 && x <= 63) || (x >= 6 * 64 && x <= 6 * 64 + 7) || (x >= 6 * 64 + 56 && x <= 6 * 64 + 63) {
+        if (56..=63).contains(&x) || (6 * 64..=6 * 64 + 7).contains(&x) || (6 * 64 + 56..=6 * 64 + 63).contains(&x) {
             continue;
         }
 
         for y in (x + 1)..hash_values.len() {
-            if (y >= 56 && y <= 63) || (y >= 6 * 64 && y <= 6 * 64 + 7) || (y >= 6 * 64 + 56 && y <= 6 * 64 + 63) {
+            if (56..=63).contains(&y) || (6 * 64..=6 * 64 + 7).contains(&y) || (6 * 64 + 56..=6 * 64 + 63).contains(&y)
+            {
                 continue;
             }
 
@@ -238,7 +237,7 @@ fn hash_values_edit_distance() {
             total_distance += edit_distance;
             total_count += 1;
 
-            if (x <= 63 || (x >= 6 * 64 && x <= 6 * 64 + 63)) && (y <= 63 || (y >= 6 * 64 && y <= 6 * 64 + 63)) {
+            if (x <= 63 || (6 * 64..=6 * 64 + 63).contains(&x)) && (y <= 63 || (6 * 64..=6 * 64 + 63).contains(&y)) {
                 pawn_distance += edit_distance;
                 pawn_count += 1;
             }
