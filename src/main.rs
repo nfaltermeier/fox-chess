@@ -9,7 +9,8 @@ use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
 use move_generator::{
-    can_capture_opponent_king, generate_moves_without_history, perft, PerftStats, ENABLE_UNMAKE_MOVE_TEST,
+    can_capture_opponent_king, generate_legal_moves_without_history, perft, PerftStats,
+    ENABLE_UNMAKE_MOVE_TEST,
 };
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::DEFAULT_HISTORY_TABLE;
@@ -131,7 +132,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut board = Board::from_fen(fen).unwrap();
     info!("{:#?}", &board);
 
-    let mut moves = generate_moves_without_history(&mut board);
+    let mut moves = generate_legal_moves_without_history(&mut board);
 
     moves.sort_by_key(|m| Reverse(m.score));
 
@@ -156,7 +157,7 @@ fn print_moves_from_pos(fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
     info!("{:#?}", &board);
 
-    let mut moves = generate_moves_without_history(&mut board);
+    let mut moves = generate_legal_moves_without_history(&mut board);
 
     moves.sort_by_key(|m| Reverse(m.score));
 
@@ -177,7 +178,7 @@ fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
         board.make_move(&r#move.m, &mut rollback);
     }
 
-    let final_pos_moves = generate_moves_without_history(&mut board);
+    let final_pos_moves = generate_legal_moves_without_history(&mut board);
 
     if final_pos_moves.is_empty() {
         warn!("No moves found")
@@ -203,7 +204,7 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
     debug!("After all moves");
     debug!("{:?}", board);
 
-    let final_pos_moves = generate_moves_without_history(&mut board);
+    let final_pos_moves = generate_legal_moves_without_history(&mut board);
 
     if final_pos_moves.is_empty() {
         warn!("No moves found")

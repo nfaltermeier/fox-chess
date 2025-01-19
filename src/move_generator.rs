@@ -49,26 +49,43 @@ const OFFSET: [[i8; 8]; 5] = [
 ];
 
 #[inline]
-pub fn generate_moves_with_history(board: &mut Board, history_table: &HistoryTable) -> Vec<ScoredMove> {
-    generate_moves::<true, false>(board, history_table)
+pub fn generate_pseudo_legal_moves_with_history(board: &mut Board, history_table: &HistoryTable) -> Vec<ScoredMove> {
+    let moves = generate_moves_pseudo_legal::<true, false>(board, history_table);
+
+    do_make_unmake_move_test(board, &moves);
+
+    moves
 }
 
 #[inline]
-pub fn generate_moves_without_history(board: &mut Board) -> Vec<ScoredMove> {
-    generate_moves::<false, false>(board, &DEFAULT_HISTORY_TABLE)
+pub fn generate_legal_moves_without_history(board: &mut Board) -> Vec<ScoredMove> {
+    generate_legal_moves::<false, false>(board, &DEFAULT_HISTORY_TABLE)
 }
 
 #[inline]
-pub fn generate_capture_moves(board: &mut Board) -> Vec<ScoredMove> {
-    generate_moves::<false, true>(board, &DEFAULT_HISTORY_TABLE)
+pub fn generate_pseudo_legal_moves_without_history(board: &mut Board) -> Vec<ScoredMove> {
+    let moves = generate_moves_pseudo_legal::<false, false>(board, &DEFAULT_HISTORY_TABLE);
+
+    do_make_unmake_move_test(board, &moves);
+
+    moves
+}
+
+#[inline]
+pub fn generate_pseudo_legal_capture_moves(board: &mut Board) -> Vec<ScoredMove> {
+    let moves = generate_moves_pseudo_legal::<false, true>(board, &DEFAULT_HISTORY_TABLE);
+
+    do_make_unmake_move_test(board, &moves);
+
+    moves
 }
 
 /// if make and unmake move work properly then at the end board should be back to it's original state
-pub fn generate_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
+pub fn generate_legal_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
     board: &mut Board,
     history_table: &HistoryTable,
 ) -> Vec<ScoredMove> {
-    let mut moves = generate_moves_psuedo_legal::<USE_HISTORY, ONLY_CAPTURES>(board, history_table);
+    let mut moves = generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(board, history_table);
     let mut rollback = MoveRollback::default();
     let mut board_copy = None;
     if ENABLE_UNMAKE_MOVE_TEST {
@@ -82,55 +99,25 @@ pub fn generate_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
     // }
 
     moves.retain(|r#move| {
-        let mut result;
-        let flags = r#move.m.flags();
+        let (result, move_made) = test_legality_and_maybe_make_move(board, r#move.m, &mut rollback);
 
-        if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
-            // Check the king isn't in check to begin with
-            board.white_to_move = !board.white_to_move;
-            result = !can_capture_opponent_king(board, false);
-            board.white_to_move = !board.white_to_move;
-
-            if !result {
-                return result;
-            }
-
-            let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
-            let from = r#move.m.from();
-            let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
-            let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
-
-            board.make_move(&intermediate_move, &mut rollback);
-            result = !can_capture_opponent_king(board, true);
-            board.unmake_move(&intermediate_move, &mut rollback);
+        if move_made {
+            board.unmake_move(&r#move.m, &mut rollback);
 
             if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
-                error!("unmake move did not properly undo move {:?}", intermediate_move);
-                assert_eq!(board_copy.as_ref().unwrap(), board);
-            }
-
-            if !result {
-                return result;
-            }
-        }
-
-        board.make_move(&r#move.m, &mut rollback);
-        result = !can_capture_opponent_king(board, true);
-        board.unmake_move(&r#move.m, &mut rollback);
-
-        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
-            error!("unmake move did not properly undo move {:?}", r#move.m);
-
-            let board_copied = board_copy.as_ref().unwrap();
-            if board_copied.hash != board.hash {
-                for (i, v) in HASH_VALUES.iter().enumerate() {
-                    if board_copied.hash ^ v == board.hash {
-                        debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                error!("unmake move did not properly undo move {:?}", r#move.m);
+    
+                let board_copied = board_copy.as_ref().unwrap();
+                if board_copied.hash != board.hash {
+                    for (i, v) in HASH_VALUES.iter().enumerate() {
+                        if board_copied.hash ^ v == board.hash {
+                            debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                        }
                     }
                 }
+    
+                assert_eq!(board_copy.as_ref().unwrap(), board);
             }
-
-            assert_eq!(board_copy.as_ref().unwrap(), board);
         }
 
         result
@@ -141,7 +128,7 @@ pub fn generate_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
     moves
 }
 
-pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
+pub fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
     board: &Board,
     history_table: &HistoryTable,
 ) -> Vec<ScoredMove> {
@@ -424,6 +411,53 @@ pub fn generate_moves_psuedo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES:
     result
 }
 
+/// If the move is legal then the move will have been made.
+/// First bool of return: if move is legal
+/// Second bool of return: if move is made
+pub fn test_legality_and_maybe_make_move(board: &mut Board, m: Move, rollback: &mut MoveRollback) -> (bool, bool) {
+    let mut board_copy = None;
+    if ENABLE_UNMAKE_MOVE_TEST {
+        board_copy = Some(board.clone());
+    }
+
+    let mut result;
+    let flags = m.flags();
+
+    if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
+        // Check the king isn't in check to begin with
+        board.white_to_move = !board.white_to_move;
+        result = !can_capture_opponent_king(board, false);
+        board.white_to_move = !board.white_to_move;
+
+        if !result {
+            return (result, false);
+        }
+
+        let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
+        let from = m.from();
+        let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
+        let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
+
+        board.make_move(&intermediate_move, rollback);
+        result = !can_capture_opponent_king(board, true);
+        board.unmake_move(&intermediate_move, rollback);
+
+        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
+            error!("unmake move did not properly undo move {:?}", intermediate_move);
+            assert_eq!(board_copy.as_ref().unwrap(), board);
+        }
+
+        if !result {
+            return (result, false);
+        }
+    }
+
+    board.make_move(&m, rollback);
+    result = !can_capture_opponent_king(board, true);
+
+    (result, true)
+}
+
 pub fn can_capture_opponent_king(board: &Board, is_legality_test_after_move: bool) -> bool {
     let mut king_pos_opt = None;
     if board.white_to_move {
@@ -530,7 +564,7 @@ pub struct PerftStats {
 pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
     if depth == 0 {
         // slow as all heck
-        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES && generate_moves_without_history(board).is_empty() {
+        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES && generate_legal_moves_without_history(board).is_empty() {
             stats.checkmates += 1;
         }
 
@@ -538,9 +572,16 @@ pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &
         return;
     }
 
-    let moves = generate_moves_without_history(board);
+    let moves = generate_pseudo_legal_moves_without_history(board);
     for r#move in &moves {
-        board.make_move(&r#move.m, rollback);
+        let (legal, move_made) = test_legality_and_maybe_make_move(board, r#move.m, rollback);
+        if !legal {
+            if move_made {
+                board.unmake_move(&r#move.m, rollback);
+            }
+
+            continue;
+        }
 
         if ENABLE_PERFT_STATS && depth == 1 {
             check_perft_stats(&r#move.m, board, stats);
@@ -584,6 +625,33 @@ impl ScoredMove {
         Self {
             m: Move::new(from_square_index, to_square_index, flags),
             score,
+        }
+    }
+}
+
+#[inline]
+fn do_make_unmake_move_test(board: &mut Board, moves: &Vec<ScoredMove>) {
+    if ENABLE_UNMAKE_MOVE_TEST {
+        let board_copy = board.clone();
+        let mut rollback = MoveRollback::default();
+
+        for m in moves {
+            board.make_move(&m.m, &mut rollback);
+            board.unmake_move(&m.m, &mut rollback);
+    
+            if board_copy != *board {
+                error!("unmake move did not properly undo move {:?}", m.m);
+    
+                if board_copy.hash != board.hash {
+                    for (i, v) in HASH_VALUES.iter().enumerate() {
+                        if board_copy.hash ^ v == board.hash {
+                            debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                        }
+                    }
+                }
+    
+                assert_eq!(board_copy, *board);
+            }
         }
     }
 }
