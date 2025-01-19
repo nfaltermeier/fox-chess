@@ -11,8 +11,7 @@ use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
     move_generator::{
-        can_capture_opponent_king, generate_capture_moves, generate_moves_with_history, ScoredMove,
-        MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
+        can_capture_opponent_king, generate_pseudo_legal_capture_moves, generate_pseudo_legal_moves_with_history, test_legality_and_maybe_make_move, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
@@ -207,34 +206,15 @@ impl Board {
             }
         }
 
-        let mut moves = generate_moves_with_history(self, history_table);
-
-        if moves.is_empty() {
-            error!(
-                "Tried to search on a position but found no moves. Position: {:#?}",
-                self
-            );
-            panic!("Tried to search on a position but found no moves");
-        }
-
-        if moves.len() == 1 {
-            stats.depth = 1;
-            return AlphaBetaResult {
-                search_result: Some(SearchResult {
-                    best_move: moves.pop().unwrap().m,
-                    eval: self.evaluate(),
-                    stats,
-                }),
-                end_search: true,
-            };
-        } else {
-            stats.depth = draft;
-        }
+        let mut legal_moves: u16 = 0;
+        let mut moves = generate_pseudo_legal_moves_with_history(self, history_table);
 
         moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
             if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                // Hash move is assumed to be legal
+                legal_moves += 1;
                 continue;
             }
 
@@ -245,7 +225,16 @@ impl Board {
                 };
             }
 
-            self.make_move(&r#move.m, &mut rollback);
+            let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, &mut rollback);
+            if !legal {
+                if move_made {
+                    self.unmake_move(&r#move.m, &mut rollback);
+                }
+
+                continue;
+            } else {
+                legal_moves += 1;
+            }
 
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
@@ -273,6 +262,28 @@ impl Board {
                     alpha = result;
                 }
             }
+        }
+
+        if legal_moves == 0 {
+            error!(
+                "Tried to search on a position but found no moves. Position: {:#?}",
+                self
+            );
+            panic!("Tried to search on a position but found no moves");
+        }
+
+        if legal_moves == 1 {
+            stats.depth = 1;
+            return AlphaBetaResult {
+                search_result: Some(SearchResult {
+                    best_move: best_move.unwrap(),
+                    eval: self.evaluate(),
+                    stats,
+                }),
+                end_search: true,
+            };
+        } else {
+            stats.depth = draft;
         }
 
         // Make the score not side-to-move relative
@@ -376,21 +387,9 @@ impl Board {
             }
         }
 
-        let mut moves = generate_moves_with_history(self, history_table);
+        let mut moves = generate_pseudo_legal_moves_with_history(self, history_table);
         let mut searched_quiet_moves = Vec::new();
-
-        // Assuming no bug with move generation...
-        if moves.is_empty() {
-            self.white_to_move = !self.white_to_move;
-            let is_check = can_capture_opponent_king(self, false);
-            self.white_to_move = !self.white_to_move;
-
-            if is_check {
-                return self.evaluate_checkmate_side_to_move_relative(ply);
-            } else {
-                return 0;
-            }
-        }
+        let mut found_legal_move = false;
 
         if killers[0] != EMPTY_MOVE {
             let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
@@ -420,10 +419,21 @@ impl Board {
 
         for r#move in moves {
             if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                // Hash move is assumed to be legal
+                found_legal_move = true;
                 continue;
             }
 
-            self.make_move(&r#move.m, rollback);
+            let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, rollback);
+            if !legal {
+                if move_made {
+                    self.unmake_move(&r#move.m, rollback);
+                }
+
+                continue;
+            } else {
+                found_legal_move = true;
+            }
 
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
@@ -476,6 +486,19 @@ impl Board {
 
             if r#move.m.flags() == 0 {
                 searched_quiet_moves.push(r#move.m);
+            }
+        }
+
+        // Assuming no bug with move generation...
+        if !found_legal_move {
+            self.white_to_move = !self.white_to_move;
+            let is_check = can_capture_opponent_king(self, false);
+            self.white_to_move = !self.white_to_move;
+
+            if is_check {
+                return self.evaluate_checkmate_side_to_move_relative(ply);
+            } else {
+                return 0;
             }
         }
 
@@ -591,16 +614,22 @@ impl Board {
             }
         }
 
-        let mut moves = generate_capture_moves(self);
+        let mut moves = generate_pseudo_legal_capture_moves(self);
 
         moves.sort_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
-            self.make_move(&r#move.m, rollback);
-            let result;
+            let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, rollback);
+            if !legal {
+                if move_made {
+                    self.unmake_move(&r#move.m, rollback);
+                }
+
+                continue;
+            }
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            result =
+            let result =
                 -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
 
             self.unmake_move(&r#move.m, rollback);
