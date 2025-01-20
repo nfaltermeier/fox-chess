@@ -327,20 +327,28 @@ impl Board {
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.draft >= draft {
+                let mut eval = tt_data.eval;
+
+                if eval >= 19800 {
+                    eval -= 10 * ply as i16;
+                } else if eval <= -19800 {
+                    eval += 10 * ply as i16;
+                }
+
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
-                        if tt_data.eval >= beta {
+                        if eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
-                            return tt_data.eval;
+                            return eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return tt_data.eval;
+                        return eval;
                     }
                     transposition_table::MoveType::FailLow => {
-                        if tt_data.eval < alpha {
-                            return tt_data.eval;
+                        if eval < alpha {
+                            return eval;
                         }
                     }
                 }
