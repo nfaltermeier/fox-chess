@@ -320,7 +320,7 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.ply >= self.total_ply + draft as u16 {
+            if tt_data.draft >= draft {
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_data.eval >= beta {
@@ -370,7 +370,8 @@ impl Board {
                         important_move: tt_data.important_move,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        ply: self.total_ply + draft as u16,
+                        draft,
+                        empty: false,
                     },
                     TableType::Main,
                 );
@@ -468,7 +469,8 @@ impl Board {
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        ply: self.total_ply + draft as u16,
+                        draft,
+                        empty: false,
                     },
                     TableType::Main,
                 );
@@ -512,7 +514,8 @@ impl Board {
                     MoveType::FailLow
                 },
                 eval: best_value,
-                ply: self.total_ply + draft as u16,
+                draft,
+                empty: false,
             },
             TableType::Main,
         );
@@ -594,7 +597,8 @@ impl Board {
                             important_move: tt_data.important_move,
                             move_type: MoveType::FailHigh,
                             eval: result,
-                            ply: self.total_ply,
+                            draft: 0,
+                            empty: false,
                         },
                         TableType::Quiescense,
                     );
@@ -639,7 +643,8 @@ impl Board {
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        ply: self.total_ply,
+                        draft: 0,
+                        empty: false,
                     },
                     TableType::Quiescense,
                 );
@@ -668,7 +673,8 @@ impl Board {
                         MoveType::FailLow
                     },
                     eval: best_value,
-                    ply: self.total_ply,
+                    draft: 0,
+                    empty: false,
                 },
                 TableType::Quiescense,
             );

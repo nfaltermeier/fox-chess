@@ -105,7 +105,6 @@ pub struct Board {
     pub halfmove_clock: u8,
     // Is this needed?
     pub fullmove_counter: u16,
-    pub total_ply: u16,
     pub hash: u64,
     pub game_stage: i16,
     pub repetitions: RepetitionTracker,
@@ -147,7 +146,6 @@ impl Board {
             hash: 0,
             game_stage: 0,
             repetitions: RepetitionTracker::default(),
-            total_ply: 0,
         };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;
@@ -315,7 +313,6 @@ impl Board {
         match fmc_result {
             Ok(fmc) => {
                 board.fullmove_counter = fmc;
-                board.total_ply = ((fmc - 1) * 2) + if board.white_to_move { 0 } else { 1 };
             }
             Err(e) => {
                 return Err(format!(
@@ -355,7 +352,6 @@ impl Debug for Board {
             .field("en_passant_target_square_index", &self.en_passant_target_square_index)
             .field("halfmove_clock", &self.halfmove_clock)
             .field("fullmove_counter", &self.fullmove_counter)
-            .field("total_py", &self.total_ply)
             .field("hash", &format!("{:#018x}", self.hash))
             .field("game_stage", &self.game_stage)
             .field("repetitions", &self.repetitions)

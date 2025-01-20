@@ -299,7 +299,6 @@ impl Board {
         if !self.white_to_move {
             self.fullmove_counter += 1;
         }
-        self.total_ply += 1;
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
@@ -416,7 +415,6 @@ impl Board {
         if self.white_to_move {
             self.fullmove_counter -= 1;
         }
-        self.total_ply -= 1;
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
@@ -445,7 +443,6 @@ impl Board {
         if self.white_to_move {
             self.fullmove_counter -= 1;
         }
-        self.total_ply -= 1;
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
@@ -473,7 +470,6 @@ impl Board {
         if !self.white_to_move {
             self.fullmove_counter += 1;
         }
-        self.total_ply += 1;
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
