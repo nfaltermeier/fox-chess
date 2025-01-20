@@ -44,6 +44,6 @@ A UCI chess engine
 - [x] Delay move legality check until move is searched. Move ordering will take longer but will remove a make + unmake for every move
 - [ ] Adjust move history immediately after searching it instead of storing a list to wait for a fail high
 - [ ] Reserve space for moves during move generation
-- [ ] Try unstable sorting moves
+- [x] Try unstable sorting moves
 - [ ] Check for threefold repetition before using best move from tt at root
 - [ ] Skip rechecking the hash move in quiescense search
