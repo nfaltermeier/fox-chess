@@ -9,7 +9,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE},
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{
         can_capture_opponent_king, generate_pseudo_legal_capture_moves, generate_pseudo_legal_moves_with_history, test_legality_and_maybe_make_move, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
@@ -129,7 +129,7 @@ impl Board {
                 if result.end_search
                     || (depth >= 5 && elapsed >= cutoff)
                     || elapsed >= cutoff_low_depth
-                    || search_result.eval.abs() >= 19800
+                    || search_result.eval.abs() >= MATE_THRESHOLD
                     || depth >= 40
                 {
                     return search_result;
@@ -329,9 +329,9 @@ impl Board {
             if tt_data.draft >= draft {
                 let mut eval = tt_data.eval;
 
-                if eval >= 19800 {
+                if eval >= MATE_THRESHOLD {
                     eval -= 10 * ply as i16;
-                } else if eval <= -19800 {
+                } else if eval <= -MATE_THRESHOLD {
                     eval += 10 * ply as i16;
                 }
 

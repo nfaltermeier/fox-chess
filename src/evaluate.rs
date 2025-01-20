@@ -24,6 +24,9 @@ pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as us
 pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
     GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
 
+pub const MATE_THRESHOLD: i16 = 20000;
+pub const MATE_VALUE: i16 = 25000;
+
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
 const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
@@ -206,9 +209,9 @@ impl Board {
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
         if self.white_to_move {
-            -20000 + (ply as i16) * 10
+            -MATE_VALUE + (ply as i16) * 10
         } else {
-            20000 - (ply as i16) * 10
+            MATE_VALUE - (ply as i16) * 10
         }
     }
 
