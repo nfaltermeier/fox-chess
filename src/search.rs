@@ -135,6 +135,11 @@ impl Board {
                     return search_result;
                 }
 
+                // This seems like it could go really wrong. For when entire search is skipped by tt best move node.
+                // if search_result.stats.depth > depth {
+                //     depth = search_result.stats.depth;
+                // }
+
                 latest_result = Some(search_result);
             } else {
                 debug!("Cancelled search of depth {depth} due to exceeding time budget");
@@ -162,9 +167,10 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            // if tt_data.ply >= self.total_ply + draft as u16 {
+            // if tt_data.draft >= draft {
             //     if let transposition_table::MoveType::Best = tt_data.move_type {
             //         // should this be done for the root????
+            //         stats.depth = tt_data.draft;
             //         return AlphaBetaResult {
             //             search_result: Some(SearchResult {
             //                 best_move: tt_data.important_move,
