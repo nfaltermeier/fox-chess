@@ -1,4 +1,6 @@
-use std::{cmp::Reverse, i16, sync::mpsc::Receiver, time::Instant};
+use std::fs;
+use std::{cmp::Reverse, fs::File, i16, path::PathBuf, sync::mpsc::Receiver, time::Instant};
+use std::io::Write;
 
 use log::{debug, error};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
@@ -64,6 +66,8 @@ impl Board {
         let mut target_dur = None;
         let search_control: SearchControl;
         let mut max_depth = 40;
+        let mut eval_tree_file = None;
+        let mut none_file: Option<File> = None;
 
         if let Some(t) = time {
             match t {
@@ -122,6 +126,12 @@ impl Board {
             if s.depth.is_some() {
                 search_control = SearchControl::Depth;
                 max_depth = s.depth.unwrap();
+
+                if fs::exists("eval_trees").unwrap() == false {
+                    fs::create_dir("eval_trees").unwrap();
+                }
+
+                eval_tree_file = Some(File::create(PathBuf::from(format!("eval_trees/{}_depth_{}.txt", self.to_fen().replace("/", "."), max_depth))).unwrap());
             } else {
                 error!("Unsupported search option passed to go, use depth.");
                 unimplemented!("Unsupported search option passed to go, use depth.");
@@ -157,6 +167,8 @@ impl Board {
                 &cancel_search_time,
                 stop_rx,
                 search_control == SearchControl::Infinite,
+
+                if depth == max_depth { &mut eval_tree_file } else { &mut none_file },
             );
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
@@ -206,6 +218,7 @@ impl Board {
         cancel_search_at: &Option<Instant>,
         stop_rx: &Receiver<()>,
         infinite_search: bool,
+        eval_tree_file: &mut Option<File>,
     ) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
@@ -215,6 +228,7 @@ impl Board {
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
         let mut pv = Vec::new();
         let mut line = Vec::new();
+        let mut move_tree = Vec::new();
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
@@ -235,6 +249,7 @@ impl Board {
             }
 
             self.make_move(&tt_data.important_move, &mut rollback);
+            move_tree.push(tt_data.important_move.simple_long_algebraic_notation());
 
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
@@ -251,10 +266,13 @@ impl Board {
                     &mut killers,
                     history_table,
                     &mut line,
+                    eval_tree_file,
+                    &mut move_tree,
                 );
             }
 
             self.unmake_move(&tt_data.important_move, &mut rollback);
+            move_tree.pop();
 
             if result > best_value {
                 best_value = result;
@@ -300,6 +318,8 @@ impl Board {
                 legal_moves += 1;
             }
 
+            move_tree.push(r#move.m.simple_long_algebraic_notation());
+
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
                 result = 0;
@@ -315,10 +335,13 @@ impl Board {
                     &mut killers,
                     history_table,
                     &mut line,
+                    eval_tree_file,
+                    &mut move_tree,
                 );
             }
 
             self.unmake_move(&r#move.m, &mut rollback);
+            move_tree.pop();
 
             if result > best_value {
                 best_value = result;
@@ -338,6 +361,10 @@ impl Board {
                 self
             );
             panic!("Tried to search on a position but found no moves");
+        }
+
+        if let Some(e) = eval_tree_file {
+            writeln!(e, "eval {}", best_value).unwrap();
         }
 
         if legal_moves == 1 && !infinite_search {
@@ -384,6 +411,8 @@ impl Board {
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
         pv: &mut Vec<Move>,
+        eval_tree_file: &mut Option<File>,
+        move_tree: &mut Vec<String>,
     ) -> i16 {
         if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
             debug!("Board hash of interest found: {self:#?}")
@@ -394,7 +423,13 @@ impl Board {
 
             pv.clear();
 
-            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
+            let score = self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
+
+            if let Some(e) = eval_tree_file {
+                writeln!(e, "{}/eval {}", move_tree.join("/"), score).unwrap();
+            }
+
+            return score;
         }
 
         let mut best_value = -i16::MAX;
@@ -418,6 +453,10 @@ impl Board {
                                 );
                             }
 
+                            if let Some(e) = eval_tree_file {
+                                writeln!(e, "{}/eval_high_tt {}", move_tree.join("/"), tt_data.eval).unwrap();
+                            }
+
                             return tt_data.eval;
                         }
                     }
@@ -429,6 +468,11 @@ impl Board {
                                 tt_data.important_move.data
                             );
                         }
+
+                        if let Some(e) = eval_tree_file {
+                            writeln!(e, "{}/eval_tt {}", move_tree.join("/"), tt_data.eval).unwrap();
+                        }
+
                         return tt_data.eval;
                     }
                     transposition_table::MoveType::FailLow => {
@@ -441,6 +485,10 @@ impl Board {
                                 );
                             }
 
+                            if let Some(e) = eval_tree_file {
+                                writeln!(e, "{}/eval_low_tt {}", move_tree.join("/"), tt_data.eval).unwrap();
+                            }
+
                             return tt_data.eval;
                         }
                     }
@@ -448,6 +496,7 @@ impl Board {
             }
 
             self.make_move(&tt_data.important_move, rollback);
+            move_tree.push(tt_data.important_move.simple_long_algebraic_notation());
 
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
@@ -464,10 +513,13 @@ impl Board {
                     &mut new_killers,
                     history_table,
                     &mut line,
+                    eval_tree_file,
+                    move_tree,
                 );
             }
 
             self.unmake_move(&tt_data.important_move, rollback);
+            move_tree.pop();
 
             if result >= beta {
                 self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
@@ -489,6 +541,10 @@ impl Board {
                         tt_data.important_move.pretty_print(Some(self)),
                         tt_data.important_move.data
                     );
+                }
+
+                if let Some(e) = eval_tree_file {
+                    writeln!(e, "{}/eval_high {}", move_tree.join("/"), result).unwrap();
                 }
 
                 return result;
@@ -561,6 +617,7 @@ impl Board {
             } else {
                 found_legal_move = true;
             }
+            move_tree.push(r#move.m.simple_long_algebraic_notation());
 
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
@@ -577,10 +634,13 @@ impl Board {
                     &mut new_killers,
                     history_table,
                     &mut line,
+                    eval_tree_file,
+                    move_tree,
                 );
             }
 
             self.unmake_move(&r#move.m, rollback);
+            move_tree.pop();
 
             if result >= beta {
                 self.update_killers_and_history(killers, &r#move.m, history_table, ply);
@@ -607,6 +667,10 @@ impl Board {
                         r#move.m.pretty_print(Some(self)),
                         r#move.m.data
                     );
+                }
+
+                if let Some(e) = eval_tree_file {
+                    writeln!(e, "{}/eval_high {}", move_tree.join("/"), result).unwrap();
                 }
 
                 return result;
@@ -650,6 +714,10 @@ impl Board {
             } else {
                 return 0;
             }
+        }
+
+        if let Some(e) = eval_tree_file {
+            writeln!(e, "{}/eval {}", move_tree.join("/"), best_value).unwrap();
         }
 
         transposition_table.store_entry(
