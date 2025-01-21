@@ -710,8 +710,18 @@ impl Board {
             }
 
             if is_check {
-                return self.evaluate_checkmate_side_to_move_relative(ply);
+                let result = self.evaluate_checkmate_side_to_move_relative(ply); 
+                
+                if let Some(e) = eval_tree_file {
+                    writeln!(e, "{}/eval_mate {}", move_tree.join("/"), result).unwrap();
+                }
+
+                return result;
             } else {
+                if let Some(e) = eval_tree_file {
+                    writeln!(e, "{}/eval_stalemate 0", move_tree.join("/")).unwrap();
+                }
+
                 return 0;
             }
         }
