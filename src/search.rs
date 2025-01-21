@@ -7,7 +7,7 @@ use crate::{
     board::{Board, PIECE_MASK},
     evaluate::ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
     move_generator::{
-        can_capture_opponent_king, generate_pseudo_legal_capture_moves, generate_pseudo_legal_moves_with_history, test_legality_and_maybe_make_move, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
+        ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
     moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE},
     repetition_tracker::RepetitionTracker,
@@ -269,7 +269,7 @@ impl Board {
         }
 
         let mut legal_moves: u16 = 0;
-        let mut moves = generate_pseudo_legal_moves_with_history(self, history_table);
+        let mut moves = self.generate_pseudo_legal_moves_with_history(history_table);
 
         moves.sort_unstable_by_key(|m| Reverse(m.score));
 
@@ -289,7 +289,7 @@ impl Board {
                 };
             }
 
-            let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, &mut rollback);
+            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, &mut rollback);
             if !legal {
                 if move_made {
                     self.unmake_move(&r#move.m, &mut rollback);
@@ -514,7 +514,7 @@ impl Board {
             }
         }
 
-        let mut moves = generate_pseudo_legal_moves_with_history(self, history_table);
+        let mut moves = self.generate_pseudo_legal_moves_with_history(history_table);
         let mut searched_quiet_moves = Vec::new();
         let mut found_legal_move = false;
 
@@ -551,7 +551,7 @@ impl Board {
                 continue;
             }
 
-            let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, rollback);
+            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
             if !legal {
                 if move_made {
                     self.unmake_move(&r#move.m, rollback);
@@ -638,7 +638,7 @@ impl Board {
         // Assuming no bug with move generation...
         if !found_legal_move {
             self.white_to_move = !self.white_to_move;
-            let is_check = can_capture_opponent_king(self, false);
+            let is_check = self.can_capture_opponent_king(false);
             self.white_to_move = !self.white_to_move;
 
             if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
@@ -764,12 +764,12 @@ impl Board {
             }
         }
 
-        let mut moves = generate_pseudo_legal_capture_moves(self);
+        let mut moves = self.generate_pseudo_legal_capture_moves();
 
         moves.sort_unstable_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
-            let (legal, move_made) = test_legality_and_maybe_make_move(self, r#move.m, rollback);
+            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
             if !legal {
                 if move_made {
                     self.unmake_move(&r#move.m, rollback);

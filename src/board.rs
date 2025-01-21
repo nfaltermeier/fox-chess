@@ -340,6 +340,91 @@ impl Board {
             .reduce(|acc, x| format!("{}\n{}", acc, x))
             .unwrap()
     }
+
+    pub fn to_fen(&self) -> String {
+        let mut result = String::new();
+
+        // Pieces on the board
+        let mut board_index = 56;
+        for rank_count in 1..=8 {
+            let mut empty_count = 0;
+            for file_count in 1..=8 {
+                let piece = self.get_piece_64(board_index);
+
+                if piece != PIECE_NONE {
+                    if empty_count > 0 {
+                        result += empty_count.to_string().as_str();
+                        empty_count = 0;
+                    }
+
+                    result += piece_to_name(piece).to_string().as_str();
+                } else {
+                    empty_count += 1;
+
+                    if file_count == 8 {
+                        result += empty_count.to_string().as_str();
+                        empty_count = 0;
+                    }
+                }
+
+                board_index += 1;
+            }
+
+            if rank_count != 8 {
+                result += "/";
+                board_index -= 16;
+            }
+        }
+
+        // Side to move
+        if self.white_to_move {
+            result += " w ";
+        } else {
+            result += " b ";
+        }
+
+        // Castling
+        if self.castling_rights != 0 {
+            if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
+                result += "K";
+            }
+
+            if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 {
+                result += "Q";
+            }
+
+            if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
+                result += "k";
+            }
+
+            if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 {
+                result += "q";
+            }
+
+            result += " ";
+        } else {
+            result += "- ";
+        }
+
+        // En passant
+        if let Some(ep_index) = self.en_passant_target_square_index {
+            let rank = rank_8x8(ep_index);
+            let file = file_8x8(ep_index);
+
+            result += format!("{}{} ", (b'a' + file) as char, rank).as_str();
+        } else {
+            result += "- ";
+        }
+
+        // Half move clock
+        result += self.halfmove_clock.to_string().as_str();
+        result += " ";
+
+        // Full move count
+        result += self.fullmove_counter.to_string().as_str();
+
+        result
+    }
 }
 
 impl Debug for Board {
