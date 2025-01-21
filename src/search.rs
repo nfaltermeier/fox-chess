@@ -66,8 +66,6 @@ impl Board {
         let mut target_dur = None;
         let search_control: SearchControl;
         let mut max_depth = 40;
-        let mut eval_tree_file = None;
-        let mut none_file: Option<File> = None;
 
         if let Some(t) = time {
             match t {
@@ -130,8 +128,6 @@ impl Board {
                 if fs::exists("eval_trees").unwrap() == false {
                     fs::create_dir("eval_trees").unwrap();
                 }
-
-                eval_tree_file = Some(File::create(PathBuf::from(format!("eval_trees/{}_depth_{}.txt", self.to_fen().replace("/", "."), max_depth))).unwrap());
             } else {
                 error!("Unsupported search option passed to go, use depth.");
                 unimplemented!("Unsupported search option passed to go, use depth.");
@@ -160,6 +156,12 @@ impl Board {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
+            let mut eval_tree_file = if search_control == SearchControl::Depth {
+                Some(File::create(PathBuf::from(format!("eval_trees/{}_depth_{}.txt", self.to_fen().replace("/", "."), depth))).unwrap())
+            } else {
+                None
+            };
+
             let result = self.alpha_beta_init(
                 depth,
                 transposition_table,
@@ -167,8 +169,7 @@ impl Board {
                 &cancel_search_time,
                 stop_rx,
                 search_control == SearchControl::Infinite,
-
-                if depth == max_depth { &mut eval_tree_file } else { &mut none_file },
+                &mut eval_tree_file,
             );
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
@@ -364,7 +365,7 @@ impl Board {
         }
 
         if let Some(e) = eval_tree_file {
-            writeln!(e, "eval {}", best_value).unwrap();
+            writeln!(e, "eval_inherit {}", best_value).unwrap();
         }
 
         if legal_moves == 1 && !infinite_search {
@@ -727,7 +728,7 @@ impl Board {
         }
 
         if let Some(e) = eval_tree_file {
-            writeln!(e, "{}/eval {}", move_tree.join("/"), best_value).unwrap();
+            writeln!(e, "{}/eval_inherit {}", move_tree.join("/"), best_value).unwrap();
         }
 
         transposition_table.store_entry(
