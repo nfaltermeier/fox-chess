@@ -1,6 +1,6 @@
 use std::fs;
-use std::{cmp::Reverse, fs::File, i16, path::PathBuf, sync::mpsc::Receiver, time::Instant};
 use std::io::Write;
+use std::{cmp::Reverse, fs::File, i16, path::PathBuf, sync::mpsc::Receiver, time::Instant};
 
 use log::{debug, error};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
@@ -8,9 +8,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
-    move_generator::{
-        ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
-    },
+    move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
     moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -66,6 +64,8 @@ impl Board {
         let mut target_dur = None;
         let search_control: SearchControl;
         let mut max_depth = 40;
+
+        debug!("starting search of {}", self.to_fen());
 
         if let Some(t) = time {
             match t {
@@ -157,7 +157,15 @@ impl Board {
         let mut latest_result = None;
         loop {
             let mut eval_tree_file = if search_control == SearchControl::Depth {
-                Some(File::create(PathBuf::from(format!("eval_trees/{}_depth_{}.txt", self.to_fen().replace("/", "."), depth))).unwrap())
+                Some(
+                    File::create(PathBuf::from(format!(
+                        "eval_trees/{:03}_[{}]_depth_{:02}.txt",
+                        (self.fullmove_counter - 1) * 2 + if self.white_to_move { 0 } else { 1 },
+                        self.to_fen().replace("/", "."),
+                        depth
+                    )))
+                    .unwrap(),
+                )
             } else {
                 None
             };
@@ -424,7 +432,8 @@ impl Board {
 
             pv.clear();
 
-            let score = self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
+            let score =
+                self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
 
             if let Some(e) = eval_tree_file {
                 writeln!(e, "{}/eval {} hash {:#018x}", move_tree.join("/"), score, self.hash).unwrap();
@@ -455,7 +464,14 @@ impl Board {
                             }
 
                             if let Some(e) = eval_tree_file {
-                                writeln!(e, "{}/eval_high_tt {} hash {:#018x}", move_tree.join("/"), tt_data.eval, self.hash).unwrap();
+                                writeln!(
+                                    e,
+                                    "{}/eval_high_tt {} hash {:#018x}",
+                                    move_tree.join("/"),
+                                    tt_data.eval,
+                                    self.hash
+                                )
+                                .unwrap();
                             }
 
                             return tt_data.eval;
@@ -471,7 +487,14 @@ impl Board {
                         }
 
                         if let Some(e) = eval_tree_file {
-                            writeln!(e, "{}/eval_tt {} hash {:#018x}", move_tree.join("/"), tt_data.eval, self.hash).unwrap();
+                            writeln!(
+                                e,
+                                "{}/eval_tt {} hash {:#018x}",
+                                move_tree.join("/"),
+                                tt_data.eval,
+                                self.hash
+                            )
+                            .unwrap();
                         }
 
                         return tt_data.eval;
@@ -487,7 +510,14 @@ impl Board {
                             }
 
                             if let Some(e) = eval_tree_file {
-                                writeln!(e, "{}/eval_low_tt {} hash {:#018x}", move_tree.join("/"), tt_data.eval, self.hash).unwrap();
+                                writeln!(
+                                    e,
+                                    "{}/eval_low_tt {} hash {:#018x}",
+                                    move_tree.join("/"),
+                                    tt_data.eval,
+                                    self.hash
+                                )
+                                .unwrap();
                             }
 
                             return tt_data.eval;
@@ -545,7 +575,14 @@ impl Board {
                 }
 
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_high {} hash {:#018x}", move_tree.join("/"), result, self.hash).unwrap();
+                    writeln!(
+                        e,
+                        "{}/eval_high {} hash {:#018x}",
+                        move_tree.join("/"),
+                        result,
+                        self.hash
+                    )
+                    .unwrap();
                 }
 
                 return result;
@@ -671,7 +708,14 @@ impl Board {
                 }
 
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_high {} hash {:#018x}", move_tree.join("/"), result, self.hash).unwrap();
+                    writeln!(
+                        e,
+                        "{}/eval_high {} hash {:#018x}",
+                        move_tree.join("/"),
+                        result,
+                        self.hash
+                    )
+                    .unwrap();
                 }
 
                 return result;
@@ -711,10 +755,17 @@ impl Board {
             }
 
             if is_check {
-                let result = self.evaluate_checkmate_side_to_move_relative(ply); 
-                
+                let result = self.evaluate_checkmate_side_to_move_relative(ply);
+
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_mate {} hash {:#018x}", move_tree.join("/"), result, self.hash).unwrap();
+                    writeln!(
+                        e,
+                        "{}/eval_mate {} hash {:#018x}",
+                        move_tree.join("/"),
+                        result,
+                        self.hash
+                    )
+                    .unwrap();
                 }
 
                 return result;
@@ -728,7 +779,14 @@ impl Board {
         }
 
         if let Some(e) = eval_tree_file {
-            writeln!(e, "{}/eval_inherit {} hash {:#018x}", move_tree.join("/"), best_value, self.hash).unwrap();
+            writeln!(
+                e,
+                "{}/eval_inherit {} hash {:#018x}",
+                move_tree.join("/"),
+                best_value,
+                self.hash
+            )
+            .unwrap();
         }
 
         transposition_table.store_entry(
