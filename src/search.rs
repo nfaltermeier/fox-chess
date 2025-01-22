@@ -9,7 +9,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
     move_generator::{
         can_capture_opponent_king, generate_pseudo_legal_capture_moves, generate_pseudo_legal_moves_with_history, test_legality_and_maybe_make_move, ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
@@ -329,10 +329,11 @@ impl Board {
             if tt_data.draft >= draft {
                 let mut eval = tt_data.eval;
 
+                // When a mate is found and stored in the tt a null move is added because a position isn't recognized as mate until the moves after it are searched and found to not exist so draft should be decremented
                 if eval >= MATE_THRESHOLD {
-                    eval -= 10 * ply as i16;
+                    eval = MATE_VALUE - 10 * (ply + tt_data.draft - 1) as i16;
                 } else if eval <= -MATE_THRESHOLD {
-                    eval += 10 * ply as i16;
+                    eval = -MATE_VALUE + 10 * (ply + tt_data.draft - 1) as i16;
                 }
 
                 match tt_data.move_type {
