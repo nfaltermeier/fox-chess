@@ -365,7 +365,7 @@ impl Board {
         }
 
         if let Some(e) = eval_tree_file {
-            writeln!(e, "eval_inherit {}", best_value).unwrap();
+            writeln!(e, "eval_inherit {} hash {:#018x}", best_value, self.hash).unwrap();
         }
 
         if legal_moves == 1 && !infinite_search {
@@ -427,7 +427,7 @@ impl Board {
             let score = self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
 
             if let Some(e) = eval_tree_file {
-                writeln!(e, "{}/eval {}", move_tree.join("/"), score).unwrap();
+                writeln!(e, "{}/eval {} hash {:#018x}", move_tree.join("/"), score, self.hash).unwrap();
             }
 
             return score;
@@ -455,7 +455,7 @@ impl Board {
                             }
 
                             if let Some(e) = eval_tree_file {
-                                writeln!(e, "{}/eval_high_tt {}", move_tree.join("/"), tt_data.eval).unwrap();
+                                writeln!(e, "{}/eval_high_tt {} hash {:#018x}", move_tree.join("/"), tt_data.eval, self.hash).unwrap();
                             }
 
                             return tt_data.eval;
@@ -471,7 +471,7 @@ impl Board {
                         }
 
                         if let Some(e) = eval_tree_file {
-                            writeln!(e, "{}/eval_tt {}", move_tree.join("/"), tt_data.eval).unwrap();
+                            writeln!(e, "{}/eval_tt {} hash {:#018x}", move_tree.join("/"), tt_data.eval, self.hash).unwrap();
                         }
 
                         return tt_data.eval;
@@ -487,7 +487,7 @@ impl Board {
                             }
 
                             if let Some(e) = eval_tree_file {
-                                writeln!(e, "{}/eval_low_tt {}", move_tree.join("/"), tt_data.eval).unwrap();
+                                writeln!(e, "{}/eval_low_tt {} hash {:#018x}", move_tree.join("/"), tt_data.eval, self.hash).unwrap();
                             }
 
                             return tt_data.eval;
@@ -545,7 +545,7 @@ impl Board {
                 }
 
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_high {}", move_tree.join("/"), result).unwrap();
+                    writeln!(e, "{}/eval_high {} hash {:#018x}", move_tree.join("/"), result, self.hash).unwrap();
                 }
 
                 return result;
@@ -671,7 +671,7 @@ impl Board {
                 }
 
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_high {}", move_tree.join("/"), result).unwrap();
+                    writeln!(e, "{}/eval_high {} hash {:#018x}", move_tree.join("/"), result, self.hash).unwrap();
                 }
 
                 return result;
@@ -714,13 +714,13 @@ impl Board {
                 let result = self.evaluate_checkmate_side_to_move_relative(ply); 
                 
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_mate {}", move_tree.join("/"), result).unwrap();
+                    writeln!(e, "{}/eval_mate {} hash {:#018x}", move_tree.join("/"), result, self.hash).unwrap();
                 }
 
                 return result;
             } else {
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_stalemate 0", move_tree.join("/")).unwrap();
+                    writeln!(e, "{}/eval_stalemate 0 hash {:#018x}", move_tree.join("/"), self.hash).unwrap();
                 }
 
                 return 0;
@@ -728,7 +728,7 @@ impl Board {
         }
 
         if let Some(e) = eval_tree_file {
-            writeln!(e, "{}/eval_inherit {}", move_tree.join("/"), best_value).unwrap();
+            writeln!(e, "{}/eval_inherit {} hash {:#018x}", move_tree.join("/"), best_value, self.hash).unwrap();
         }
 
         transposition_table.store_entry(
