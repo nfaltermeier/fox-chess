@@ -436,7 +436,7 @@ impl Board {
                 self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
 
             if let Some(e) = eval_tree_file {
-                writeln!(e, "{}/eval {} hash {:#018x}", move_tree.join("/"), score, self.hash).unwrap();
+                writeln!(e, "./{}/eval {} hash {:#018x}", move_tree.join("/"), score, self.hash).unwrap();
             }
 
             return score;
@@ -466,7 +466,7 @@ impl Board {
                             if let Some(e) = eval_tree_file {
                                 writeln!(
                                     e,
-                                    "{}/eval_high_tt {} hash {:#018x}",
+                                    "./{}/eval_high_tt {} hash {:#018x}",
                                     move_tree.join("/"),
                                     tt_data.eval,
                                     self.hash
@@ -489,7 +489,7 @@ impl Board {
                         if let Some(e) = eval_tree_file {
                             writeln!(
                                 e,
-                                "{}/eval_tt {} hash {:#018x}",
+                                "./{}/eval_tt {} hash {:#018x}",
                                 move_tree.join("/"),
                                 tt_data.eval,
                                 self.hash
@@ -512,7 +512,7 @@ impl Board {
                             if let Some(e) = eval_tree_file {
                                 writeln!(
                                     e,
-                                    "{}/eval_low_tt {} hash {:#018x}",
+                                    "./{}/eval_low_tt {} hash {:#018x}",
                                     move_tree.join("/"),
                                     tt_data.eval,
                                     self.hash
@@ -577,7 +577,7 @@ impl Board {
                 if let Some(e) = eval_tree_file {
                     writeln!(
                         e,
-                        "{}/eval_high {} hash {:#018x}",
+                        "./{}/eval_high {} hash {:#018x}",
                         move_tree.join("/"),
                         result,
                         self.hash
@@ -710,7 +710,7 @@ impl Board {
                 if let Some(e) = eval_tree_file {
                     writeln!(
                         e,
-                        "{}/eval_high {} hash {:#018x}",
+                        "./{}/eval_high {} hash {:#018x}",
                         move_tree.join("/"),
                         result,
                         self.hash
@@ -760,7 +760,7 @@ impl Board {
                 if let Some(e) = eval_tree_file {
                     writeln!(
                         e,
-                        "{}/eval_mate {} hash {:#018x}",
+                        "./{}/eval_mate {} hash {:#018x}",
                         move_tree.join("/"),
                         result,
                         self.hash
@@ -771,7 +771,7 @@ impl Board {
                 return result;
             } else {
                 if let Some(e) = eval_tree_file {
-                    writeln!(e, "{}/eval_stalemate 0 hash {:#018x}", move_tree.join("/"), self.hash).unwrap();
+                    writeln!(e, "./{}/eval_stalemate 0 hash {:#018x}", move_tree.join("/"), self.hash).unwrap();
                 }
 
                 return 0;
@@ -781,7 +781,7 @@ impl Board {
         if let Some(e) = eval_tree_file {
             writeln!(
                 e,
-                "{}/eval_inherit {} hash {:#018x}",
+                "./{}/eval_inherit {} hash {:#018x}",
                 move_tree.join("/"),
                 best_value,
                 self.hash
