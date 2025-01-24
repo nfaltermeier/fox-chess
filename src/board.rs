@@ -108,6 +108,8 @@ pub struct Board {
     pub hash: u64,
     pub game_stage: i16,
     pub repetitions: RepetitionTracker,
+    /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
+    pub piece_counts: [[u8; 7]; 2],
 }
 
 impl Board {
@@ -146,6 +148,7 @@ impl Board {
             hash: 0,
             game_stage: 0,
             repetitions: RepetitionTracker::default(),
+            piece_counts: [[0; 7]; 2],
         };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;
@@ -440,6 +443,7 @@ impl Debug for Board {
             .field("hash", &format!("{:#018x}", self.hash))
             .field("game_stage", &self.game_stage)
             .field("repetitions", &self.repetitions)
+            .field("piece_counts", &self.piece_counts)
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -510,4 +514,5 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
     board.hash ^= get_hash_value(piece_code, white, index, hash_values);
     board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
+    board.piece_counts[if white { 0 } else { 1 }][piece_code as usize] += 1;
 }

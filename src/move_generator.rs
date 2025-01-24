@@ -462,19 +462,23 @@ impl Board {
     pub fn can_capture_opponent_king(&self, is_legality_test_after_move: bool) -> bool {
         let mut king_pos_opt = None;
         if self.white_to_move {
-            let opponent_king_piece = PIECE_KING | COLOR_BLACK;
-            for i in (0..64).rev() {
-                if self.get_piece_64(i) == opponent_king_piece {
-                    king_pos_opt = Some(i);
-                    break;
+            if self.piece_counts[1][PIECE_KING as usize] != 0 {
+                let opponent_king_piece = PIECE_KING | COLOR_BLACK;
+                for i in (0..64).rev() {
+                    if self.get_piece_64(i) == opponent_king_piece {
+                        king_pos_opt = Some(i);
+                        break;
+                    }
                 }
             }
         } else {
-            let opponent_king_piece = PIECE_KING;
-            for i in 0..64 {
-                if self.get_piece_64(i) == opponent_king_piece {
-                    king_pos_opt = Some(i);
-                    break;
+            if self.piece_counts[0][PIECE_KING as usize] != 0 {
+                let opponent_king_piece = PIECE_KING;
+                for i in 0..64 {
+                    if self.get_piece_64(i) == opponent_king_piece {
+                        king_pos_opt = Some(i);
+                        break;
+                    }
                 }
             }
         }

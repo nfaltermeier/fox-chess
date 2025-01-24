@@ -191,6 +191,7 @@ impl Board {
             self.hash ^= get_hash_value(capture_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_piece);
             self.game_stage -= GAME_STAGE_VALUES[(capture_piece & PIECE_MASK) as usize];
+            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_piece & PIECE_MASK) as usize] -= 1;
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
@@ -234,6 +235,8 @@ impl Board {
             self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
             self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
+            self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] -= 1;
+            self.piece_counts[if self.white_to_move { 0 } else { 1 }][(promo_value + 2) as usize] += 1;
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
@@ -245,6 +248,7 @@ impl Board {
                     self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
                 }
                 self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] -= 1;
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -324,6 +328,7 @@ impl Board {
             self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
+            self.piece_counts[if self.white_to_move { 0 } else { 1 }][(captured_piece & PIECE_MASK) as usize] += 1;
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
@@ -334,6 +339,8 @@ impl Board {
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
                 self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
             }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
@@ -371,6 +378,7 @@ impl Board {
                     self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
                 }
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] += 1;
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -386,6 +394,8 @@ impl Board {
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
                 self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
             }
         }
 

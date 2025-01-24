@@ -222,4 +222,26 @@ impl Board {
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
+
+    /// Returns true if this position will be called a draw by the arbiter
+    pub fn is_insufficient_material(&self) -> bool {
+        if self.piece_counts[0][PIECE_QUEEN as usize] == 0
+            && self.piece_counts[0][PIECE_ROOK as usize] == 0
+            && self.piece_counts[0][PIECE_PAWN as usize] == 0
+            && self.piece_counts[1][PIECE_QUEEN as usize] == 0
+            && self.piece_counts[1][PIECE_ROOK as usize] == 0
+            && self.piece_counts[1][PIECE_PAWN as usize] == 0
+        {
+            let white_minor_pieces =
+                self.piece_counts[0][PIECE_BISHOP as usize] + self.piece_counts[0][PIECE_KNIGHT as usize];
+            let black_minor_pieces =
+                self.piece_counts[1][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_KNIGHT as usize];
+
+            // TODO: Does not account for bishop vs bishop of same color. Should be simple to check with bitboards.
+            return (white_minor_pieces == 0 && black_minor_pieces == 0)
+                || (white_minor_pieces == 0 && black_minor_pieces == 1)
+                || (white_minor_pieces == 1 && black_minor_pieces == 0);
+        }
+        false
+    }
 }

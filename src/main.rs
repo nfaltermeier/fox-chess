@@ -48,6 +48,10 @@ fn main() {
     // dereference lazy cell to cause it to initialize
     let _ = *HASH_VALUES;
 
+    if ENABLE_UNMAKE_MOVE_TEST {
+        error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
+    }
+
     run_uci();
 
     // print_moves_from_pos("4k3/8/8/8/3qbrp1/3QPB2/4N3/4K3 w - - 0 1");
@@ -164,10 +168,6 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
 }
 
 fn run_uci() {
-    if ENABLE_UNMAKE_MOVE_TEST {
-        error!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
-    }
-
     // 2^23 entries -> 128MiB
     let mut uci = UciInterface::new(23);
     let stdin_channel = spawn_stdin_channel();

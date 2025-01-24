@@ -185,7 +185,7 @@ impl Board {
             self.make_move(&tt_data.important_move, &mut rollback);
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -243,7 +243,7 @@ impl Board {
             }
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -357,7 +357,7 @@ impl Board {
             self.make_move(&tt_data.important_move, rollback);
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -458,7 +458,7 @@ impl Board {
             }
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -568,6 +568,10 @@ impl Board {
         transposition_table: &mut TranspositionTable,
     ) -> i16 {
         stats.quiescense_nodes += 1;
+
+        if self.is_insufficient_material() {
+            return 0;
+        }
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
