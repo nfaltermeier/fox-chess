@@ -10,7 +10,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
-    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY},
+    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY, MATE_THRESHOLD, MATE_VALUE},
     moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     search::{HistoryTable, SearchStats},
     transposition_table::TranspositionTable,
@@ -178,8 +178,8 @@ impl UciInterface {
     pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
         let score_string;
         let abs_cp = eval.abs();
-        if abs_cp >= 19800 {
-            let diff = 20000 - abs_cp;
+        if abs_cp >= MATE_THRESHOLD {
+            let diff = MATE_VALUE - abs_cp;
             let moves = (diff as f32 / 20.0).ceil();
             score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
         } else {
