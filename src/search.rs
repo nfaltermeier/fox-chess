@@ -329,11 +329,10 @@ impl Board {
             if tt_data.draft >= draft {
                 let mut eval = tt_data.eval;
 
-                // When a mate is found and stored in the tt a null move is added because a position isn't recognized as mate until the moves after it are searched and found to not exist so draft should be decremented
                 if eval >= MATE_THRESHOLD {
-                    eval = MATE_VALUE - 10 * (ply + tt_data.draft - 1) as i16;
+                    eval -= 10 * ply as i16;
                 } else if eval <= -MATE_THRESHOLD {
-                    eval = -MATE_VALUE + 10 * (ply + tt_data.draft - 1) as i16;
+                    eval += 10 * ply as i16;
                 }
 
                 match tt_data.move_type {
@@ -379,12 +378,19 @@ impl Board {
             if result >= beta {
                 self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
+                let mut tt_eval = result;
+                if tt_eval >= MATE_THRESHOLD {
+                    tt_eval += 10 * ply as i16;
+                } else if tt_eval <= -MATE_THRESHOLD {
+                    tt_eval -= 10 * ply as i16;
+                }
+
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
                         important_move: tt_data.important_move,
                         move_type: MoveType::FailHigh,
-                        eval: result,
+                        eval: tt_eval,
                         draft,
                         empty: false,
                     },
@@ -478,12 +484,19 @@ impl Board {
                     self.update_history(history_table, &m, penalty);
                 }
 
+                let mut tt_eval = result;
+                if tt_eval >= MATE_THRESHOLD {
+                    tt_eval += 10 * ply as i16;
+                } else if tt_eval <= -MATE_THRESHOLD {
+                    tt_eval -= 10 * ply as i16;
+                }
+
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
-                        eval: result,
+                        eval: tt_eval,
                         draft,
                         empty: false,
                     },
@@ -519,6 +532,13 @@ impl Board {
             }
         }
 
+        let mut tt_eval = best_value;
+        if tt_eval >= MATE_THRESHOLD {
+            tt_eval += 10 * ply as i16;
+        } else if tt_eval <= -MATE_THRESHOLD {
+            tt_eval -= 10 * ply as i16;
+        }
+
         transposition_table.store_entry(
             TTEntry {
                 hash: self.hash,
@@ -528,7 +548,7 @@ impl Board {
                 } else {
                     MoveType::FailLow
                 },
-                eval: best_value,
+                eval: tt_eval,
                 draft,
                 empty: false,
             },
