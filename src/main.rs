@@ -19,6 +19,7 @@ use uci::UciInterface;
 
 use num_format::{Locale, ToFormattedString};
 
+mod bitboard;
 mod board;
 mod evaluate;
 mod move_generator;
