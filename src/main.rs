@@ -9,6 +9,7 @@ use std::{
 use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
+use magic_bitboard::initialize_magic_bitboards;
 use move_generator::{
     perft, PerftStats,
     ENABLE_UNMAKE_MOVE_TEST,
@@ -22,6 +23,7 @@ use num_format::{Locale, ToFormattedString};
 mod bitboard;
 mod board;
 mod evaluate;
+mod magic_bitboard;
 mod move_generator;
 mod moves;
 mod repetition_tracker;
@@ -48,6 +50,7 @@ fn main() {
 
     // dereference lazy cell to cause it to initialize
     let _ = *HASH_VALUES;
+    initialize_magic_bitboards();
 
     if ENABLE_UNMAKE_MOVE_TEST {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
