@@ -53,7 +53,7 @@ pub fn initialize_magic_bitboards() {
     let attacks = &raw mut ATTACKS;
 
     unsafe {
-        (*attacks).reserve_exact(107648);
+        (*attacks).reserve_exact(93312);
 
         for i in 0..64 {
             let entry = &raw mut ROOK_ATTACK_LOOKUP[i];
@@ -118,8 +118,6 @@ pub fn initialize_magic_bitboards() {
                 *attack_list_entry = attack;
             }
         }
-
-        debug!("attacks size: {}", (*attacks).len());
     }
 }
 
@@ -244,6 +242,7 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     }
 }
 
+// Most values self-generated, some values from https://www.chessprogramming.org/Best_Magics_so_far
 static mut ROOK_ATTACK_LOOKUP: [MagicEntry; 64] = [
     MagicEntry::new(0x80004000976080, 12),
     MagicEntry::new(0x1040400010002000, 11),
@@ -293,22 +292,22 @@ static mut ROOK_ATTACK_LOOKUP: [MagicEntry; 64] = [
     MagicEntry::new(0x4000400410080120, 10),
     MagicEntry::new(0x20801040010, 10),
     MagicEntry::new(0x29040040820011, 11),
-    MagicEntry::new(0x4080400024800280, 11),
-    MagicEntry::new(0x500200040100440, 10),
-    MagicEntry::new(0x2880142001004100, 10),
-    MagicEntry::new(0x412020400a001200, 10),
-    MagicEntry::new(0x18c028004080080, 10),
-    MagicEntry::new(0x884001020080401, 10),
-    MagicEntry::new(0x210810420400, 10),
-    MagicEntry::new(0x801048745040200, 11),
-    MagicEntry::new(0x4401002040120082, 12),
-    MagicEntry::new(0x408200210012, 11),
-    MagicEntry::new(0x110008200441, 11),
-    MagicEntry::new(0x2010002004100901, 11),
-    MagicEntry::new(0x801000800040211, 11),
+    MagicEntry::new(0x48fffe99fecfaa00, 10),
+    MagicEntry::new(0x48fffe99fecfaa00, 9),
+    MagicEntry::new(0x497fffadff9c2e00, 9),
+    MagicEntry::new(0x613fffddffce9200, 9),
+    MagicEntry::new(0xffffffe9ffe7ce00, 9),
+    MagicEntry::new(0xfffffff5fff3e600, 9),
+    MagicEntry::new(0x0003ff95e5e6a4c0, 9),
+    MagicEntry::new(0x510ffff5f63c96a0, 10),
+    MagicEntry::new(0xebffffb9ff9fc526, 11),
+    MagicEntry::new(0x61fffeddfeedaeae, 10),
+    MagicEntry::new(0x53bfffedffdeb1a2, 10),
+    MagicEntry::new(0x127fffb9ffdfb5f6, 10),
+    MagicEntry::new(0x411fffddffdbf4d6, 10),
     MagicEntry::new(0x480d000400820801, 11),
-    MagicEntry::new(0x820104201280084, 11),
-    MagicEntry::new(0x1001040311802142, 12),
+    MagicEntry::new(0x0003ffef27eebe74, 10),
+    MagicEntry::new(0x7645fffecbfea79e, 11),
 ];
 static mut BISHOP_ATTACK_LOOKUP: [MagicEntry; 64] = [
     MagicEntry::new(0x1024b002420160, 6),
