@@ -1,6 +1,7 @@
 use log::{debug, error, log_enabled, trace};
 
 use crate::{
+    bitboard::{bitscan_forward_and_reset, lookup_pawn_attack, BIT_SQUARES},
     board::{
         index_10x12_to_pos_str, piece_to_name, Board, BOARD_SQUARE_INDEX_TRANSLATION_64, CASTLE_BLACK_KING_FLAG,
         CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
@@ -107,7 +108,7 @@ impl Board {
 
                 if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self {
                     error!("unmake move did not properly undo move {:?}", r#move.m);
-        
+
                     let board_copied = board_copy.as_ref().unwrap();
                     if board_copied.hash != self.hash {
                         for (i, v) in HASH_VALUES.iter().enumerate() {
@@ -116,7 +117,7 @@ impl Board {
                             }
                         }
                     }
-        
+
                     assert_eq!(board_copy.as_ref().unwrap(), self);
                 }
             }
@@ -134,279 +135,150 @@ impl Board {
         history_table: &HistoryTable,
     ) -> Vec<ScoredMove> {
         let mut result = Vec::new();
-        let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
-        let history_color_value = if self.white_to_move { 0 } else { 1 };
-        let ep_target = match self.en_passant_target_square_index {
-            Some(ep_target_untranslated) => BOARD_SQUARE_INDEX_TRANSLATION_64[ep_target_untranslated as usize],
-            None => 0xFF,
-        } as usize;
+        let side = if self.white_to_move { 0 } else { 1 };
+        let other_side = if self.white_to_move { 1 } else { 0 };
 
-        let mut i: usize = 21;
-        for _ in 0..8 {
-            for _ in 0..8 {
-                let piece = self.get_piece(i);
+        // Pawn move generation TODO: setwise pawn attacks
+        let mut pieces = self.piece_bitboards[side][PIECE_PAWN as usize];
+        while pieces != 0 {
+            let from = bitscan_forward_and_reset(&mut pieces) as u8;
+            let promo =
+                (self.white_to_move && from >= 48 && from <= 55) || (!self.white_to_move && from >= 8 && from <= 15);
 
-                debug_assert!(piece != PIECE_INVALID);
-                if piece != PIECE_NONE && piece & COLOR_FLAG_MASK == color_flag {
-                    let piece_type = (piece & PIECE_MASK) as usize;
-                    if piece_type != PIECE_PAWN as usize {
-                        for offset in OFFSET[piece_type - 2] {
-                            if offset == 0 {
-                                break;
-                            }
+            let mut attacks = lookup_pawn_attack(from, self.white_to_move) & self.side_occupancy[other_side];
+            while attacks != 0 {
+                let to = bitscan_forward_and_reset(&mut attacks) as u8;
+                let target_piece = self.get_piece_64(to as usize);
 
-                            let mut cur_pos = i;
-                            loop {
-                                cur_pos = cur_pos.checked_add_signed(offset as isize).unwrap();
-                                let target_piece = self.get_piece(cur_pos);
+                if !promo {
+                    result.push(ScoredMove {
+                        m: Move::new(from, to, MOVE_FLAG_CAPTURE),
+                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                            - CENTIPAWN_VALUES[PIECE_PAWN as usize],
+                    });
+                } else {
+                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                        - CENTIPAWN_VALUES[PIECE_PAWN as usize];
+                    result.push(ScoredMove::new(
+                        from,
+                        to,
+                        MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
+                        score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                    ));
+                    result.push(ScoredMove::new(
+                        from,
+                        to,
+                        MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
+                        score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                    ));
+                    result.push(ScoredMove::new(
+                        from,
+                        to,
+                        MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
+                        score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                    ));
+                    result.push(ScoredMove::new(
+                        from,
+                        to,
+                        MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
+                        score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                    ));
+                }
+            }
 
-                                if target_piece == PIECE_INVALID {
-                                    break;
-                                }
+            if !ONLY_CAPTURES {
+                let from_bitsquare = BIT_SQUARES[from as usize];
+                let to_bitsquare = if self.white_to_move {
+                    from_bitsquare << 8
+                } else {
+                    from_bitsquare >> 8
+                };
 
-                                if target_piece == PIECE_NONE {
-                                    if !ONLY_CAPTURES {
-                                        // if log_enabled!(log::Level::Trace) {
-                                        //     trace!(
-                                        //         "{} {} {:#04x} {} {} {} {:#04x} {}",
-                                        //         i,
-                                        //         index_10x12_to_pos_str(i as u8),
-                                        //         piece,
-                                        //         piece_to_name(piece),
-                                        //         cur_pos,
-                                        //         index_10x12_to_pos_str(cur_pos as u8),
-                                        //         target_piece,
-                                        //         piece_to_name(target_piece)
-                                        //     );
-                                        // }
-
-                                        // Doing this extra translation is probably bad for performance. May as well use 3 bytes per move instead of 2?
-                                        result.push(ScoredMove::new(
-                                            DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                            DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
-                                            0,
-                                            MOVE_SCORE_QUIET
-                                                + if USE_HISTORY {
-                                                    history_table[history_color_value][piece_type - 1]
-                                                        [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos] as usize]
-                                                } else {
-                                                    0
-                                                },
-                                        ));
-                                    }
-                                } else {
-                                    if target_piece & COLOR_FLAG_MASK != color_flag {
-                                        let score_diff = CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                                            - CENTIPAWN_VALUES[(piece & PIECE_MASK) as usize];
-
-                                        // if log_enabled!(log::Level::Trace) {
-                                        //     trace!(
-                                        //         "{} {} {:#04x} {} {} {} {:#04x} {}",
-                                        //         i,
-                                        //         index_10x12_to_pos_str(i as u8),
-                                        //         piece,
-                                        //         piece_to_name(piece),
-                                        //         cur_pos,
-                                        //         index_10x12_to_pos_str(cur_pos as u8),
-                                        //         target_piece,
-                                        //         piece_to_name(target_piece)
-                                        //     );
-                                        // }
-
-                                        result.push(ScoredMove::new(
-                                            DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                            DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[cur_pos],
-                                            MOVE_FLAG_CAPTURE,
-                                            MOVE_SCORE_CAPTURE + score_diff,
-                                        ));
-                                    }
-                                    break;
-                                }
-
-                                if !SLIDES[piece_type - 2] {
-                                    break;
-                                }
-                            }
-                        }
-
-                        if piece_type == PIECE_KING as usize && !ONLY_CAPTURES {
-                            for offset in [-1, 1] {
-                                if (offset == -1
-                                    && self.white_to_move
-                                    && self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0)
-                                    || (offset == -1
-                                        && !self.white_to_move
-                                        && self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0)
-                                    || (offset == 1
-                                        && self.white_to_move
-                                        && self.castling_rights & CASTLE_WHITE_KING_FLAG != 0)
-                                    || (offset == 1
-                                        && !self.white_to_move
-                                        && self.castling_rights & CASTLE_BLACK_KING_FLAG != 0)
-                                {
-                                    let friendly_rook = PIECE_ROOK | color_flag;
-                                    let mut cur_pos = i;
-                                    loop {
-                                        cur_pos = cur_pos.checked_add_signed(offset).unwrap();
-                                        let target_piece = self.get_piece(cur_pos);
-
-                                        if target_piece != PIECE_NONE {
-                                            if target_piece == friendly_rook
-                                                && (cur_pos == 21 || cur_pos == 28 || cur_pos == 91 || cur_pos == 98)
-                                            {
-                                                let king_to = i.checked_add_signed(offset * 2).unwrap();
-
-                                                let (flags, score) = if offset == -1 {
-                                                    (MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE)
-                                                } else {
-                                                    (MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE)
-                                                };
-                                                result.push(ScoredMove::new(
-                                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                                    DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[king_to],
-                                                    flags,
-                                                    score,
-                                                ));
-                                            }
-
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                if to_bitsquare & self.occupancy == 0 {
+                    let to = if self.white_to_move { from + 8 } else { from - 8 };
+                    if promo {
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            MOVE_PROMO_QUEEN,
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                        ));
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            MOVE_PROMO_ROOK,
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                        ));
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            MOVE_PROMO_BISHOP,
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                        ));
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            MOVE_PROMO_KNIGHT,
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                        ));
                     } else {
-                        // Do pawn movement
-                        let direction_sign: isize = if self.white_to_move { 1 } else { -1 };
-                        let can_promo =
-                            (!self.white_to_move && i > 30 && i < 40) || (self.white_to_move && i > 80 && i < 900);
-
-                        if !ONLY_CAPTURES {
-                            let mut target_pos = i.checked_add_signed(10 * direction_sign).unwrap();
-                            let mut target_piece = self.get_piece(target_pos);
-                            if target_piece == PIECE_NONE {
-                                if can_promo {
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_QUEEN,
-                                        MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
-                                    ));
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_ROOK,
-                                        MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
-                                    ));
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_BISHOP,
-                                        MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
-                                    ));
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_KNIGHT,
-                                        MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
-                                    ));
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            0,
+                            MOVE_SCORE_QUIET
+                                + if USE_HISTORY {
+                                    history_table[side][PIECE_PAWN as usize - 1][to as usize]
                                 } else {
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        0,
-                                        MOVE_SCORE_QUIET
-                                            + if USE_HISTORY {
-                                                history_table[history_color_value][PIECE_PAWN as usize - 1]
-                                                    [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos] as usize]
-                                            } else {
-                                                0
-                                            },
-                                    ));
+                                    0
+                                },
+                        ));
+                    }
 
-                                    // On starting rank?
-                                    if (self.white_to_move && i > 30 && i < 40)
-                                        || (!self.white_to_move && i > 80 && i < 90)
-                                    {
-                                        target_pos = target_pos.checked_add_signed(10 * direction_sign).unwrap();
-                                        target_piece = self.get_piece(target_pos);
+                    // double move
+                    if (!self.white_to_move && from >= 48 && from <= 55)
+                        || (self.white_to_move && from >= 8 && from <= 15)
+                    {
+                        let doublemove_bitsquare = if self.white_to_move {
+                            to_bitsquare << 8
+                        } else {
+                            to_bitsquare >> 8
+                        };
+                        let doublemove_to = if self.white_to_move { to + 8 } else { to - 8 };
 
-                                        if target_piece == PIECE_NONE {
-                                            result.push(ScoredMove::new(
-                                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                                DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                                MOVE_DOUBLE_PAWN,
-                                                MOVE_SCORE_QUIET
-                                                    + if USE_HISTORY {
-                                                        history_table[history_color_value][PIECE_PAWN as usize - 1]
-                                                            [DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos]
-                                                                as usize]
-                                                    } else {
-                                                        0
-                                                    },
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        for offset in [9, 11] {
-                            let target_pos = i.checked_add_signed(offset * direction_sign).unwrap();
-                            let target_piece = self.get_piece(target_pos);
-
-                            if target_piece != PIECE_INVALID
-                                && ((target_piece != PIECE_NONE && target_piece & COLOR_FLAG_MASK != color_flag)
-                                    || (target_pos == ep_target && target_piece == PIECE_NONE))
-                            {
-                                let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                                    - CENTIPAWN_VALUES[PIECE_PAWN as usize];
-                                if can_promo {
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                                        score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
-                                    ));
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                                        score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
-                                    ));
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                                        score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
-                                    ));
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                                        score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
-                                    ));
-                                } else {
-                                    result.push(ScoredMove::new(
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i],
-                                        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[target_pos],
-                                        if target_pos == ep_target {
-                                            MOVE_EP_CAPTURE
-                                        } else {
-                                            MOVE_FLAG_CAPTURE
-                                        },
-                                        score,
-                                    ));
-                                }
-                            }
+                        if doublemove_bitsquare & self.occupancy == 0 {
+                            result.push(ScoredMove::new(
+                                from,
+                                doublemove_to,
+                                MOVE_DOUBLE_PAWN,
+                                MOVE_SCORE_QUIET
+                                    + if USE_HISTORY {
+                                        history_table[side][PIECE_PAWN as usize - 1]
+                                            [doublemove_to as usize]
+                                    } else {
+                                        0
+                                    },
+                            ));
                         }
                     }
                 }
-
-                i += 1;
             }
-            // The inner loop will still increment so 1 + 2 = 3 which moves to the first item of the next row
-            i += 2;
+
+            match self.en_passant_target_square_index {
+                Some(ep_target_64) => {
+                    let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
+                    let mut takers = potential_takers & self.piece_bitboards[side][PIECE_PAWN as usize];
+                    while takers != 0 {
+                        let from = bitscan_forward_and_reset(&mut takers) as u8;
+
+                        result.push(ScoredMove {
+                            m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
+                            score: MOVE_SCORE_CAPTURE,
+                        });
+                    }
+                },
+                None => {},
+            }
         }
 
         result
@@ -559,14 +431,14 @@ impl Board {
         if ENABLE_UNMAKE_MOVE_TEST {
             let board_copy = self.clone();
             let mut rollback = MoveRollback::default();
-    
+
             for m in moves {
                 self.make_move(&m.m, &mut rollback);
                 self.unmake_move(&m.m, &mut rollback);
-        
+
                 if board_copy != *self {
                     error!("unmake move did not properly undo move {:?}", m.m);
-        
+
                     if board_copy.hash != self.hash {
                         for (i, v) in HASH_VALUES.iter().enumerate() {
                             if board_copy.hash ^ v == self.hash {
@@ -574,7 +446,7 @@ impl Board {
                             }
                         }
                     }
-        
+
                     assert_eq!(board_copy, *self);
                 }
             }
@@ -597,7 +469,10 @@ pub struct PerftStats {
 pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
     if depth == 0 {
         // slow as all heck
-        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES && board.generate_legal_moves_without_history().is_empty() {
+        if ENABLE_PERFT_STATS
+            && ENABLE_PERFT_STATS_CHECKMATES
+            && board.generate_legal_moves_without_history().is_empty()
+        {
             stats.checkmates += 1;
         }
 

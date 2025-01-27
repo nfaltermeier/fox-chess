@@ -3,7 +3,7 @@ use std::{fmt::Debug, sync::LazyLock};
 use log::error;
 use rand::{rngs::StdRng, Fill, SeedableRng};
 
-use crate::{evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker};
+use crate::{bitboard::BIT_SQUARES, evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker};
 
 #[rustfmt::skip]
 static EMPTY_BOARD: [u8; 120] = [
@@ -110,6 +110,9 @@ pub struct Board {
     pub repetitions: RepetitionTracker,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
+    pub piece_bitboards: [[u64; 7]; 2],
+    pub side_occupancy: [u64; 2],
+    pub occupancy: u64,
 }
 
 impl Board {
@@ -122,6 +125,22 @@ impl Board {
     }
 
     pub fn write_piece(&mut self, piece: u8, square_index: usize) {
+        let bit_square = BIT_SQUARES[square_index];
+        if piece == PIECE_NONE {
+            let old_piece = self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize];
+            if old_piece != PIECE_NONE {
+                let side = if old_piece & COLOR_BLACK != 0 { 1 } else { 0 };
+                self.piece_bitboards[side][(old_piece & PIECE_MASK) as usize] &= !bit_square;
+                self.side_occupancy[side] &= !bit_square;
+                self.occupancy &= !bit_square;
+            }
+        } else {
+            let side = if piece & COLOR_BLACK != 0 { 1 } else { 0 };
+            self.piece_bitboards[side][(piece & PIECE_MASK) as usize] |= bit_square;
+            self.side_occupancy[side] |= bit_square;
+            self.occupancy |= bit_square;
+        }
+
         self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize] = piece;
     }
 
@@ -149,6 +168,9 @@ impl Board {
             game_stage: 0,
             repetitions: RepetitionTracker::default(),
             piece_counts: [[0; 7]; 2],
+            piece_bitboards: [[0; 7]; 2],
+            side_occupancy: [0; 2],
+            occupancy: 0,
         };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;

@@ -6,6 +6,8 @@ pub const B_FILE: u64 = 0x0202020202020202;
 pub const G_FILE: u64 = 0x0707070707070707;
 pub const H_FILE: u64 = 0x8080808080808080;
 pub const RANK_1: u64 = 0x00000000000000FF;
+pub const RANK_2: u64 = 0x000000000000FF00;
+pub const RANK_7: u64 = 0x00FF000000000000;
 pub const RANK_8: u64 = 0xFF00000000000000;
 pub const LIGHT_SQUARES: u64 = 0x55AA55AA55AA55AA;
 pub const DARK_SQUARES: u64 = 0xAA55AA55AA55AA55;
@@ -16,17 +18,17 @@ static KING_ATTACKS: [u64; 64] = array![i => generate_king_attack(BIT_SQUARES[i]
 static PAWN_ATTACKS: [[u64; 64]; 2] = array![x => array![y => generate_pawn_attack(BIT_SQUARES[y], x == 0); 64]; 2];
 
 #[inline]
-pub fn lookup_knight_attack(square_bitindex: u64) -> u64 {
+pub fn lookup_knight_attack(square_bitindex: u8) -> u64 {
     KNIGHT_ATTACKS[square_bitindex as usize]
 }
 
 #[inline]
-pub fn lookup_king_attack(square_bitindex: u64) -> u64 {
+pub fn lookup_king_attack(square_bitindex: u8) -> u64 {
     KING_ATTACKS[square_bitindex as usize]
 }
 
 #[inline]
-pub fn lookup_pawn_attack(square_bitindex: u64, white: bool) -> u64 {
+pub fn lookup_pawn_attack(square_bitindex: u8, white: bool) -> u64 {
     PAWN_ATTACKS[if white { 0 } else { 1 }][square_bitindex as usize]
 }
 
@@ -104,4 +106,12 @@ pub fn pretty_print_bitboard(val: u64) -> String {
     }
 
     result
+}
+
+pub fn bitscan_forward_and_reset(num: &mut u64) -> u32 {
+    let val = num.trailing_zeros();
+
+    *num &= !(1 << val);
+
+    val
 }
