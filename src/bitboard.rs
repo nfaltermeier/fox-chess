@@ -94,3 +94,14 @@ const fn south_west_one(board: u64) -> u64 {
 const fn north_west_one(board: u64) -> u64 {
     (board << 7) & !H_FILE
 }
+
+pub fn pretty_print_bitboard(val: u64) -> String {
+    let mut result = String::new();
+
+    for i in (0..8).rev() {
+        let v = (val & (0xFF << (8 * i))) >> (8 * i);
+        result = format!("{result}\n{v:08b}");
+    }
+
+    result
+}
