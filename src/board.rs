@@ -3,7 +3,11 @@ use std::{fmt::Debug, sync::LazyLock};
 use log::error;
 use rand::{rngs::StdRng, Fill, SeedableRng};
 
-use crate::{bitboard::BIT_SQUARES, evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker};
+use crate::{
+    bitboard::{pretty_print_bitboard, BIT_SQUARES},
+    evaluate::GAME_STAGE_VALUES,
+    repetition_tracker::RepetitionTracker,
+};
 
 #[rustfmt::skip]
 static EMPTY_BOARD: [u8; 120] = [
@@ -466,6 +470,9 @@ impl Debug for Board {
             .field("game_stage", &self.game_stage)
             .field("repetitions", &self.repetitions)
             .field("piece_counts", &self.piece_counts)
+            .field("piece_bitboards", &"See end value")
+            .field("side_occupancy", &"See end value")
+            .field("occupancy", &"See end value")
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -483,9 +490,23 @@ impl Debug for Board {
             // Join the sets of 10 with newlines
             .reduce(|acc, x| format!("{}\n{}", acc, x))
             .unwrap();
-
         writeln!(f, "\nsquares:\n{}", pretty_squares).unwrap();
-        writeln!(f, "pretty version:\n{}", self.pretty_print())
+        writeln!(f, "pretty version:\n{}", self.pretty_print()).unwrap();
+        write!(f, "Piece bitboards:\nWhite:").unwrap();
+        self.piece_bitboards[0]
+            .iter()
+            .skip(1)
+            .for_each(|v| writeln!(f, "{}", pretty_print_bitboard(*v)).unwrap());
+        write!(f, "Black:").unwrap();
+        self.piece_bitboards[1]
+            .iter()
+            .skip(1)
+            .for_each(|v| writeln!(f, "{}", pretty_print_bitboard(*v)).unwrap());
+        write!(f, "Side occupancy:\nWhite:").unwrap();
+        writeln!(f, "{}", pretty_print_bitboard(self.side_occupancy[0])).unwrap();
+        write!(f, "Black:").unwrap();
+        writeln!(f, "{}", pretty_print_bitboard(self.side_occupancy[1])).unwrap();
+        writeln!(f, "Occupancy:{}", pretty_print_bitboard(self.occupancy))
     }
 }
 

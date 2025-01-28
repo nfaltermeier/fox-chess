@@ -2,6 +2,7 @@ use log::{debug, error};
 use regex::Regex;
 
 use crate::{
+    bitboard::BIT_SQUARES,
     board::{
         file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
@@ -329,6 +330,8 @@ impl Board {
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
             self.piece_counts[if self.white_to_move { 0 } else { 1 }][(captured_piece & PIECE_MASK) as usize] += 1;
+            self.side_occupancy[if self.white_to_move { 1 } else { 0 }] &= !BIT_SQUARES[to];
+            self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] &= !BIT_SQUARES[to];
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);

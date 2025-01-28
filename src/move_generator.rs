@@ -21,7 +21,7 @@ const ENABLE_PERFT_STATS: bool = true;
 const ENABLE_PERFT_STATS_CHECKS: bool = false;
 /// This option is very slow
 const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
-pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
+pub const ENABLE_UNMAKE_MOVE_TEST: bool = true;
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
 /// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800

@@ -102,12 +102,13 @@ pub fn pretty_print_bitboard(val: u64) -> String {
 
     for i in (0..8).rev() {
         let v = (val & (0xFF << (8 * i))) >> (8 * i);
-        result = format!("{result}\n{v:08b}");
+        result = format!("{result}\n{:08b}", (v as u8).reverse_bits());
     }
 
     result
 }
 
+/// Returns the index of the set bit
 pub fn bitscan_forward_and_reset(num: &mut u64) -> u32 {
     let val = num.trailing_zeros();
 
