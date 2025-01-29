@@ -1,19 +1,18 @@
-use log::{debug, error, log_enabled, trace};
+use std::time::Instant;
+
+use log::{debug, error, info, log_enabled, trace};
+use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_pawn_attack, BIT_SQUARES},
-    board::{
+    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES}, board::{
         index_10x12_to_pos_str, piece_to_name, Board, BOARD_SQUARE_INDEX_TRANSLATION_64, CASTLE_BLACK_KING_FLAG,
         CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
         DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION, HASH_VALUES, PIECE_BISHOP, PIECE_INVALID, PIECE_KING,
         PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-    },
-    evaluate::CENTIPAWN_VALUES,
-    moves::{
+    }, evaluate::CENTIPAWN_VALUES, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
         MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
-    },
-    search::{HistoryTable, DEFAULT_HISTORY_TABLE},
+    }, search::{HistoryTable, DEFAULT_HISTORY_TABLE}
 };
 
 const ENABLE_PERFT_STATS: bool = true;
@@ -21,7 +20,7 @@ const ENABLE_PERFT_STATS: bool = true;
 const ENABLE_PERFT_STATS_CHECKS: bool = false;
 /// This option is very slow
 const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
-pub const ENABLE_UNMAKE_MOVE_TEST: bool = true;
+pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
 /// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800
@@ -253,8 +252,7 @@ impl Board {
                                 MOVE_DOUBLE_PAWN,
                                 MOVE_SCORE_QUIET
                                     + if USE_HISTORY {
-                                        history_table[side][PIECE_PAWN as usize - 1]
-                                            [doublemove_to as usize]
+                                        history_table[side][PIECE_PAWN as usize - 1][doublemove_to as usize]
                                     } else {
                                         0
                                     },
@@ -263,25 +261,97 @@ impl Board {
                     }
                 }
             }
+        }
 
-            match self.en_passant_target_square_index {
-                Some(ep_target_64) => {
-                    let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
-                    let mut takers = potential_takers & self.piece_bitboards[side][PIECE_PAWN as usize];
-                    while takers != 0 {
-                        let from = bitscan_forward_and_reset(&mut takers) as u8;
+        // En passant
+        if let Some(ep_target_64) = self.en_passant_target_square_index {
+            let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
+            let mut takers = potential_takers & self.piece_bitboards[side][PIECE_PAWN as usize];
+            while takers != 0 {
+                let from = bitscan_forward_and_reset(&mut takers) as u8;
 
-                        result.push(ScoredMove {
-                            m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
-                            score: MOVE_SCORE_CAPTURE,
-                        });
-                    }
-                },
-                None => {},
+                result.push(ScoredMove {
+                    m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
+                    score: MOVE_SCORE_CAPTURE,
+                });
+            }
+        }
+
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_KNIGHT, side, other_side, &mut result, history_table, |sq| lookup_knight_attack(sq));
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_BISHOP, side, other_side, &mut result, history_table, |sq| lookup_bishop_attack(sq, self.occupancy));
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_ROOK, side, other_side, &mut result, history_table, |sq| lookup_rook_attack(sq, self.occupancy));
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_QUEEN, side, other_side, &mut result, history_table, |sq| lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy));
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_KING, side, other_side, &mut result, history_table, |sq| lookup_king_attack(sq));
+
+        // Castling
+        if !ONLY_CAPTURES && self.castling_rights != 0 {
+            if self.white_to_move {
+                if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 && (self.occupancy & 0x1f) == 0x11 {
+                    result.push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                }
+
+                if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 && (self.occupancy & 0xf0) == 0x90 {
+                    result.push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                }
+            } else {
+                if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 && (self.occupancy & 0x1f00000000000000) == 0x1100000000000000 {
+                    result.push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                }
+
+                if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 && (self.occupancy & 0xf000000000000000) == 0x9000000000000000 {
+                    result.push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                }
             }
         }
 
         result
+    }
+
+    fn add_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool, F: Fn(u8) -> u64>(
+        &self,
+        piece_type: u8,
+        side: usize,
+        other_side: usize,
+        result: &mut Vec<ScoredMove>,
+        history_table: &HistoryTable,
+        get_attacks: F,
+    ) {
+        let mut pieces = self.piece_bitboards[side][piece_type as usize];
+
+        while pieces != 0 {
+            let from = bitscan_forward_and_reset(&mut pieces) as u8;
+
+            let mut attacks = get_attacks(from) & !self.side_occupancy[side];
+
+            if ONLY_CAPTURES {
+                attacks &= self.side_occupancy[other_side];
+            }
+
+            while attacks != 0 {
+                let to = bitscan_forward_and_reset(&mut attacks) as u8;
+                let target_piece = self.get_piece_64(to as usize);
+
+                if target_piece == PIECE_NONE {
+                    result.push(ScoredMove::new(
+                        from,
+                        to,
+                        0,
+                        MOVE_SCORE_QUIET
+                            + if USE_HISTORY {
+                                history_table[side][piece_type as usize - 1][to as usize]
+                            } else {
+                                0
+                            },
+                    ));
+                } else {
+                    result.push(ScoredMove {
+                        m: Move::new(from, to, MOVE_FLAG_CAPTURE),
+                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                            - CENTIPAWN_VALUES[piece_type as usize],
+                    });
+                }
+            }
+        }
     }
 
     /// If the move is legal then the move will have been made.
@@ -452,6 +522,24 @@ impl Board {
             }
         }
     }
+
+    pub fn start_perft(&mut self, depth: u8, divide: bool) {
+        let mut rollback = MoveRollback::default();
+        let mut stats = PerftStats::default();
+
+        let start_time = Instant::now();
+        do_perft(depth, 1, self, &mut rollback, &mut stats, divide);
+        let elapsed = start_time.elapsed();
+
+        let nps = stats.nodes as f64 / elapsed.as_secs_f64();
+        info!(
+            "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {}",
+            stats.nodes.to_formatted_string(&Locale::en),
+            (nps as u64).to_formatted_string(&Locale::en)
+        );
+        info!("{:?}", stats);
+        assert!(rollback.is_empty());
+    }
 }
 
 #[derive(Debug, Default)]
@@ -466,8 +554,8 @@ pub struct PerftStats {
 }
 
 // Code referenced from https://www.chessprogramming.org/Perft
-pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats) {
-    if depth == 0 {
+fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats, divide: bool) {
+    if draft == 0 {
         // slow as all heck
         if ENABLE_PERFT_STATS
             && ENABLE_PERFT_STATS_CHECKMATES
@@ -491,11 +579,17 @@ pub fn perft(depth: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &
             continue;
         }
 
-        if ENABLE_PERFT_STATS && depth == 1 {
+        if ENABLE_PERFT_STATS && draft == 1 {
             check_perft_stats(&r#move.m, board, stats);
         }
 
-        perft(depth - 1, board, rollback, stats);
+        let start_nodes = stats.nodes;
+        do_perft(draft - 1, ply + 1, board, rollback, stats, divide);
+
+        if divide && ply == 1 {
+            debug!("{}: {}", r#move.m.simple_long_algebraic_notation(), stats.nodes - start_nodes)
+        }
+
         board.unmake_move(&r#move.m, rollback);
     }
 }

@@ -136,6 +136,8 @@ impl UciInterface {
                             self.transposition_table.index_collisions
                         );
                         self.transposition_table.index_collisions = 0;
+                    } else {
+                        error!("Board must be set with position first");
                     }
                 }
                 UciMessage::Stop => {
@@ -166,10 +168,31 @@ impl UciInterface {
                     }
                 },
                 UciMessage::Unknown(message, err) => {
-                    error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}")
+                    if message.starts_with("go perft") {
+                        let parts = message.split(' ').collect::<Vec<_>>();
+                        if parts.len() < 3 {
+                            error!("Expected format: go perft [depth]");
+                            return;
+                        }
+
+                        if let Some(board) = &mut self.board {
+                            match parts.get(2).unwrap().parse::<u8>() {
+                                Ok(depth) => {
+                                    board.start_perft(depth, true);
+                                }
+                                Err(e) => {
+                                    error!("Failed to parse depth argument as u8. Error: {e:#?}");
+                                }
+                            }
+                        } else {
+                            error!("Board must be set with position first");
+                        }
+                    } else {
+                        error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
+                    }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in '{cmd}'")
+                    error!("Unhandled UCI cmd in '{cmd}'");
                 }
             }
         }

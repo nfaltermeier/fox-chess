@@ -188,11 +188,15 @@ impl Board {
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
-            let capture_piece = self.get_piece_64(to);
-            self.hash ^= get_hash_value(capture_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
-            rollback.captured_pieces.push(capture_piece);
-            self.game_stage -= GAME_STAGE_VALUES[(capture_piece & PIECE_MASK) as usize];
-            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_piece & PIECE_MASK) as usize] -= 1;
+            let capture_target_piece = self.get_piece_64(to);
+            self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
+            rollback.captured_pieces.push(capture_target_piece);
+            self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
+            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -= 1;
+            // Remove the piece that is being captured from bitboards TODO: fix commented out logic to replace writing a blank piece
+            // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
+            // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] |= BIT_SQUARES[to];
+            self.write_piece(PIECE_NONE, to);
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
@@ -325,13 +329,17 @@ impl Board {
         if capture && !ep_capture {
             let captured_piece = rollback.captured_pieces.pop().unwrap();
             let moved_piece_val = moved_piece & PIECE_MASK;
+
+            // Remove the piece that did the capture from bitboards TODO: fix commented out logic to replace writing a blank piece
+            // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] &= !BIT_SQUARES[to];
+            // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] &= !BIT_SQUARES[to];
+            self.write_piece(PIECE_NONE, to);
+
             self.write_piece(captured_piece, to);
             self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
             self.piece_counts[if self.white_to_move { 0 } else { 1 }][(captured_piece & PIECE_MASK) as usize] += 1;
-            self.side_occupancy[if self.white_to_move { 1 } else { 0 }] &= !BIT_SQUARES[to];
-            self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] &= !BIT_SQUARES[to];
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);

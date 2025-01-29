@@ -19,7 +19,7 @@ static ROOK_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_rook_rays(i 
 static BISHOP_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_bishop_rays(i as u8) } else { [0; 4] }; 65];
 
 struct MagicEntry {
-    attacks_offset: u16,
+    attacks_offset: u32,
     mask: u64,
     magic: u64,
     shift: u8,
@@ -37,8 +37,17 @@ impl MagicEntry {
 }
 
 pub fn lookup_rook_attack(square_index: u8, occupancy: u64) -> u64 {
+    lookup_attack(square_index, occupancy, &raw const ROOK_ATTACK_LOOKUP)
+}
+
+pub fn lookup_bishop_attack(square_index: u8, occupancy: u64) -> u64 {
+    lookup_attack(square_index, occupancy, &raw const BISHOP_ATTACK_LOOKUP)
+}
+
+#[inline]
+fn lookup_attack(square_index: u8, occupancy: u64, lookup_table: *const [MagicEntry; 64]) -> u64 {
     unsafe {
-        let entry = &ROOK_ATTACK_LOOKUP[square_index as usize];
+        let entry = &(*lookup_table)[square_index as usize];
 
         let mut attack_index = occupancy & entry.mask;
         attack_index = attack_index.wrapping_mul(entry.magic);
@@ -63,7 +72,7 @@ pub fn initialize_magic_bitboards() {
             let attacks_offset = (*attacks).len();
 
             (*entry).mask = mask;
-            (*entry).attacks_offset = attacks_offset as u16;
+            (*entry).attacks_offset = attacks_offset as u32;
             (*attacks).reserve(1 << shift);
             for _ in 0..(1 << shift) {
                 (*attacks).push(0);
@@ -99,7 +108,7 @@ pub fn initialize_magic_bitboards() {
             let attacks_offset = (*attacks).len();
 
             (*entry).mask = mask;
-            (*entry).attacks_offset = attacks_offset as u16;
+            (*entry).attacks_offset = attacks_offset as u32;
             (*attacks).reserve(1 << shift);
             for _ in 0..(1 << shift) {
                 (*attacks).push(0);
@@ -130,7 +139,7 @@ const fn generate_rook_attack(square_index: u8) -> u64 {
 const fn generate_rook_relevant_occupancy(square_index: u8) -> u64 {
     let rays = &ROOK_RAYS[square_index as usize];
 
-    (rays[NORTH] & !RANK_1) | (rays[EAST] & !H_FILE) | (rays[SOUTH] & !RANK_8) | (rays[WEST] & !A_FILE)
+    (rays[NORTH] & !RANK_8) | (rays[EAST] & !H_FILE) | (rays[SOUTH] & !RANK_1) | (rays[WEST] & !A_FILE)
 }
 
 fn generate_occluded_rook_attack(square_index: u8, occupancy: u64) -> u64 {
@@ -164,10 +173,10 @@ fn map_value_to_mask(value: u64, mask: u64) -> u64 {
 
     for i in 0..bits {
         let mask_index = working_mask.trailing_zeros();
-        working_mask &= 1 << mask_index;
+        working_mask &= !BIT_SQUARES[mask_index as usize];
 
         if value & (1 << i) != 0 {
-            result |= 1 << mask_index;
+            result |= BIT_SQUARES[mask_index as usize];
         }
     }
 
@@ -223,7 +232,8 @@ const fn get_occluded_positive_ray(square_index: u8, occupancy: u64, direction: 
 
     if blockers != 0 {
         let blocker_square = blockers.trailing_zeros();
-        ray ^ rays[blocker_square as usize][direction]
+        let result_ray = ray ^ rays[blocker_square as usize][direction];
+        result_ray
     } else {
         ray
     }
@@ -234,9 +244,10 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     let blockers = ray & occupancy;
 
     if blockers != 0 {
-        let blocker_square = 64 - blockers.leading_zeros();
+        let blocker_square = 63 - blockers.leading_zeros();
         let blocked_ray = rays[blocker_square as usize][direction];
-        ray ^ blocked_ray
+        let result_ray = ray ^ blocked_ray;
+        result_ray
     } else {
         ray
     }

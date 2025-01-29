@@ -492,6 +492,7 @@ impl Debug for Board {
             .unwrap();
         writeln!(f, "\nsquares:\n{}", pretty_squares).unwrap();
         writeln!(f, "pretty version:\n{}", self.pretty_print()).unwrap();
+
         write!(f, "Piece bitboards:\nWhite:").unwrap();
         self.piece_bitboards[0]
             .iter()
@@ -502,11 +503,14 @@ impl Debug for Board {
             .iter()
             .skip(1)
             .for_each(|v| writeln!(f, "{}", pretty_print_bitboard(*v)).unwrap());
+
         write!(f, "Side occupancy:\nWhite:").unwrap();
         writeln!(f, "{}", pretty_print_bitboard(self.side_occupancy[0])).unwrap();
         write!(f, "Black:").unwrap();
         writeln!(f, "{}", pretty_print_bitboard(self.side_occupancy[1])).unwrap();
-        writeln!(f, "Occupancy:{}", pretty_print_bitboard(self.occupancy))
+
+        writeln!(f, "Occupancy:{}", pretty_print_bitboard(self.occupancy)).unwrap();
+        writeln!(f, "FEN: {}", self.to_fen())
     }
 }
 
