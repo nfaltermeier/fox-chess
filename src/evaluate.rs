@@ -4,7 +4,7 @@ use array_macro::array;
 use rand::random;
 
 use crate::board::{
-    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
+    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
 };
 
@@ -165,7 +165,7 @@ impl Board {
         let mut piece_counts = [[0i8; 7]; 2];
         for i in 0..64 {
             let piece = self.get_piece_64(i);
-            if piece != PIECE_NONE && piece != PIECE_INVALID {
+            if piece != PIECE_NONE {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
                 let piece_type = (piece & PIECE_MASK) as usize;
                 piece_counts[color][piece_type] += 1;

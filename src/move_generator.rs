@@ -5,9 +5,9 @@ use num_format::{Locale, ToFormattedString};
 
 use crate::{
     bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES}, board::{
-        index_10x12_to_pos_str, piece_to_name, Board, BOARD_SQUARE_INDEX_TRANSLATION_64, CASTLE_BLACK_KING_FLAG,
+        piece_to_name, Board, CASTLE_BLACK_KING_FLAG,
         CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
-        DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION, HASH_VALUES, PIECE_BISHOP, PIECE_INVALID, PIECE_KING,
+        HASH_VALUES, PIECE_BISHOP, PIECE_KING,
         PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     }, evaluate::CENTIPAWN_VALUES, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
@@ -34,19 +34,6 @@ const MOVE_SCORE_QUEEN_CASTLE: i16 = 501;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
 pub const MOVE_SCORE_HISTORY_MAX: i32 = 500;
 const MOVE_SCORE_QUIET: i16 = 0;
-
-/// Values from https://www.chessprogramming.org/10x12_Board under TSCP
-/// If the piece can slide through squares when moving
-const SLIDES: [bool; 5] = [false, true, true, true, false];
-#[rustfmt::skip]
-/// 10x12 repr offsets for moving in each piece's valid directions
-const OFFSET: [[i8; 8]; 5] = [
-	[ -21, -19,-12, -8, 8, 12, 19, 21 ], /* KNIGHT */
-	[ -11,  -9,  9, 11, 0,  0,  0,  0 ], /* BISHOP */
-	[ -10,  -1,  1, 10, 0,  0,  0,  0 ], /* ROOK */
-	[ -11, -10, -9, -1, 1,  9, 10, 11 ], /* QUEEN */
-	[ -11, -10, -9, -1, 1,  9, 10, 11 ]  /* KING */
-];
 
 impl Board {
     #[inline]
@@ -402,30 +389,11 @@ impl Board {
     }
 
     pub fn can_capture_opponent_king(&self, is_legality_test_after_move: bool) -> bool {
-        let mut king_pos_opt = None;
-        if self.white_to_move {
-            if self.piece_counts[1][PIECE_KING as usize] != 0 {
-                let opponent_king_piece = PIECE_KING | COLOR_BLACK;
-                for i in (0..64).rev() {
-                    if self.get_piece_64(i) == opponent_king_piece {
-                        king_pos_opt = Some(i);
-                        break;
-                    }
-                }
-            }
-        } else {
-            if self.piece_counts[0][PIECE_KING as usize] != 0 {
-                let opponent_king_piece = PIECE_KING;
-                for i in 0..64 {
-                    if self.get_piece_64(i) == opponent_king_piece {
-                        king_pos_opt = Some(i);
-                        break;
-                    }
-                }
-            }
-        }
+        let side = if self.white_to_move { 0 } else { 1 };
+        let other_side = if self.white_to_move { 1 } else { 0 };
 
-        if king_pos_opt.is_none() {
+        let king_pos = self.piece_bitboards[other_side as usize][PIECE_KING as usize].trailing_zeros() as u8;
+        if king_pos == 64 {
             if is_legality_test_after_move {
                 // The king is gone, checkmate already happened
                 return true;
@@ -433,64 +401,29 @@ impl Board {
                 panic!("Could not find opponent king in can_capture_opponent_king")
             }
         }
-        // Translate from 8x8 to 10x12 board index too
-        let king_pos = BOARD_SQUARE_INDEX_TRANSLATION_64[king_pos_opt.unwrap()];
 
-        let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
-
-        let queen = PIECE_QUEEN | color_flag;
-        let rook = PIECE_ROOK | color_flag;
-        let king = PIECE_KING | color_flag;
-        for offset in OFFSET[PIECE_ROOK as usize - 2] {
-            let mut current_pos = king_pos;
-            let mut first = true;
-            loop {
-                current_pos = current_pos.checked_add_signed(offset).unwrap();
-                let piece = self.get_piece(current_pos as usize);
-                if piece != PIECE_NONE {
-                    if piece == queen || piece == rook || (first && piece == king) {
-                        return true;
-                    }
-                    break;
-                }
-                first = false;
-            }
+        let danger_rooks = self.piece_bitboards[side as usize][PIECE_ROOK as usize] | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
+        if danger_rooks != 0 && lookup_rook_attack(king_pos, self.occupancy) & danger_rooks != 0 {
+            return true;
         }
 
-        let bishop = PIECE_BISHOP | color_flag;
-        for offset in OFFSET[PIECE_BISHOP as usize - 2] {
-            let mut current_pos = king_pos;
-            let mut first = true;
-            loop {
-                current_pos = current_pos.checked_add_signed(offset).unwrap();
-                let piece = self.get_piece(current_pos as usize);
-                if piece != PIECE_NONE {
-                    if piece == queen || piece == bishop || (first && piece == king) {
-                        return true;
-                    }
-                    break;
-                }
-                first = false;
-            }
+        let danger_bishops = self.piece_bitboards[side as usize][PIECE_BISHOP as usize] | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
+        if danger_bishops != 0 && lookup_bishop_attack(king_pos, self.occupancy) & danger_bishops != 0 {
+            return true;
         }
 
-        let knight = PIECE_KNIGHT | color_flag;
-        for offset in OFFSET[PIECE_KNIGHT as usize - 2] {
-            let target_pos = king_pos.checked_add_signed(offset).unwrap() as usize;
-            let piece = self.get_piece(target_pos);
-            if piece == knight {
-                return true;
-            }
+        let knights = self.piece_bitboards[side as usize][PIECE_KNIGHT as usize];
+        if knights != 0 && lookup_knight_attack(king_pos) & knights != 0 {
+            return true;
         }
 
-        let pawn = PIECE_PAWN | color_flag;
-        let direction_sign = if self.white_to_move { -1 } else { 1 };
-        for offset in [9, 11] {
-            let target_pos = king_pos.checked_add_signed(offset * direction_sign).unwrap() as usize;
-            let piece = self.get_piece(target_pos);
-            if piece == pawn {
-                return true;
-            }
+        let pawns = self.piece_bitboards[side as usize][PIECE_PAWN as usize];
+        if pawns != 0 && lookup_pawn_attack(king_pos, !self.white_to_move) & pawns != 0 {
+            return true;
+        }
+
+        if lookup_king_attack(king_pos) & self.piece_bitboards[side as usize][PIECE_KING as usize] != 0 {
+            return true;
         }
 
         false
