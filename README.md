@@ -3,6 +3,9 @@
 
 A UCI chess engine
 
+When targetting the x86_64-pc-windows-msvc triple all native CPU features will be enabled by default.
+To build a portable executable, specify an appropriate target cpu with `-Ctarget-cpu=<target>`.
+
 ## Ideas of features to add
 - [x] Needs some help in endgames. It lost KQK because it wouldn't move the king out of the center to support the queen. Greater depth helps with this.
   - [ ] Still needs help with harder endgames

@@ -1,27 +1,26 @@
 use std::{
     cmp::Reverse,
-    sync::mpsc::{self, TryRecvError},
-    thread::sleep,
-    time::{Duration, Instant, SystemTime},
+    io,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread::{self, sleep},
+    time::{Duration, SystemTime},
 };
 
 use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
-use move_generator::{
-    perft, PerftStats,
-    ENABLE_UNMAKE_MOVE_TEST,
-};
+use magic_bitboard::initialize_magic_bitboards;
+use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::DEFAULT_HISTORY_TABLE;
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
-
-use num_format::{Locale, ToFormattedString};
 use vampirc_uci::UciSearchControl;
 
+mod bitboard;
 mod board;
 mod evaluate;
+mod magic_bitboard;
 mod move_generator;
 mod moves;
 mod repetition_tracker;
@@ -48,17 +47,21 @@ fn main() {
 
     // dereference lazy cell to cause it to initialize
     let _ = *HASH_VALUES;
+    initialize_magic_bitboards();
+
+    if ENABLE_UNMAKE_MOVE_TEST {
+        error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
+    }
 
     run_uci();
 
-    // search_moves_from_pos("4k1K1/R7/P3P3/8/8/r7/8/8 w - - 45 104", 9);
-    // do_perft(5, STARTING_FEN);
-    // do_perft(5, "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
-    // do_perft(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
-    // do_perft(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
-    // do_perft(5, "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
-    // do_perft(4, "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
-    // do_perft(4, "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
+    // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
+    // do_perfts_up_to(5, STARTING_FEN);
+    // do_perfts_up_to(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
+    // do_perfts_up_to(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
+    // do_perfts_up_to(5, "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
+    // do_perfts_up_to(4, "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
+    // do_perfts_up_to(4, "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
     // hash_values_edit_distance();
@@ -107,24 +110,10 @@ fn run_uci() {
     }
 }
 
-fn do_perft(up_to_depth: u8, fen: &str) {
+fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
+    let mut board = Board::from_fen(fen).unwrap();
     for depth in 1..=up_to_depth {
-        let mut board = Board::from_fen(fen).unwrap();
-        let mut rollback = MoveRollback::default();
-        let mut stats = PerftStats::default();
-
-        let start_time = Instant::now();
-        perft(depth, &mut board, &mut rollback, &mut stats);
-        let elapsed = start_time.elapsed();
-
-        let nps = stats.nodes as f64 / elapsed.as_secs_f64();
-        info!(
-            "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {}",
-            stats.nodes.to_formatted_string(&Locale::en),
-            (nps as u64).to_formatted_string(&Locale::en)
-        );
-        info!("{:?}", stats);
-        debug_assert!(rollback.is_empty());
+        board.start_perft(depth, false);
     }
 }
 
