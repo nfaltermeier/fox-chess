@@ -811,11 +811,18 @@ impl Board {
             }
         }
 
+        let move_type = if alpha == best_value {
+            MoveType::Best
+        } else {
+            MoveType::FailLow
+        };
+
         if let Some(e) = eval_tree_file {
             writeln!(
                 e,
-                "r/{}/eval_inherit {} hash {:#018x}",
+                "r/{}/eval_inherit{} {} hash {:#018x}",
                 move_tree.join("/"),
+                if move_type == MoveType::FailLow { "_low" } else { "" },
                 best_value,
                 self.hash
             )
@@ -833,11 +840,7 @@ impl Board {
             TTEntry {
                 hash: self.hash,
                 important_move: best_move.unwrap(),
-                move_type: if alpha == best_value {
-                    MoveType::Best
-                } else {
-                    MoveType::FailLow
-                },
+                move_type,
                 eval: tt_eval,
                 draft,
                 empty: false,
