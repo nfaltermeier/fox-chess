@@ -430,6 +430,9 @@ impl Board {
                                 );
                             }
 
+                            pv.clear();
+                            pv.push(tt_data.important_move);
+
                             return eval;
                         }
                     }
@@ -441,6 +444,10 @@ impl Board {
                                 tt_data.important_move.data
                             );
                         }
+
+                        pv.clear();
+                        pv.push(tt_data.important_move);
+
                         return eval;
                     }
                     transposition_table::MoveType::FailLow => {
@@ -453,6 +460,9 @@ impl Board {
                                 );
                             }
 
+                            pv.clear();
+                            pv.push(tt_data.important_move);
+
                             return eval;
                         }
                     }
@@ -464,6 +474,7 @@ impl Board {
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
+                line.clear();
             } else {
                 result = -self.alpha_beta_recurse(
                     -beta,
@@ -510,6 +521,9 @@ impl Board {
                         tt_data.important_move.data
                     );
                 }
+
+                line.push(tt_data.important_move);
+                *pv = line.clone();
 
                 return result;
             }
@@ -585,6 +599,7 @@ impl Board {
             let result;
             if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
+                line.clear();
             } else {
                 result = -self.alpha_beta_recurse(
                     -beta,
@@ -637,6 +652,9 @@ impl Board {
                     );
                 }
 
+                line.push(r#move.m);
+                *pv = line.clone();
+
                 return result;
             }
 
@@ -674,8 +692,12 @@ impl Board {
             }
 
             if is_check {
+                pv.clear();
+
                 return self.evaluate_checkmate_side_to_move_relative(ply);
             } else {
+                pv.clear();
+                
                 return 0;
             }
         }
