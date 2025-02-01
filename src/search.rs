@@ -5,7 +5,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_MASK},
-    evaluate::ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
     move_generator::{
         ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
@@ -173,7 +173,7 @@ impl Board {
 
                 if search_control != SearchControl::Infinite
                     && (result.end_search
-                        || search_result.eval.abs() >= 19800
+                        || search_result.eval.abs() >= MATE_THRESHOLD
                         || depth >= max_depth
                         || match search_control {
                             SearchControl::Time => {
@@ -184,6 +184,11 @@ impl Board {
                 {
                     return search_result;
                 }
+
+                // This seems like it could go really wrong. For when entire search is skipped by tt best move node.
+                // if search_result.stats.depth > depth {
+                //     depth = search_result.stats.depth;
+                // }
 
                 latest_result = Some(search_result);
             } else if !result.stop_received {
@@ -218,26 +223,25 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter + draft as u16 {
-                if let transposition_table::MoveType::Best = tt_data.move_type {
-                    // should this be done for the root????
-                    return AlphaBetaResult {
-                        search_result: Some(SearchResult {
-                            best_move: tt_data.important_move,
-                            eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
-                            stats,
-                            pv: Vec::from([tt_data.important_move]),
-                        }),
-                        end_search: false,
-                        stop_received: false,
-                    };
-                }
-            }
+            // if tt_data.draft >= draft {
+            //     if let transposition_table::MoveType::Best = tt_data.move_type {
+            //         // should this be done for the root????
+            //         stats.depth = tt_data.draft;
+            //         return AlphaBetaResult {
+            //             search_result: Some(SearchResult {
+            //                 best_move: tt_data.important_move,
+            //                 eval: tt_data.eval * if self.white_to_move { 1 } else { -1 },
+            //                 stats,
+            //             }),
+            //             end_search: false,
+            //         };
+            //     }
+            // }
 
             self.make_move(&tt_data.important_move, &mut rollback);
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -301,7 +305,7 @@ impl Board {
             }
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -404,10 +408,18 @@ impl Board {
 
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter + draft as u16 {
+            if tt_data.draft >= draft {
+                let mut eval = tt_data.eval;
+
+                if eval >= MATE_THRESHOLD {
+                    eval -= 10 * ply as i16;
+                } else if eval <= -MATE_THRESHOLD {
+                    eval += 10 * ply as i16;
+                }
+
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
-                        if tt_data.eval >= beta {
+                        if eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
                             if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
@@ -418,7 +430,7 @@ impl Board {
                                 );
                             }
 
-                            return tt_data.eval;
+                            return eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
@@ -429,10 +441,10 @@ impl Board {
                                 tt_data.important_move.data
                             );
                         }
-                        return tt_data.eval;
+                        return eval;
                     }
                     transposition_table::MoveType::FailLow => {
-                        if tt_data.eval < alpha {
+                        if eval < alpha {
                             if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.hash) {
                                 debug!(
                                     "Board hash of interest using evaluation from tt fail low: {} {:04x}",
@@ -441,7 +453,7 @@ impl Board {
                                 );
                             }
 
-                            return tt_data.eval;
+                            return eval;
                         }
                     }
                 }
@@ -450,7 +462,7 @@ impl Board {
             self.make_move(&tt_data.important_move, rollback);
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -472,13 +484,21 @@ impl Board {
             if result >= beta {
                 self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
 
+                let mut tt_eval = result;
+                if tt_eval >= MATE_THRESHOLD {
+                    tt_eval += 10 * ply as i16;
+                } else if tt_eval <= -MATE_THRESHOLD {
+                    tt_eval -= 10 * ply as i16;
+                }
+
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
                         important_move: tt_data.important_move,
                         move_type: MoveType::FailHigh,
-                        eval: result,
-                        move_num: self.fullmove_counter + draft as u16,
+                        eval: tt_eval,
+                        draft,
+                        empty: false,
                     },
                     TableType::Main,
                 );
@@ -563,7 +583,7 @@ impl Board {
             }
 
             let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) {
+            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
                 result = 0;
             } else {
                 result = -self.alpha_beta_recurse(
@@ -590,13 +610,21 @@ impl Board {
                     self.update_history(history_table, &m, penalty);
                 }
 
+                let mut tt_eval = result;
+                if tt_eval >= MATE_THRESHOLD {
+                    tt_eval += 10 * ply as i16;
+                } else if tt_eval <= -MATE_THRESHOLD {
+                    tt_eval -= 10 * ply as i16;
+                }
+
                 transposition_table.store_entry(
                     TTEntry {
                         hash: self.hash,
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
-                        eval: result,
-                        move_num: self.fullmove_counter + draft as u16,
+                        eval: tt_eval,
+                        draft,
+                        empty: false,
                     },
                     TableType::Main,
                 );
@@ -652,6 +680,13 @@ impl Board {
             }
         }
 
+        let mut tt_eval = best_value;
+        if tt_eval >= MATE_THRESHOLD {
+            tt_eval += 10 * ply as i16;
+        } else if tt_eval <= -MATE_THRESHOLD {
+            tt_eval -= 10 * ply as i16;
+        }
+
         transposition_table.store_entry(
             TTEntry {
                 hash: self.hash,
@@ -661,8 +696,9 @@ impl Board {
                 } else {
                     MoveType::FailLow
                 },
-                eval: best_value,
-                move_num: self.fullmove_counter + draft as u16,
+                eval: tt_eval,
+                draft,
+                empty: false,
             },
             TableType::Main,
         );
@@ -681,22 +717,24 @@ impl Board {
     ) -> i16 {
         stats.quiescense_nodes += 1;
 
+        if self.is_insufficient_material() {
+            return 0;
+        }
+
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
-            if tt_data.move_num >= self.fullmove_counter {
-                match tt_data.move_type {
-                    transposition_table::MoveType::FailHigh => {
-                        if tt_data.eval >= beta {
-                            return tt_data.eval;
-                        }
-                    }
-                    transposition_table::MoveType::Best => {
+            match tt_data.move_type {
+                transposition_table::MoveType::FailHigh => {
+                    if tt_data.eval >= beta {
                         return tt_data.eval;
                     }
-                    transposition_table::MoveType::FailLow => {
-                        if tt_data.eval < alpha {
-                            return tt_data.eval;
-                        }
+                }
+                transposition_table::MoveType::Best => {
+                    return tt_data.eval;
+                }
+                transposition_table::MoveType::FailLow => {
+                    if tt_data.eval < alpha {
+                        return tt_data.eval;
                     }
                 }
             }
@@ -746,7 +784,8 @@ impl Board {
                             important_move: tt_data.important_move,
                             move_type: MoveType::FailHigh,
                             eval: result,
-                            move_num: self.fullmove_counter,
+                            draft: 0,
+                            empty: false,
                         },
                         TableType::Quiescense,
                     );
@@ -791,7 +830,8 @@ impl Board {
                         important_move: r#move.m,
                         move_type: MoveType::FailHigh,
                         eval: result,
-                        move_num: self.fullmove_counter,
+                        draft: 0,
+                        empty: false,
                     },
                     TableType::Quiescense,
                 );
@@ -820,7 +860,8 @@ impl Board {
                         MoveType::FailLow
                     },
                     eval: best_value,
-                    move_num: self.fullmove_counter,
+                    draft: 0,
+                    empty: false,
                 },
                 TableType::Quiescense,
             );

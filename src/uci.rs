@@ -13,7 +13,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
-    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY},
+    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY, MATE_THRESHOLD, MATE_VALUE},
     moves::{find_and_run_moves, Move, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     search::{HistoryTable, SearchStats},
     transposition_table::TranspositionTable,
@@ -144,6 +144,8 @@ impl UciInterface {
                             self.transposition_table.index_collisions
                         );
                         self.transposition_table.index_collisions = 0;
+                    } else {
+                        error!("Board must be set with position first");
                     }
                 }
                 UciMessage::Stop => {
@@ -172,7 +174,28 @@ impl UciInterface {
                     }
                 },
                 UciMessage::Unknown(message, err) => {
-                    error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}")
+                    if message.starts_with("go perft") {
+                        let parts = message.split(' ').collect::<Vec<_>>();
+                        if parts.len() < 3 {
+                            error!("Expected format: go perft [depth]");
+                            return;
+                        }
+
+                        if let Some(board) = &mut self.board {
+                            match parts.get(2).unwrap().parse::<u8>() {
+                                Ok(depth) => {
+                                    board.start_perft(depth, true);
+                                }
+                                Err(e) => {
+                                    error!("Failed to parse depth argument as u8. Error: {e:#?}");
+                                }
+                            }
+                        } else {
+                            error!("Board must be set with position first");
+                        }
+                    } else {
+                        error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
+                    }
                 }
                 _ => {
                     error!("Unhandled UCI cmd in '{}'", cmds.0)
@@ -184,8 +207,8 @@ impl UciInterface {
     pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &Vec<Move>) {
         let score_string;
         let abs_cp = eval.abs();
-        if abs_cp >= 19800 {
-            let diff = 20000 - abs_cp;
+        if abs_cp >= MATE_THRESHOLD {
+            let diff = MATE_VALUE - abs_cp;
             let moves = (diff as f32 / 20.0).ceil();
             score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
         } else {

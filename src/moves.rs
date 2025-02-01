@@ -2,6 +2,7 @@ use log::{debug, error};
 use regex::Regex;
 
 use crate::{
+    bitboard::BIT_SQUARES,
     board::{
         file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
@@ -187,10 +188,15 @@ impl Board {
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
-            let capture_piece = self.get_piece_64(to);
-            self.hash ^= get_hash_value(capture_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
-            rollback.captured_pieces.push(capture_piece);
-            self.game_stage -= GAME_STAGE_VALUES[(capture_piece & PIECE_MASK) as usize];
+            let capture_target_piece = self.get_piece_64(to);
+            self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
+            rollback.captured_pieces.push(capture_target_piece);
+            self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
+            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -= 1;
+            // Remove the piece that is being captured from bitboards TODO: fix commented out logic to replace writing a blank piece
+            // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
+            // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] |= BIT_SQUARES[to];
+            self.write_piece(PIECE_NONE, to);
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
@@ -234,6 +240,8 @@ impl Board {
             self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
             self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
+            self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] -= 1;
+            self.piece_counts[if self.white_to_move { 0 } else { 1 }][(promo_value + 2) as usize] += 1;
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
@@ -245,6 +253,7 @@ impl Board {
                     self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
                 }
                 self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] -= 1;
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -320,10 +329,17 @@ impl Board {
         if capture && !ep_capture {
             let captured_piece = rollback.captured_pieces.pop().unwrap();
             let moved_piece_val = moved_piece & PIECE_MASK;
+
+            // Remove the piece that did the capture from bitboards TODO: fix commented out logic to replace writing a blank piece
+            // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] &= !BIT_SQUARES[to];
+            // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] &= !BIT_SQUARES[to];
+            self.write_piece(PIECE_NONE, to);
+
             self.write_piece(captured_piece, to);
             self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
+            self.piece_counts[if self.white_to_move { 0 } else { 1 }][(captured_piece & PIECE_MASK) as usize] += 1;
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
@@ -334,6 +350,8 @@ impl Board {
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
                 self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
             }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
@@ -371,6 +389,7 @@ impl Board {
                     self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
                 }
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] += 1;
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -386,6 +405,8 @@ impl Board {
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
                 self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
             }
         }
 
@@ -470,7 +491,6 @@ impl Board {
         if !self.white_to_move {
             self.fullmove_counter += 1;
         }
-
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }

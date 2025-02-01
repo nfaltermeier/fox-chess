@@ -4,7 +4,7 @@ use array_macro::array;
 use rand::random;
 
 use crate::board::{
-    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_INVALID, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
+    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
 };
 
@@ -23,6 +23,9 @@ pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as us
     + GAME_STAGE_VALUES[PIECE_KNIGHT as usize] * 3;
 pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
     GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
+
+pub const MATE_THRESHOLD: i16 = 20000;
+pub const MATE_VALUE: i16 = 25000;
 
 #[rustfmt::skip]
 // piece square table values are taken from https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -162,7 +165,7 @@ impl Board {
         let mut piece_counts = [[0i8; 7]; 2];
         for i in 0..64 {
             let piece = self.get_piece_64(i);
-            if piece != PIECE_NONE && piece != PIECE_INVALID {
+            if piece != PIECE_NONE {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
                 let piece_type = (piece & PIECE_MASK) as usize;
                 piece_counts[color][piece_type] += 1;
@@ -206,9 +209,9 @@ impl Board {
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
         if self.white_to_move {
-            -20000 + (ply as i16) * 10
+            -MATE_VALUE + (ply as i16) * 10
         } else {
-            20000 - (ply as i16) * 10
+            MATE_VALUE - (ply as i16) * 10
         }
     }
 
@@ -218,5 +221,27 @@ impl Board {
 
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
+    }
+
+    /// Returns true if this position will be called a draw by the arbiter
+    pub fn is_insufficient_material(&self) -> bool {
+        if self.piece_counts[0][PIECE_QUEEN as usize] == 0
+            && self.piece_counts[0][PIECE_ROOK as usize] == 0
+            && self.piece_counts[0][PIECE_PAWN as usize] == 0
+            && self.piece_counts[1][PIECE_QUEEN as usize] == 0
+            && self.piece_counts[1][PIECE_ROOK as usize] == 0
+            && self.piece_counts[1][PIECE_PAWN as usize] == 0
+        {
+            let white_minor_pieces =
+                self.piece_counts[0][PIECE_BISHOP as usize] + self.piece_counts[0][PIECE_KNIGHT as usize];
+            let black_minor_pieces =
+                self.piece_counts[1][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_KNIGHT as usize];
+
+            // TODO: Does not account for bishop vs bishop of same color. Should be simple to check with bitboards.
+            return (white_minor_pieces == 0 && black_minor_pieces == 0)
+                || (white_minor_pieces == 0 && black_minor_pieces == 1)
+                || (white_minor_pieces == 1 && black_minor_pieces == 0);
+        }
+        false
     }
 }

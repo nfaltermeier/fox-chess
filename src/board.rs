@@ -3,52 +3,11 @@ use std::{fmt::Debug, sync::LazyLock};
 use log::error;
 use rand::{rngs::StdRng, Fill, SeedableRng};
 
-use crate::{evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker};
-
-#[rustfmt::skip]
-static EMPTY_BOARD: [u8; 120] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-];
-
-#[rustfmt::skip]
-pub static DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION: [u8; 120] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0xFF,
-    0xFF, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0xFF,
-    0xFF, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0xFF,
-    0xFF, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xFF,
-    0xFF, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0xFF,
-    0xFF, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0xFF,
-    0xFF, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0xFF,
-    0xFF, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-];
-
-#[rustfmt::skip]
-// little endian file-rank mapping https://www.chessprogramming.org/Square_Mapping_Considerations
-pub static BOARD_SQUARE_INDEX_TRANSLATION_64: [u8; 64] = [
-    21, 22, 23, 24, 25, 26, 27, 28,
-    31, 32, 33, 34, 35, 36, 37, 38,
-    41, 42, 43, 44, 45, 46, 47, 48,
-    51, 52, 53, 54, 55, 56, 57, 58,
-    61, 62, 63, 64, 65, 66, 67, 68,
-    71, 72, 73, 74, 75, 76, 77, 78,
-    81, 82, 83, 84, 85, 86, 87, 88,
-    91, 92, 93, 94, 95, 96, 97, 98
-];
+use crate::{
+    bitboard::{pretty_print_bitboard, BIT_SQUARES},
+    evaluate::GAME_STAGE_VALUES,
+    repetition_tracker::RepetitionTracker,
+};
 
 pub const PIECE_MASK: u8 = 0b0000_0111;
 pub const PIECE_NONE: u8 = 0;
@@ -58,7 +17,6 @@ pub const PIECE_BISHOP: u8 = 0x3;
 pub const PIECE_ROOK: u8 = 0x4;
 pub const PIECE_QUEEN: u8 = 0x5;
 pub const PIECE_KING: u8 = 0x6;
-pub const PIECE_INVALID: u8 = 0xFF;
 
 pub const COLOR_FLAG_MASK: u8 = 1 << 3;
 pub const COLOR_BLACK: u8 = 1 << 3;
@@ -98,7 +56,7 @@ pub const HASH_VALUES_EP_FILE_IDX: usize = HASH_VALUES_CASTLE_BLACK_QUEEN_IDX + 
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
-    squares: [u8; 120],
+    squares: [u8; 64],
     pub white_to_move: bool,
     pub castling_rights: u8,
     pub en_passant_target_square_index: Option<u8>,
@@ -108,19 +66,36 @@ pub struct Board {
     pub hash: u64,
     pub game_stage: i16,
     pub repetitions: RepetitionTracker,
+    /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
+    pub piece_counts: [[u8; 7]; 2],
+    pub piece_bitboards: [[u64; 7]; 2],
+    pub side_occupancy: [u64; 2],
+    pub occupancy: u64,
 }
 
 impl Board {
-    pub fn get_piece(&self, square_index: usize) -> u8 {
-        self.squares[square_index]
-    }
-
     pub fn get_piece_64(&self, square_index: usize) -> u8 {
-        self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize]
+        self.squares[square_index as usize]
     }
 
     pub fn write_piece(&mut self, piece: u8, square_index: usize) {
-        self.squares[BOARD_SQUARE_INDEX_TRANSLATION_64[square_index] as usize] = piece;
+        let bit_square = BIT_SQUARES[square_index];
+        if piece == PIECE_NONE {
+            let old_piece = self.squares[square_index as usize];
+            if old_piece != PIECE_NONE {
+                let side = if old_piece & COLOR_BLACK != 0 { 1 } else { 0 };
+                self.piece_bitboards[side][(old_piece & PIECE_MASK) as usize] &= !bit_square;
+                self.side_occupancy[side] &= !bit_square;
+                self.occupancy &= !bit_square;
+            }
+        } else {
+            let side = if piece & COLOR_BLACK != 0 { 1 } else { 0 };
+            self.piece_bitboards[side][(piece & PIECE_MASK) as usize] |= bit_square;
+            self.side_occupancy[side] |= bit_square;
+            self.occupancy |= bit_square;
+        }
+
+        self.squares[square_index as usize] = piece;
     }
 
     pub fn from_fen(fen: &str) -> Result<Board, String> {
@@ -137,7 +112,7 @@ impl Board {
         }
 
         let mut board = Board {
-            squares: EMPTY_BOARD,
+            squares: [0; 64],
             white_to_move: true,
             castling_rights: 0,
             en_passant_target_square_index: None,
@@ -146,6 +121,10 @@ impl Board {
             hash: 0,
             game_stage: 0,
             repetitions: RepetitionTracker::default(),
+            piece_counts: [[0; 7]; 2],
+            piece_bitboards: [[0; 7]; 2],
+            side_occupancy: [0; 2],
+            occupancy: 0,
         };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;
@@ -440,6 +419,10 @@ impl Debug for Board {
             .field("hash", &format!("{:#018x}", self.hash))
             .field("game_stage", &self.game_stage)
             .field("repetitions", &self.repetitions)
+            .field("piece_counts", &self.piece_counts)
+            .field("piece_bitboards", &"See end value")
+            .field("side_occupancy", &"See end value")
+            .field("occupancy", &"See end value")
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -457,9 +440,27 @@ impl Debug for Board {
             // Join the sets of 10 with newlines
             .reduce(|acc, x| format!("{}\n{}", acc, x))
             .unwrap();
-
         writeln!(f, "\nsquares:\n{}", pretty_squares).unwrap();
-        writeln!(f, "pretty version:\n{}", self.pretty_print())
+        writeln!(f, "pretty version:\n{}", self.pretty_print()).unwrap();
+
+        write!(f, "Piece bitboards:\nWhite:").unwrap();
+        self.piece_bitboards[0]
+            .iter()
+            .skip(1)
+            .for_each(|v| writeln!(f, "{}", pretty_print_bitboard(*v)).unwrap());
+        write!(f, "Black:").unwrap();
+        self.piece_bitboards[1]
+            .iter()
+            .skip(1)
+            .for_each(|v| writeln!(f, "{}", pretty_print_bitboard(*v)).unwrap());
+
+        write!(f, "Side occupancy:\nWhite:").unwrap();
+        writeln!(f, "{}", pretty_print_bitboard(self.side_occupancy[0])).unwrap();
+        write!(f, "Black:").unwrap();
+        writeln!(f, "{}", pretty_print_bitboard(self.side_occupancy[1])).unwrap();
+
+        writeln!(f, "Occupancy:{}", pretty_print_bitboard(self.occupancy)).unwrap();
+        writeln!(f, "FEN: {}", self.to_fen())
     }
 }
 
@@ -490,10 +491,6 @@ pub fn piece_to_name(piece: u8) -> char {
     }
 }
 
-pub fn index_10x12_to_pos_str(i: u8) -> String {
-    index_8x8_to_pos_str(DEFAULT_BOARD_SQUARE_INDEX_REVERSE_TRANSLATION[i as usize])
-}
-
 pub fn index_8x8_to_pos_str(i: u8) -> String {
     let rank = rank_8x8(i);
     let file = file_8x8(i);
@@ -510,4 +507,5 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
     board.hash ^= get_hash_value(piece_code, white, index, hash_values);
     board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
+    board.piece_counts[if white { 0 } else { 1 }][piece_code as usize] += 1;
 }
