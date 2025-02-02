@@ -1,6 +1,6 @@
 use std::{
     cmp::{Ordering, Reverse},
-    i16,
+    i16, iter,
     time::Instant,
 };
 
@@ -10,9 +10,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
-    move_generator::{
-        ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
-    },
+    move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -165,6 +163,7 @@ impl Board {
         let mut stats = SearchStats::default();
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
+        let mut moves;
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             // if tt_data.draft >= draft {
@@ -182,71 +181,42 @@ impl Board {
             //     }
             // }
 
-            self.make_move(&tt_data.important_move, &mut rollback);
-
-            let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
-                result = 0;
-            } else {
-                result = -self.alpha_beta_recurse(
-                    -i16::MAX,
-                    -alpha,
-                    draft - 1,
-                    1,
-                    &mut rollback,
-                    &mut stats,
-                    transposition_table,
-                    &mut killers,
-                    history_table,
-                );
-            }
-
-            self.unmake_move(&tt_data.important_move, &mut rollback);
-
-            if result > best_value {
-                best_value = result;
-                best_move = Some(tt_data.important_move);
-                if result > alpha {
-                    alpha = result;
-                }
-            }
+            moves = Vec::from([ScoredMove {
+                m: tt_data.important_move,
+                score: 1,
+            }]);
+        } else {
+            moves = Vec::new();
         }
 
         let mut legal_moves: u16 = 0;
-        let mut moves = self.generate_pseudo_legal_moves_with_history(history_table);
 
-        moves.sort_unstable_by_key(|m| Reverse(m.score));
-
-        for r#move in moves {
-            if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
-                // Hash move is assumed to be legal
-                legal_moves += 1;
-                continue;
-            }
-
-            if Instant::now() >= *cancel_search_at {
-                return AlphaBetaResult {
-                    search_result: None,
-                    end_search: true,
-                };
-            }
-
-            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, &mut rollback);
-            if !legal {
-                if move_made {
-                    self.unmake_move(&r#move.m, &mut rollback);
+        // Round 0 is the tt move, round 1 is regular move gen
+        for round in 0..2 {
+            for r#move in moves {
+                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                    continue;
                 }
 
-                continue;
-            } else {
-                legal_moves += 1;
-            }
+                if Instant::now() >= *cancel_search_at {
+                    return AlphaBetaResult {
+                        search_result: None,
+                        end_search: true,
+                    };
+                }
 
-            let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
-                result = 0;
-            } else {
-                result = -self.alpha_beta_recurse(
+                let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, &mut rollback);
+                if !legal {
+                    if move_made {
+                        self.unmake_move(&r#move.m, &mut rollback);
+                    }
+
+                    continue;
+                } else {
+                    legal_moves += 1;
+                }
+
+                let result = -self.alpha_beta_recurse(
                     -i16::MAX,
                     -alpha,
                     draft - 1,
@@ -257,16 +227,24 @@ impl Board {
                     &mut killers,
                     history_table,
                 );
+
+                self.unmake_move(&r#move.m, &mut rollback);
+
+                if result > best_value {
+                    best_value = result;
+                    best_move = Some(r#move.m);
+                    if result > alpha {
+                        alpha = result;
+                    }
+                }
             }
 
-            self.unmake_move(&r#move.m, &mut rollback);
+            if round == 0 {
+                moves = self.generate_pseudo_legal_moves_with_history(history_table);
 
-            if result > best_value {
-                best_value = result;
-                best_move = Some(r#move.m);
-                if result > alpha {
-                    alpha = result;
-                }
+                moves.sort_unstable_by_key(|m| Reverse(m.score));
+            } else {
+                moves = Vec::new();
             }
         }
 
@@ -278,8 +256,8 @@ impl Board {
             panic!("Tried to search on a position but found no moves");
         }
 
+        stats.depth = draft;
         if legal_moves == 1 {
-            stats.depth = 1;
             return AlphaBetaResult {
                 search_result: Some(SearchResult {
                     best_move: best_move.unwrap(),
@@ -288,8 +266,6 @@ impl Board {
                 }),
                 end_search: true,
             };
-        } else {
-            stats.depth = draft;
         }
 
         // Make the score not side-to-move relative
@@ -315,6 +291,13 @@ impl Board {
         killers: &mut [Move; 2],
         history_table: &mut HistoryTable,
     ) -> i16 {
+        if self.halfmove_clock >= 100
+            || RepetitionTracker::test_threefold_repetition(self)
+            || self.is_insufficient_material()
+        {
+            return 0;
+        }
+
         if draft == 0 {
             stats.leaf_nodes += 1;
             return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
@@ -324,6 +307,7 @@ impl Board {
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
+        let mut moves;
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.draft >= draft {
@@ -354,114 +338,36 @@ impl Board {
                 }
             }
 
-            self.make_move(&tt_data.important_move, rollback);
-
-            let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
-                result = 0;
-            } else {
-                result = -self.alpha_beta_recurse(
-                    -beta,
-                    -alpha,
-                    draft - 1,
-                    ply + 1,
-                    rollback,
-                    stats,
-                    transposition_table,
-                    &mut new_killers,
-                    history_table,
-                );
-            }
-
-            self.unmake_move(&tt_data.important_move, rollback);
-
-            if result >= beta {
-                self.update_killers_and_history(killers, &tt_data.important_move, history_table, ply);
-
-                let mut tt_eval = result;
-                if tt_eval >= MATE_THRESHOLD {
-                    tt_eval += 10 * ply as i16;
-                } else if tt_eval <= -MATE_THRESHOLD {
-                    tt_eval -= 10 * ply as i16;
-                }
-
-                transposition_table.store_entry(
-                    TTEntry {
-                        hash: self.hash,
-                        important_move: tt_data.important_move,
-                        move_type: MoveType::FailHigh,
-                        eval: tt_eval,
-                        draft,
-                        empty: false,
-                    },
-                    TableType::Main,
-                );
-
-                return result;
-            }
-
-            if result > best_value {
-                best_value = result;
-                best_move = Some(tt_data.important_move);
-                if result > alpha {
-                    alpha = result;
-                }
-            }
+            moves = Vec::from([ScoredMove {
+                m: tt_data.important_move,
+                score: 1,
+            }]);
+        } else {
+            moves = Vec::new();
         }
 
-        let mut moves = self.generate_pseudo_legal_moves_with_history(history_table);
         let mut searched_quiet_moves = Vec::new();
         let mut found_legal_move = false;
 
-        if killers[0] != EMPTY_MOVE {
-            let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
-
-            for m in moves.iter_mut() {
-                if m.m == killers[0] {
-                    m.score = MOVE_SCORE_KILLER_1;
-
-                    if unmatched_killers == 1 {
-                        break;
-                    } else {
-                        unmatched_killers -= 1;
-                    }
-                } else if m.m == killers[1] {
-                    m.score = MOVE_SCORE_KILLER_2;
-
-                    if unmatched_killers == 1 {
-                        break;
-                    } else {
-                        unmatched_killers -= 1;
-                    }
-                }
-            }
-        }
-
-        moves.sort_unstable_by_key(|m| Reverse(m.score));
-
-        for r#move in moves {
-            if tt_entry.is_some_and(|v| v.important_move == r#move.m) {
-                // Hash move is assumed to be legal
-                found_legal_move = true;
-                continue;
-            }
-
-            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
-            if !legal {
-                if move_made {
-                    self.unmake_move(&r#move.m, rollback);
+        // Round 0 is the tt move, round 1 is regular move gen
+        for round in 0..2 {
+            for r#move in moves {
+                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                    continue;
                 }
 
-                continue;
-            } else {
-                found_legal_move = true;
-            }
+                let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
+                if !legal {
+                    if move_made {
+                        self.unmake_move(&r#move.m, rollback);
+                    }
 
-            let result;
-            if self.halfmove_clock >= 100 || RepetitionTracker::test_threefold_repetition(self) || self.is_insufficient_material() {
-                result = 0;
-            } else {
-                result = -self.alpha_beta_recurse(
+                    continue;
+                } else {
+                    found_legal_move = true;
+                }
+
+                let result = -self.alpha_beta_recurse(
                     -beta,
                     -alpha,
                     draft - 1,
@@ -472,50 +378,82 @@ impl Board {
                     &mut new_killers,
                     history_table,
                 );
-            }
 
-            self.unmake_move(&r#move.m, rollback);
+                self.unmake_move(&r#move.m, rollback);
 
-            if result >= beta {
-                self.update_killers_and_history(killers, &r#move.m, history_table, ply);
+                if result >= beta {
+                    self.update_killers_and_history(killers, &r#move.m, history_table, ply);
 
-                let penalty = -(ply as i16) * (ply as i16);
-                for m in searched_quiet_moves {
-                    self.update_history(history_table, &m, penalty);
+                    let penalty = -(ply as i16) * (ply as i16);
+                    for m in searched_quiet_moves {
+                        self.update_history(history_table, &m, penalty);
+                    }
+
+                    let mut tt_eval = result;
+                    if tt_eval >= MATE_THRESHOLD {
+                        tt_eval += 10 * ply as i16;
+                    } else if tt_eval <= -MATE_THRESHOLD {
+                        tt_eval -= 10 * ply as i16;
+                    }
+
+                    transposition_table.store_entry(
+                        TTEntry {
+                            hash: self.hash,
+                            important_move: r#move.m,
+                            move_type: MoveType::FailHigh,
+                            eval: tt_eval,
+                            draft,
+                            empty: false,
+                        },
+                        TableType::Main,
+                    );
+
+                    return result;
                 }
 
-                let mut tt_eval = result;
-                if tt_eval >= MATE_THRESHOLD {
-                    tt_eval += 10 * ply as i16;
-                } else if tt_eval <= -MATE_THRESHOLD {
-                    tt_eval -= 10 * ply as i16;
+                if result > best_value {
+                    best_value = result;
+                    best_move = Some(r#move.m);
+                    if result > alpha {
+                        alpha = result;
+                    }
                 }
 
-                transposition_table.store_entry(
-                    TTEntry {
-                        hash: self.hash,
-                        important_move: r#move.m,
-                        move_type: MoveType::FailHigh,
-                        eval: tt_eval,
-                        draft,
-                        empty: false,
-                    },
-                    TableType::Main,
-                );
-
-                return result;
-            }
-
-            if result > best_value {
-                best_value = result;
-                best_move = Some(r#move.m);
-                if result > alpha {
-                    alpha = result;
+                if r#move.m.flags() == 0 {
+                    searched_quiet_moves.push(r#move.m);
                 }
             }
 
-            if r#move.m.flags() == 0 {
-                searched_quiet_moves.push(r#move.m);
+            if round == 0 {
+                moves = self.generate_pseudo_legal_moves_with_history(history_table);
+
+                if killers[0] != EMPTY_MOVE {
+                    let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
+
+                    for m in moves.iter_mut() {
+                        if m.m == killers[0] {
+                            m.score = MOVE_SCORE_KILLER_1;
+
+                            if unmatched_killers == 1 {
+                                break;
+                            } else {
+                                unmatched_killers -= 1;
+                            }
+                        } else if m.m == killers[1] {
+                            m.score = MOVE_SCORE_KILLER_2;
+
+                            if unmatched_killers == 1 {
+                                break;
+                            } else {
+                                unmatched_killers -= 1;
+                            }
+                        }
+                    }
+                }
+
+                moves.sort_unstable_by_key(|m| Reverse(m.score));
+            } else {
+                moves = Vec::new();
             }
         }
 
@@ -573,6 +511,7 @@ impl Board {
             return 0;
         }
 
+        let mut moves;
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
             match tt_data.move_type {
@@ -590,6 +529,13 @@ impl Board {
                     }
                 }
             }
+
+            moves = Vec::from([ScoredMove {
+                m: tt_data.important_move,
+                score: 1,
+            }]);
+        } else {
+            moves = Vec::new();
         }
 
         let stand_pat = self.evaluate_side_to_move_relative();
@@ -613,9 +559,21 @@ impl Board {
         let mut best_value = stand_pat;
         let mut best_move = None;
 
-        if let Some(tt_data) = tt_entry {
-            if tt_data.important_move.flags() & MOVE_FLAG_CAPTURE != 0 {
-                self.make_move(&tt_data.important_move, rollback);
+        // Round 0 is the tt move, round 1 is regular move gen
+        for round in 0..2 {
+            for r#move in moves {
+                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                    continue;
+                }
+
+                let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
+                if !legal {
+                    if move_made {
+                        self.unmake_move(&r#move.m, rollback);
+                    }
+
+                    continue;
+                }
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let result = -self.quiescense_side_to_move_relative(
@@ -627,13 +585,13 @@ impl Board {
                     transposition_table,
                 );
 
-                self.unmake_move(&tt_data.important_move, rollback);
+                self.unmake_move(&r#move.m, rollback);
 
                 if result >= beta {
                     transposition_table.store_entry(
                         TTEntry {
                             hash: self.hash,
-                            important_move: tt_data.important_move,
+                            important_move: r#move.m,
                             move_type: MoveType::FailHigh,
                             eval: result,
                             draft: 0,
@@ -645,59 +603,22 @@ impl Board {
                     return result;
                 }
 
-                if result > best_value {
+                if best_value < result {
                     best_value = result;
-                    best_move = Some(tt_data.important_move);
-                    if result > alpha {
+                    best_move = Some(r#move.m);
+
+                    if alpha < result {
                         alpha = result;
                     }
                 }
             }
-        }
 
-        let mut moves = self.generate_pseudo_legal_capture_moves();
+            if round == 0 {
+                moves = self.generate_pseudo_legal_capture_moves();
 
-        moves.sort_unstable_by_key(|m| Reverse(m.score));
-
-        for r#move in moves {
-            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
-            if !legal {
-                if move_made {
-                    self.unmake_move(&r#move.m, rollback);
-                }
-
-                continue;
-            }
-
-            // Only doing captures right now so not checking halfmove or threefold repetition here
-            let result =
-                -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1, rollback, stats, transposition_table);
-
-            self.unmake_move(&r#move.m, rollback);
-
-            if result >= beta {
-                transposition_table.store_entry(
-                    TTEntry {
-                        hash: self.hash,
-                        important_move: r#move.m,
-                        move_type: MoveType::FailHigh,
-                        eval: result,
-                        draft: 0,
-                        empty: false,
-                    },
-                    TableType::Quiescense,
-                );
-
-                return result;
-            }
-
-            if best_value < result {
-                best_value = result;
-                best_move = Some(r#move.m);
-
-                if alpha < result {
-                    alpha = result;
-                }
+                moves.sort_unstable_by_key(|m| Reverse(m.score));
+            } else {
+                moves = Vec::new();
             }
         }
 
@@ -755,6 +676,7 @@ impl Board {
 
         let current_value = &mut history_table[history_color_value][piece_type - 1][m.to() as usize];
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-        *current_value += (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
+        *current_value +=
+            (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
     }
 }
