@@ -300,7 +300,7 @@ impl Board {
 
         if draft == 0 {
             stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(alpha, beta, ply + 1, rollback, stats, transposition_table);
+            return self.quiescense_side_to_move_relative(alpha, beta, rollback, stats, transposition_table);
         }
 
         let mut best_value = -i16::MAX;
@@ -311,13 +311,7 @@ impl Board {
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
             if tt_data.draft >= draft {
-                let mut eval = tt_data.eval;
-
-                if eval >= MATE_THRESHOLD {
-                    eval -= 10 * ply as i16;
-                } else if eval <= -MATE_THRESHOLD {
-                    eval += 10 * ply as i16;
-                }
+                let eval = tt_data.get_eval(ply);
 
                 match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
@@ -389,22 +383,8 @@ impl Board {
                         self.update_history(history_table, &m, penalty);
                     }
 
-                    let mut tt_eval = result;
-                    if tt_eval >= MATE_THRESHOLD {
-                        tt_eval += 10 * ply as i16;
-                    } else if tt_eval <= -MATE_THRESHOLD {
-                        tt_eval -= 10 * ply as i16;
-                    }
-
                     transposition_table.store_entry(
-                        TTEntry {
-                            hash: self.hash,
-                            important_move: r#move.m,
-                            move_type: MoveType::FailHigh,
-                            eval: tt_eval,
-                            draft,
-                            empty: false,
-                        },
+                        TTEntry::new(self.hash, r#move.m, MoveType::FailHigh, result, draft, ply),
                         TableType::Main,
                     );
 
@@ -470,26 +450,13 @@ impl Board {
             }
         }
 
-        let mut tt_eval = best_value;
-        if tt_eval >= MATE_THRESHOLD {
-            tt_eval += 10 * ply as i16;
-        } else if tt_eval <= -MATE_THRESHOLD {
-            tt_eval -= 10 * ply as i16;
-        }
-
+        let entry_type = if alpha == best_value {
+            MoveType::Best
+        } else {
+            MoveType::FailLow
+        };
         transposition_table.store_entry(
-            TTEntry {
-                hash: self.hash,
-                important_move: best_move.unwrap(),
-                move_type: if alpha == best_value {
-                    MoveType::Best
-                } else {
-                    MoveType::FailLow
-                },
-                eval: tt_eval,
-                draft,
-                empty: false,
-            },
+            TTEntry::new(self.hash, best_move.unwrap(), entry_type, best_value, draft, ply),
             TableType::Main,
         );
 
@@ -500,7 +467,6 @@ impl Board {
         &mut self,
         mut alpha: i16,
         beta: i16,
-        ply: u8,
         rollback: &mut MoveRollback,
         stats: &mut SearchStats,
         transposition_table: &mut TranspositionTable,
@@ -514,18 +480,20 @@ impl Board {
         let mut moves;
         let tt_entry = transposition_table.get_entry(self.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
+            let tt_eval = tt_data.get_eval(0);
+
             match tt_data.move_type {
                 transposition_table::MoveType::FailHigh => {
-                    if tt_data.eval >= beta {
-                        return tt_data.eval;
+                    if tt_eval >= beta {
+                        return tt_eval;
                     }
                 }
                 transposition_table::MoveType::Best => {
-                    return tt_data.eval;
+                    return tt_eval;
                 }
                 transposition_table::MoveType::FailLow => {
-                    if tt_data.eval < alpha {
-                        return tt_data.eval;
+                    if tt_eval < alpha {
+                        return tt_eval;
                     }
                 }
             }
@@ -579,7 +547,6 @@ impl Board {
                 let result = -self.quiescense_side_to_move_relative(
                     -beta,
                     -alpha,
-                    ply + 1,
                     rollback,
                     stats,
                     transposition_table,
@@ -589,14 +556,7 @@ impl Board {
 
                 if result >= beta {
                     transposition_table.store_entry(
-                        TTEntry {
-                            hash: self.hash,
-                            important_move: r#move.m,
-                            move_type: MoveType::FailHigh,
-                            eval: result,
-                            draft: 0,
-                            empty: false,
-                        },
+                        TTEntry::new(self.hash, r#move.m, MoveType::FailHigh, result, 0, 0),
                         TableType::Quiescense,
                     );
 
@@ -623,19 +583,13 @@ impl Board {
         }
 
         if let Some(bm) = best_move {
+            let entry_type = if alpha == best_value {
+                MoveType::Best
+            } else {
+                MoveType::FailLow
+            };
             transposition_table.store_entry(
-                TTEntry {
-                    hash: self.hash,
-                    important_move: bm,
-                    move_type: if alpha == best_value {
-                        MoveType::Best
-                    } else {
-                        MoveType::FailLow
-                    },
-                    eval: best_value,
-                    draft: 0,
-                    empty: false,
-                },
+                TTEntry::new(self.hash, bm, entry_type, best_value, 0, 0),
                 TableType::Quiescense,
             );
         }
