@@ -304,10 +304,12 @@ impl<'a> Searcher<'a> {
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
+        let is_pv = beta - alpha > 1;
+
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if tt_data.draft >= draft {
+            if is_pv && tt_data.draft >= draft {
                 let eval = tt_data.get_eval(ply);
 
                 match tt_data.move_type {
@@ -360,7 +362,11 @@ impl<'a> Searcher<'a> {
                     found_legal_move = true;
                 }
 
-                let result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                let mut result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
+
+                if result > alpha && result < beta {
+                    result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
