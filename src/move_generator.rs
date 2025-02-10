@@ -29,10 +29,10 @@ pub const MOVE_SCORE_KILLER_1: i16 = 1999;
 pub const MOVE_SCORE_KILLER_2: i16 = 1998;
 /// Has value of piece is becomes added so really the range is +300 to +900
 const MOVE_SCORE_PROMOTION: i16 = 1000;
-const MOVE_SCORE_KING_CASTLE: i16 = 502;
-const MOVE_SCORE_QUEEN_CASTLE: i16 = 501;
+const MOVE_SCORE_KING_CASTLE: i16 = 999;
+const MOVE_SCORE_QUEEN_CASTLE: i16 = 998;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i32 = 500;
+pub const MOVE_SCORE_HISTORY_MAX: i32 = 1800;
 const MOVE_SCORE_QUIET: i16 = 0;
 
 impl Board {
