@@ -341,6 +341,8 @@ impl<'a> Searcher<'a> {
 
         let mut searched_quiet_moves = Vec::new();
         let mut found_legal_move = false;
+        let mut searched_moves = 0;
+        let can_reduce = !is_pv && draft > 2 && !self.board.can_capture_opponent_king(false);
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -362,13 +364,28 @@ impl<'a> Searcher<'a> {
                     found_legal_move = true;
                 }
 
-                let mut result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
+                let mut reduction = 0;
+                // Late move reduction
+                if can_reduce && searched_moves > 3 {
+                    reduction = if searched_moves > 5 {
+                        draft / 3
+                    } else {
+                        1
+                    };
+                }
+
+                let mut result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+
+                if result > alpha && reduction > 0 {
+                    result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
+                }
 
                 if result > alpha && result < beta {
                     result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
+                searched_moves += 1;
 
                 if result >= beta {
                     self.update_killers_and_history(killers, &r#move.m, ply);
