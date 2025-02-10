@@ -12,7 +12,7 @@ use crate::{
     board::{Board, PIECE_MASK},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
     move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
-    moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL},
+    moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
@@ -236,7 +236,8 @@ impl<'a> Searcher<'a> {
                     legal_moves += 1;
                 }
 
-                let result = (random::<i16>() % 11) - 5 - self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
+                let result =
+                    (random::<i16>() % 11) - 5 - self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
@@ -287,12 +288,24 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    fn alpha_beta_recurse(&mut self, mut alpha: i16, beta: i16, draft: u8, ply: u8, killers: &mut [Move; 2]) -> i16 {
+    fn alpha_beta_recurse(
+        &mut self,
+        mut alpha: i16,
+        beta: i16,
+        mut draft: u8,
+        ply: u8,
+        killers: &mut [Move; 2],
+    ) -> i16 {
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
             return 0;
+        }
+
+        let in_check = self.board.can_capture_opponent_king(false);
+        if in_check {
+            draft += 1;
         }
 
         if draft == 0 {
@@ -342,7 +355,6 @@ impl<'a> Searcher<'a> {
         let mut searched_quiet_moves = Vec::new();
         let mut found_legal_move = false;
         let mut searched_moves = 0;
-        let can_reduce = !is_pv && draft > 2 && !self.board.can_capture_opponent_king(false);
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -366,15 +378,29 @@ impl<'a> Searcher<'a> {
 
                 let mut reduction = 0;
                 // Late move reduction
-                if can_reduce && searched_moves > 3 {
-                    reduction = if searched_moves > 5 {
-                        draft / 3
+                if draft > 2 && searched_moves > 3 {
+                    let flags = r#move.m.flags();
+
+                    // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
+                    reduction = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0 {
+                        (0.7844 + (draft as f32).ln() * (searched_moves as f32).ln() / 2.4696).round() as u8
                     } else {
-                        1
+                        3
                     };
+
+                    if is_pv {
+                        reduction -= 1;
+                    }
+
+                    if in_check {
+                        reduction -= 1;
+                    }
+
+                    reduction = reduction.clamp(0, draft - 1)
                 }
 
-                let mut result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                let mut result =
+                    -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
 
                 if result > alpha && reduction > 0 {
                     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
