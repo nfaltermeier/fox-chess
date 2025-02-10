@@ -5,6 +5,7 @@ use std::{
 };
 
 use log::{debug, error};
+use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
@@ -235,7 +236,7 @@ impl<'a> Searcher<'a> {
                     legal_moves += 1;
                 }
 
-                let result = -self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
+                let result = (random::<i16>() % 11) - 5 - self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
