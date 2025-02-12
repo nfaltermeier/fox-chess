@@ -317,12 +317,12 @@ impl<'a> Searcher<'a> {
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
-        let is_pv = beta - alpha > 1;
+        let is_pv = alpha + 1 == beta;
 
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main);
         if let Some(tt_data) = tt_entry {
-            if is_pv && tt_data.draft >= draft {
+            if !is_pv && tt_data.draft >= draft {
                 let eval = tt_data.get_eval(ply);
 
                 match tt_data.move_type {
@@ -399,15 +399,24 @@ impl<'a> Searcher<'a> {
                     reduction = reduction.clamp(0, draft - 1)
                 }
 
-                let mut result =
-                    -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                let mut result;
+                if searched_moves == 0 {
+                    result = -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
 
-                // if result > alpha && reduction > 0 {
-                //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
-                // }
+                    if result > alpha && reduction > 0 {
+                        result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                    }
+                } else {
+                    result =
+                        -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
 
-                if result > alpha {
-                    result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                    // if result > alpha && reduction > 0 {
+                    //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
+                    // }
+
+                    if result > alpha {
+                        result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                    }
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
