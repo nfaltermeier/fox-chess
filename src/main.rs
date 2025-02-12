@@ -7,7 +7,6 @@ use std::{
 };
 
 use board::{Board, HASH_VALUES};
-use chrono::TimeDelta;
 use clap::Parser;
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
@@ -54,9 +53,9 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    // run_uci();
+    run_uci();
 
-    search_moves_from_pos_for_time(STARTING_FEN, 5);
+    // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
     // do_perfts_up_to(5, STARTING_FEN);
     // do_perfts_up_to(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
@@ -93,7 +92,7 @@ fn print_moves_from_pos(fen: &str) {
     }
 }
 
-fn search_moves_from_pos_for_time(fen: &str, ms: i64) {
+fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut board = Board::from_fen(fen).unwrap();
     info!("{:#?}", &board);
 
@@ -110,12 +109,21 @@ fn search_moves_from_pos_for_time(fen: &str, ms: i64) {
         info!("{}:", r#move.m.pretty_print(Some(&board)));
         board.make_move(&r#move.m, &mut rollback);
 
-        let tc = Some(vampirc_uci::UciTimeControl::MoveTime(TimeDelta::milliseconds(ms)));
-        let sc = None;
-
         let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history);
-        let mut result = searcher.iterative_deepening_search(&tc, &sc);
-        result.best_move = r#move.m;
+
+        let mut result;
+        if depth != 1 {
+            let tc = None;
+            let sc = Some(UciSearchControl::depth(depth - 1));
+
+            result = searcher.iterative_deepening_search(&tc, &sc);
+            result.best_move = r#move.m;
+        } else {
+            result = SearchResult {
+                best_move: r#move.m,
+                eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX) * if board.white_to_move { 1 } else { -1 },
+            };
+        }
 
         board.unmake_move(&r#move.m, &mut rollback);
 

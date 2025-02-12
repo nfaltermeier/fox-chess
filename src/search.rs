@@ -33,6 +33,13 @@ pub struct SearchStats {
     pub leaf_nodes: u64,
 }
 
+#[derive(PartialEq, Eq)]
+enum SearchControl {
+    Time,
+    Depth,
+    Infinite,
+}
+
 pub struct SearchResult {
     pub best_move: Move,
     pub eval: i16,
@@ -72,7 +79,9 @@ impl<'a> Searcher<'a> {
         search: &Option<UciSearchControl>,
     ) -> SearchResult {
         let start_time = Instant::now();
-        let target_dur;
+        let mut target_dur = None;
+        let search_control: SearchControl;
+        let mut max_depth = 40;
 
         if let Some(t) = time {
             match t {
@@ -101,13 +110,13 @@ impl<'a> Searcher<'a> {
                     } else {
                         25
                     };
-                    target_dur = time_left
+                    target_dur = Some(time_left
                         .as_ref()
                         .unwrap()
                         .to_std()
                         .unwrap()
                         .checked_div(divisor)
-                        .unwrap();
+                        .unwrap());
 
                     // maybe something like https://www.desmos.com/calculator/47t9iys2fo
                     // let expected_moves_left = if let Some(mtg) = moves_to_go {
@@ -115,26 +124,51 @@ impl<'a> Searcher<'a> {
                     // } else {
                     //     let eval = self.board.evaluate();
                     // }
+
+                    search_control = SearchControl::Time;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
-                    target_dur = time_delta.to_std().unwrap();
+                    target_dur = Some(time_delta.to_std().unwrap());
+                    search_control = SearchControl::Time;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
+                    // Need to copy 'stop' command functionality over from full-pv branch
                     unimplemented!("uci go infinite");
+                    search_control = SearchControl::Infinite;
                 }
             }
+        } else if let Some(s) = search {
+            if s.depth.is_some() {
+                search_control = SearchControl::Depth;
+                max_depth = s.depth.unwrap();
+            } else {
+                error!("Unsupported search option passed to go, use depth.");
+                unimplemented!("Unsupported search option passed to go, use depth.");
+            }
         } else {
-            error!("UCI time control not passed to go, currently required");
-            unimplemented!("UCI time control not passed to go, currently required");
+            error!("One of search or time is required to be passed to go.");
+            panic!("One of search or time is required to be passed to go.");
         }
 
         // Above 5 depth moves can start taking a lot more time
-        let cutoff_low_depth = target_dur.mul_f32(0.55);
-        let cutoff = target_dur.mul_f32(0.35);
-        let cancel_search_time = start_time.checked_add(target_dur.mul_f32(2.0)).unwrap();
+        let cutoff_low_depth;
+        let cutoff;
+        let cancel_search_time;
+        match target_dur {
+            Some(d) => {
+                cutoff_low_depth = Some(d.mul_f32(0.55));
+                cutoff = Some(d.mul_f32(0.35));
+                cancel_search_time = Some(start_time.checked_add(d.mul_f32(2.0)).unwrap());
+            }
+            None => {
+                cutoff = None;
+                cutoff_low_depth = None;
+                cancel_search_time = None;
+            }
+        }
 
         let mut depth = 1;
         let mut latest_result = None;
@@ -148,11 +182,16 @@ impl<'a> Searcher<'a> {
                     UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
                 }
 
-                if result.end_search
-                    || (depth >= 5 && elapsed >= cutoff)
-                    || elapsed >= cutoff_low_depth
+                if search_control != SearchControl::Infinite
+                    && (result.end_search
                     || search_result.eval.abs() >= MATE_THRESHOLD
-                    || depth >= 40
+                    || depth >= max_depth
+                    || match search_control {
+                        SearchControl::Time => {
+                            (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
+                        }
+                        SearchControl::Depth | SearchControl::Infinite => false,
+                    })
                 {
                     return search_result;
                 }
@@ -173,7 +212,7 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8, cancel_search_at: &Instant) -> AlphaBetaResult {
+    pub fn alpha_beta_init(&mut self, draft: u8, cancel_search_at: &Option<Instant>) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
         let mut best_move = None;
@@ -216,7 +255,7 @@ impl<'a> Searcher<'a> {
                     continue;
                 }
 
-                if Instant::now() >= *cancel_search_at {
+                if cancel_search_at.is_some_and(|t| Instant::now() >= t) {
                     return AlphaBetaResult {
                         search_result: None,
                         end_search: true,
