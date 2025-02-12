@@ -402,11 +402,11 @@ impl<'a> Searcher<'a> {
                 let mut result =
                     -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
 
-                if result > alpha && reduction > 0 {
-                    result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
-                }
+                // if result > alpha && reduction > 0 {
+                //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
+                // }
 
-                if result > alpha && result < beta {
+                if result > alpha {
                     result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
                 }
 
