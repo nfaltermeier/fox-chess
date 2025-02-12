@@ -7,12 +7,16 @@ use std::{
 };
 
 use board::{Board, HASH_VALUES};
+use chrono::TimeDelta;
 use clap::Parser;
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 use moves::{square_indices_to_moves, Move, MoveRollback};
+use search::{SearchResult, Searcher, DEFAULT_HISTORY_TABLE};
+use transposition_table::TranspositionTable;
 use uci::UciInterface;
+use vampirc_uci::UciSearchControl;
 
 mod bitboard;
 mod board;
@@ -50,8 +54,9 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    run_uci();
+    // run_uci();
 
+    search_moves_from_pos_for_time(STARTING_FEN, 5);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
     // do_perfts_up_to(5, STARTING_FEN);
     // do_perfts_up_to(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
@@ -85,6 +90,44 @@ fn print_moves_from_pos(fen: &str) {
             r#move.m.pretty_print(Some(&board)),
             r#move.score
         );
+    }
+}
+
+fn search_moves_from_pos_for_time(fen: &str, ms: i64) {
+    let mut board = Board::from_fen(fen).unwrap();
+    info!("{:#?}", &board);
+
+    let mut moves = board.generate_legal_moves_without_history();
+
+    moves.sort_by_key(|m| Reverse(m.score));
+
+    let mut rollback = MoveRollback::default();
+    let mut transposition_table = TranspositionTable::new(23);
+    let mut history = DEFAULT_HISTORY_TABLE;
+    let mut best: Option<SearchResult> = None;
+
+    for r#move in moves {
+        info!("{}:", r#move.m.pretty_print(Some(&board)));
+        board.make_move(&r#move.m, &mut rollback);
+
+        let tc = Some(vampirc_uci::UciTimeControl::MoveTime(TimeDelta::milliseconds(ms)));
+        let sc = None;
+
+        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history);
+        let mut result = searcher.iterative_deepening_search(&tc, &sc);
+        result.best_move = r#move.m;
+
+        board.unmake_move(&r#move.m, &mut rollback);
+
+        if best.as_ref().is_none_or(|v| v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }) {
+            best = Some(result);
+        }
+    }
+
+    if let Some(r) = best {
+        debug!("best move: {} eval: {}", r.best_move.pretty_print(Some(&board)), r.eval)
+    } else {
+        debug!("No valid moves");
     }
 }
 

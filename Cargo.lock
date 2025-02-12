@@ -413,6 +413,7 @@ dependencies = [
  "array-macro",
  "build-info",
  "build-info-build",
+ "chrono",
  "clap",
  "fern",
  "humantime",
