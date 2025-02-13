@@ -7,7 +7,7 @@ pub enum TableType {
     Quiescense,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum MoveType {
     FailHigh,
     Best,

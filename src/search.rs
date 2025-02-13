@@ -1,8 +1,4 @@
-use std::{
-    cmp::{Ordering, Reverse},
-    i16, iter,
-    time::Instant,
-};
+use std::{cmp::Reverse, i16, sync::mpsc::Receiver, time::Instant};
 
 use log::{debug, error};
 use rand::random;
@@ -22,6 +18,7 @@ pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 
 const EMPTY_MOVE: Move = Move { data: 0 };
+const DEBUG_BOARD_HASH_OF_INTEREST: Option<u64> = None;
 
 // pub const TEST_TT_FOR_HASH_COLLISION: bool = true;
 
@@ -43,11 +40,13 @@ enum SearchControl {
 pub struct SearchResult {
     pub best_move: Move,
     pub eval: i16,
+    pub pv: Vec<Move>,
 }
 
 pub struct AlphaBetaResult {
     pub search_result: Option<SearchResult>,
     pub end_search: bool,
+    pub stop_received: bool,
 }
 
 pub struct Searcher<'a> {
@@ -77,6 +76,7 @@ impl<'a> Searcher<'a> {
         &mut self,
         time: &Option<UciTimeControl>,
         search: &Option<UciSearchControl>,
+        stop_rx: &Receiver<()>,
     ) -> SearchResult {
         let start_time = Instant::now();
         let mut target_dur = None;
@@ -110,13 +110,15 @@ impl<'a> Searcher<'a> {
                     } else {
                         25
                     };
-                    target_dur = Some(time_left
-                        .as_ref()
-                        .unwrap()
-                        .to_std()
-                        .unwrap()
-                        .checked_div(divisor)
-                        .unwrap());
+                    target_dur = Some(
+                        time_left
+                            .as_ref()
+                            .unwrap()
+                            .to_std()
+                            .unwrap()
+                            .checked_div(divisor)
+                            .unwrap(),
+                    );
 
                     // maybe something like https://www.desmos.com/calculator/47t9iys2fo
                     // let expected_moves_left = if let Some(mtg) = moves_to_go {
@@ -135,8 +137,6 @@ impl<'a> Searcher<'a> {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
-                    // Need to copy 'stop' command functionality over from full-pv branch
-                    unimplemented!("uci go infinite");
                     search_control = SearchControl::Infinite;
                 }
             }
@@ -173,25 +173,30 @@ impl<'a> Searcher<'a> {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth, &cancel_search_time);
+            let result = self.alpha_beta_init(
+                depth,
+                &cancel_search_time,
+                stop_rx,
+                search_control == SearchControl::Infinite,
+            );
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
                 // print less when using TT values
                 if self.stats.leaf_nodes != 0 || depth == 1 {
-                    UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
+                    UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed, &search_result.pv);
                 }
 
                 if search_control != SearchControl::Infinite
                     && (result.end_search
-                    || search_result.eval.abs() >= MATE_THRESHOLD
-                    || depth >= max_depth
-                    || match search_control {
-                        SearchControl::Time => {
-                            (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
-                        }
-                        SearchControl::Depth | SearchControl::Infinite => false,
-                    })
+                        || search_result.eval.abs() >= MATE_THRESHOLD
+                        || depth >= max_depth
+                        || match search_control {
+                            SearchControl::Time => {
+                                (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
+                            }
+                            SearchControl::Depth | SearchControl::Infinite => false,
+                        })
                 {
                     return search_result;
                 }
@@ -202,23 +207,33 @@ impl<'a> Searcher<'a> {
                 // }
 
                 latest_result = Some(search_result);
-            } else {
+            } else if !result.stop_received {
                 debug!("Cancelled search of depth {depth} due to exceeding time budget");
                 return latest_result
                     .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
+            } else {
+                return latest_result.expect("stop received before completing any searches");
             }
 
             depth += 1;
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8, cancel_search_at: &Option<Instant>) -> AlphaBetaResult {
+    pub fn alpha_beta_init(
+        &mut self,
+        draft: u8,
+        cancel_search_at: &Option<Instant>,
+        stop_rx: &Receiver<()>,
+        infinite_search: bool,
+    ) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
         let mut best_move = None;
         self.rollback = MoveRollback::default();
         self.stats = SearchStats::default();
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
+        let mut pv = Vec::new();
+        let mut line = Vec::new();
 
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main);
@@ -255,10 +270,12 @@ impl<'a> Searcher<'a> {
                     continue;
                 }
 
-                if cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+                let stop_received = matches!(stop_rx.try_recv(), Ok(()));
+                if stop_received || cancel_search_at.is_some_and(|t| Instant::now() >= t) {
                     return AlphaBetaResult {
                         search_result: None,
                         end_search: true,
+                        stop_received: true,
                     };
                 }
 
@@ -275,8 +292,9 @@ impl<'a> Searcher<'a> {
                     legal_moves += 1;
                 }
 
-                let result =
-                    (random::<i16>() % 11) - 5 - self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
+                let result = (random::<i16>() % 11)
+                    - 5
+                    - self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers, &mut line);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
@@ -286,6 +304,9 @@ impl<'a> Searcher<'a> {
                     if result > alpha {
                         alpha = result;
                     }
+
+                    line.push(r#move.m);
+                    pv = line.clone();
                 }
             }
 
@@ -307,13 +328,17 @@ impl<'a> Searcher<'a> {
         }
 
         self.stats.depth = draft;
-        if legal_moves == 1 {
+        if legal_moves == 1 && !infinite_search {
+            let bm = best_move.unwrap();
+
             return AlphaBetaResult {
                 search_result: Some(SearchResult {
-                    best_move: best_move.unwrap(),
+                    best_move: bm,
                     eval: self.board.evaluate(),
+                    pv: [bm].to_vec(),
                 }),
                 end_search: true,
+                stop_received: false,
             };
         }
 
@@ -322,8 +347,10 @@ impl<'a> Searcher<'a> {
             search_result: Some(SearchResult {
                 best_move: best_move.unwrap(),
                 eval: best_value * if self.board.white_to_move { 1 } else { -1 },
+                pv,
             }),
             end_search: false,
+            stop_received: false,
         }
     }
 
@@ -334,11 +361,17 @@ impl<'a> Searcher<'a> {
         mut draft: u8,
         ply: u8,
         killers: &mut [Move; 2],
+        pv: &mut Vec<Move>,
     ) -> i16 {
+        if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+            debug!("Board hash of interest found: {:#?}", self.board)
+        }
+
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
+            pv.clear();
             return 0;
         }
 
@@ -349,12 +382,14 @@ impl<'a> Searcher<'a> {
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
+            pv.clear();
             return self.quiescense_side_to_move_relative(alpha, beta);
         }
 
         let mut best_value = -i16::MAX;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
+        let mut line = Vec::new();
 
         let is_pv = alpha + 1 == beta;
 
@@ -369,14 +404,47 @@ impl<'a> Searcher<'a> {
                         if eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, ply);
 
+                            if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+                                debug!(
+                                    "Board hash of interest using evaluation from tt fail high: {} {:04x}",
+                                    tt_data.important_move.pretty_print(Some(self.board)),
+                                    tt_data.important_move.data
+                                );
+                            }
+
+                            pv.clear();
+                            pv.push(tt_data.important_move);
+
                             return eval;
                         }
                     }
                     transposition_table::MoveType::Best => {
+                        if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+                            debug!(
+                                "Board hash of interest using evaluation from tt best move: {} {:04x}",
+                                tt_data.important_move.pretty_print(Some(self.board)),
+                                tt_data.important_move.data
+                            );
+                        }
+
+                        pv.clear();
+                        pv.push(tt_data.important_move);
+
                         return eval;
                     }
                     transposition_table::MoveType::FailLow => {
                         if eval < alpha {
+                            if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+                                debug!(
+                                    "Board hash of interest using evaluation from tt fail low: {} {:04x}",
+                                    tt_data.important_move.pretty_print(Some(self.board)),
+                                    tt_data.important_move.data
+                                );
+                            }
+
+                            pv.clear();
+                            pv.push(tt_data.important_move);
+
                             return eval;
                         }
                     }
@@ -440,21 +508,36 @@ impl<'a> Searcher<'a> {
 
                 let mut result;
                 if searched_moves == 0 {
-                    result = -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                    result = -self.alpha_beta_recurse(
+                        -beta,
+                        -alpha,
+                        draft - reduction - 1,
+                        ply + 1,
+                        &mut new_killers,
+                        &mut line,
+                    );
 
                     if result > alpha && reduction > 0 {
-                        result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                        result =
+                            -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, &mut line);
                     }
                 } else {
-                    result =
-                        -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                    result = -self.alpha_beta_recurse(
+                        -alpha - 1,
+                        -alpha,
+                        draft - reduction - 1,
+                        ply + 1,
+                        &mut new_killers,
+                        &mut line,
+                    );
 
                     // if result > alpha && reduction > 0 {
                     //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
                     // }
 
                     if result > alpha {
-                        result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                        result =
+                            -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, &mut line);
                     }
                 }
 
@@ -474,6 +557,18 @@ impl<'a> Searcher<'a> {
                         TableType::Main,
                     );
 
+                    if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+                        debug!(
+                            "Board hash of interest had fail high from {}: {} {:04x}",
+                            if round == 0 { "tt" } else { "move gen" },
+                            r#move.m.pretty_print(Some(self.board)),
+                            r#move.m.data
+                        );
+                    }
+
+                    line.push(r#move.m);
+                    *pv = line.clone();
+
                     return result;
                 }
 
@@ -483,6 +578,18 @@ impl<'a> Searcher<'a> {
                     if result > alpha {
                         alpha = result;
                     }
+
+                    if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+                        debug!(
+                            "Board hash of interest got new best move from {}: {} {:04x}",
+                            if round == 0 { "tt" } else { "move gen" },
+                            r#move.m.pretty_print(Some(self.board)),
+                            r#move.m.data
+                        );
+                    }
+
+                    line.push(r#move.m);
+                    *pv = line.clone();
                 }
 
                 if r#move.m.flags() == 0 {
@@ -529,9 +636,17 @@ impl<'a> Searcher<'a> {
             let is_check = self.board.can_capture_opponent_king(false);
             self.board.white_to_move = !self.board.white_to_move;
 
+            if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
+                debug!("Board hash of interest generated no moves");
+            }
+
             if is_check {
+                pv.clear();
+
                 return self.board.evaluate_checkmate_side_to_move_relative(ply);
             } else {
+                pv.clear();
+
                 return 0;
             }
         }

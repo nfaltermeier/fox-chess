@@ -66,12 +66,104 @@ fn main() {
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
     // hash_values_edit_distance();
+    // print_moves_from_pos("3k1b1r/1R5p/3p1p2/3N1P2/2n2p2/3Q3P/2P3P1/6K1 b - - 0 30");
+}
+
+fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(args.log_level)
+        // .level_for("fox_chess::search", log::LevelFilter::Trace)
+        .chain(std::io::stderr())
+        .chain(fern::log_file("output.log")?)
+        .apply()?;
+    Ok(())
+}
+
+fn run_uci() {
+    if ENABLE_UNMAKE_MOVE_TEST {
+        error!("Running UCI with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
+    }
+
+    // 2^23 entries -> 128MiB
+    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
+    let mut uci = UciInterface::new(23, stop_rx);
+    loop {
+        match message_rx.try_recv() {
+            Ok(val) => {
+                uci.process_command(val);
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                error!("stdin channel disconnected");
+                panic!("stdin channel disconnected")
+            }
+        }
+        sleep(Duration::from_millis(50));
+    }
 }
 
 fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
     for depth in 1..=up_to_depth {
         board.start_perft(depth, false);
+    }
+}
+
+fn search_moves_from_pos(fen: &str, depth: u8) {
+    let mut board = Board::from_fen(fen).unwrap();
+    info!("{:#?}", &board);
+
+    let mut moves = board.generate_legal_moves_without_history();
+
+    moves.sort_by_key(|m| Reverse(m.score));
+
+    let mut rollback = MoveRollback::default();
+    let mut transposition_table = TranspositionTable::new(23);
+    let mut history = DEFAULT_HISTORY_TABLE;
+    let mut best: Option<SearchResult> = None;
+    let (_, rx) = mpsc::channel::<()>();
+
+    for r#move in moves {
+        info!("{}:", r#move.m.pretty_print(Some(&board)));
+        board.make_move(&r#move.m, &mut rollback);
+
+        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history);
+
+        let mut result;
+        if depth != 1 {
+            let tc = None;
+            let sc = Some(UciSearchControl::depth(depth - 1));
+
+            result = searcher.iterative_deepening_search(&tc, &sc, &rx);
+            result.best_move = r#move.m;
+        } else {
+            result = SearchResult {
+                best_move: r#move.m,
+                eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX) * if board.white_to_move { 1 } else { -1 },
+                pv: Vec::new(),
+            };
+        }
+
+        board.unmake_move(&r#move.m, &mut rollback);
+
+        if best.as_ref().is_none_or(|v| v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }) {
+            best = Some(result);
+        }
+    }
+
+    if let Some(r) = best {
+        debug!("best move: {} eval: {}", r.best_move.pretty_print(Some(&board)), r.eval)
+    } else {
+        debug!("No valid moves");
     }
 }
 
@@ -89,53 +181,6 @@ fn print_moves_from_pos(fen: &str) {
             r#move.m.pretty_print(Some(&board)),
             r#move.score
         );
-    }
-}
-
-fn search_moves_from_pos(fen: &str, depth: u8) {
-    let mut board = Board::from_fen(fen).unwrap();
-    info!("{:#?}", &board);
-
-    let mut moves = board.generate_legal_moves_without_history();
-
-    moves.sort_by_key(|m| Reverse(m.score));
-
-    let mut rollback = MoveRollback::default();
-    let mut transposition_table = TranspositionTable::new(23);
-    let mut history = DEFAULT_HISTORY_TABLE;
-    let mut best: Option<SearchResult> = None;
-
-    for r#move in moves {
-        info!("{}:", r#move.m.pretty_print(Some(&board)));
-        board.make_move(&r#move.m, &mut rollback);
-
-        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history);
-
-        let mut result;
-        if depth != 1 {
-            let tc = None;
-            let sc = Some(UciSearchControl::depth(depth - 1));
-
-            result = searcher.iterative_deepening_search(&tc, &sc);
-            result.best_move = r#move.m;
-        } else {
-            result = SearchResult {
-                best_move: r#move.m,
-                eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX) * if board.white_to_move { 1 } else { -1 },
-            };
-        }
-
-        board.unmake_move(&r#move.m, &mut rollback);
-
-        if best.as_ref().is_none_or(|v| v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }) {
-            best = Some(result);
-        }
-    }
-
-    if let Some(r) = best {
-        debug!("best move: {} eval: {}", r.best_move.pretty_print(Some(&board)), r.eval)
-    } else {
-        debug!("No valid moves");
     }
 }
 
@@ -161,8 +206,9 @@ fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
 fn make_moves(moves: Vec<Move>, fen: &str) {
     let mut board = Board::from_fen(fen).unwrap();
     let mut rollback = MoveRollback::default();
+    debug!("{:?}", board);
+
     for r#move in moves {
-        debug!("{:?}", board);
         debug!("{}", r#move.pretty_print(Some(&board)));
         board.make_move(&r#move, &mut rollback);
         let legal = !board.can_capture_opponent_king(true);
@@ -183,55 +229,6 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
     }
 }
 
-fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{} {} {}] {}",
-                humantime::format_rfc3339_seconds(SystemTime::now()),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .level(args.log_level)
-        // .level_for("fox_chess::move_generator", log::LevelFilter::Trace)
-        .chain(std::io::stderr())
-        .chain(fern::log_file("output.log")?)
-        .apply()?;
-    Ok(())
-}
-
-fn run_uci() {
-    // 2^23 entries -> 128MiB
-    let mut uci = UciInterface::new(23);
-    let stdin_channel = spawn_stdin_channel();
-    loop {
-        match stdin_channel.try_recv() {
-            Ok(val) => {
-                uci.process_command(val);
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                error!("stdin channel disconnected");
-                panic!("stdin channel disconnected")
-            }
-        }
-        sleep(Duration::from_millis(50));
-    }
-}
-
-// From https://stackoverflow.com/a/55201400
-fn spawn_stdin_channel() -> Receiver<String> {
-    let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer).unwrap();
-    });
-    rx
-}
-
 fn hash_values_edit_distance() {
     let hash_values = &*HASH_VALUES;
     let mut total_distance = 0;
@@ -241,12 +238,13 @@ fn hash_values_edit_distance() {
 
     for x in 8..hash_values.len() {
         // skip unused pawn values
-        if (x >= 56 && x <= 63) || (x >= 6 * 64 && x <= 6 * 64 + 7) || (x >= 6 * 64 + 56 && x <= 6 * 64 + 63) {
+        if (56..=63).contains(&x) || (6 * 64..=6 * 64 + 7).contains(&x) || (6 * 64 + 56..=6 * 64 + 63).contains(&x) {
             continue;
         }
 
         for y in (x + 1)..hash_values.len() {
-            if (y >= 56 && y <= 63) || (y >= 6 * 64 && y <= 6 * 64 + 7) || (y >= 6 * 64 + 56 && y <= 6 * 64 + 63) {
+            if (56..=63).contains(&y) || (6 * 64..=6 * 64 + 7).contains(&y) || (6 * 64 + 56..=6 * 64 + 63).contains(&y)
+            {
                 continue;
             }
 
@@ -254,7 +252,7 @@ fn hash_values_edit_distance() {
             total_distance += edit_distance;
             total_count += 1;
 
-            if (x <= 63 || (x >= 6 * 64 && x <= 6 * 64 + 63)) && (y <= 63 || (y >= 6 * 64 && y <= 6 * 64 + 63)) {
+            if (x <= 63 || (6 * 64..=6 * 64 + 63).contains(&x)) && (y <= 63 || (6 * 64..=6 * 64 + 63).contains(&y)) {
                 pawn_distance += edit_distance;
                 pawn_count += 1;
             }
