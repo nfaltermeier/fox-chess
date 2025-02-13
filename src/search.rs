@@ -275,8 +275,13 @@ impl<'a> Searcher<'a> {
                     legal_moves += 1;
                 }
 
-                let result =
-                    (random::<i16>() % 11) - 5 - self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
+                // let bonus = (random::<u16>() % 11) as i16 - 5;
+                let bonus = 0;
+                assert!(bonus > -6);
+                assert!(bonus < 6);
+                let score = -self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
+                let result = bonus + score;
+                debug!("{}: score {score} bonus {bonus} result {result}", r#move.m.pretty_print(Some(self.board)));
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
