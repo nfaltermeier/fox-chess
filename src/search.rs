@@ -371,11 +371,16 @@ impl<'a> Searcher<'a> {
             debug!("Board hash of interest found: {:#?}", self.board)
         }
 
+        let is_pv = alpha + 1 == beta;
+
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
-            pv.clear();
+            if is_pv {
+                pv.clear();
+            }
+
             return 0;
         }
 
@@ -386,7 +391,11 @@ impl<'a> Searcher<'a> {
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
-            pv.clear();
+            
+            if is_pv {
+                pv.clear();
+            }
+
             return self.quiescense_side_to_move_relative(alpha, beta);
         }
 
@@ -394,8 +403,6 @@ impl<'a> Searcher<'a> {
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
         let mut line = Vec::new();
-
-        let is_pv = alpha + 1 == beta;
 
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main);
@@ -416,9 +423,6 @@ impl<'a> Searcher<'a> {
                                 );
                             }
 
-                            pv.clear();
-                            pv.push(tt_data.important_move);
-
                             return eval;
                         }
                     }
@@ -431,9 +435,6 @@ impl<'a> Searcher<'a> {
                             );
                         }
 
-                        pv.clear();
-                        pv.push(tt_data.important_move);
-
                         return eval;
                     }
                     transposition_table::MoveType::FailLow => {
@@ -445,9 +446,6 @@ impl<'a> Searcher<'a> {
                                     tt_data.important_move.data
                                 );
                             }
-
-                            pv.clear();
-                            pv.push(tt_data.important_move);
 
                             return eval;
                         }
@@ -522,6 +520,7 @@ impl<'a> Searcher<'a> {
                     );
 
                     if result > alpha && reduction > 0 {
+                        line.clear();
                         result =
                             -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, &mut line);
                     }
@@ -570,8 +569,10 @@ impl<'a> Searcher<'a> {
                         );
                     }
 
-                    line.push(r#move.m);
-                    *pv = line.clone();
+                    if is_pv {
+                        line.push(r#move.m);
+                        *pv = line.clone();
+                    }
 
                     return result;
                 }
@@ -592,8 +593,10 @@ impl<'a> Searcher<'a> {
                         );
                     }
 
-                    line.push(r#move.m);
-                    *pv = line.clone();
+                    if is_pv {
+                        line.push(r#move.m);
+                        *pv = line.clone();
+                    }
                 }
 
                 if r#move.m.flags() == 0 {
@@ -645,11 +648,15 @@ impl<'a> Searcher<'a> {
             }
 
             if is_check {
-                pv.clear();
+                if is_pv {
+                    pv.clear();
+                }
 
                 return self.board.evaluate_checkmate_side_to_move_relative(ply);
             } else {
-                pv.clear();
+                if is_pv {
+                    pv.clear();
+                }
 
                 return 0;
             }
