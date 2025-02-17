@@ -1,6 +1,6 @@
 use log::error;
 
-use crate::moves::Move;
+use crate::{evaluate::MATE_THRESHOLD, moves::Move};
 
 pub enum TableType {
     Main,
@@ -19,9 +19,43 @@ pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
     pub move_type: MoveType,
-    pub eval: i16,
+    eval: i16,
     pub draft: u8,
     pub empty: bool,
+}
+
+impl TTEntry {
+    #[inline]
+    pub fn new(hash: u64, important_move: Move, move_type: MoveType, eval: i16, draft: u8, ply: u8) -> Self {
+        let mut tt_eval = eval;
+        if tt_eval >= MATE_THRESHOLD {
+            tt_eval += 10 * ply as i16;
+        } else if tt_eval <= -MATE_THRESHOLD {
+            tt_eval -= 10 * ply as i16;
+        }
+
+        Self {
+            hash,
+            important_move,
+            move_type,
+            eval: tt_eval,
+            draft,
+            empty: false,
+        }
+    }
+
+    #[inline]
+    pub fn get_eval(&self, ply: u8) -> i16 {
+        let mut eval = self.eval;
+
+        if eval >= MATE_THRESHOLD {
+            eval -= 10 * ply as i16;
+        } else if eval <= -MATE_THRESHOLD {
+            eval += 10 * ply as i16;
+        }
+
+        eval
+    }
 }
 
 impl Default for TTEntry {

@@ -22,7 +22,7 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
 - [ ] [Some kind of better Move Ordering](https://www.chessprogramming.org/Move_Ordering)
   - [x] [Killer heuristic](https://www.chessprogramming.org/Killer_Heuristic)
   - [x] [History heuristic](https://www.chessprogramming.org/History_Heuristic)
-  - [ ] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)
+  - [x] [Late move reduction](https://www.chessprogramming.org/Late_Move_Reductions)
 - [ ] Refine piece square evaluations
   - [ ] Automated tuning?
 - [ ] Evaluation
@@ -33,13 +33,13 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
     - [ ] Doubled pawns
     - [ ] [Pawn chains](https://www.chessprogramming.org/Connected_Pawns)
     - [ ] [Passed pawns (wiki lists lots of subtypes to maybe consider)](https://www.chessprogramming.org/Passed_Pawn)
-- [ ] [Use bitboards to improve move generation](https://www.chessprogramming.org/Bitboards)
+- [x] [Use bitboards to improve move generation](https://www.chessprogramming.org/Bitboards)
 - [ ] Opening book
 - [ ] Endgame tablebase
 - [ ] [Contempt factor](https://www.chessprogramming.org/Contempt_Factor)
   - [ ] Judge the opponent's moves based on our PV and how they change the eval like described in [this thread](https://www.talkchess.com/forum/viewtopic.php?p=531133#p531133)
-- [ ] Redo mate scoring so at mate it returns the full 20000cp and then lower it as it walks up the tree. That way each node in tt will have the proper score.
-- [ ] Redo something about evaluation so it reports 0 as the eval for forced draws
+- [x] Redo mate scoring so at mate it returns the full 20000cp and then lower it as it walks up the tree. That way each node in tt will have the proper score.
+- [x] Redo something about evaluation so it reports 0 as the eval for forced draws
 - [x] Stop search if it is taking way too long - needs threading?
 - [ ] Always track position of kings to quickly check for move legality
 - [ ] [Ronald de Man's ideas on Scoring Root Moves](https://www.chessprogramming.org/Ronald_de_Man#ScoringRootMoves)
@@ -48,5 +48,5 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
 - [ ] Adjust move history immediately after searching it instead of storing a list to wait for a fail high
 - [ ] Reserve space for moves during move generation
 - [x] Try unstable sorting moves
-- [ ] Check for threefold repetition before using best move from tt at root
-- [ ] Skip rechecking the hash move in quiescense search
+- [x] Maybe done? Check for threefold repetition before using best move from tt at root
+- [x] Skip rechecking the hash move in quiescense search
