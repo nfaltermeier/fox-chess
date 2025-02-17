@@ -332,6 +332,7 @@ impl<'a> Searcher<'a> {
                     &mut line,
                     eval_tree_file,
                     &mut move_tree,
+                    0,
                 );
                 let result = bonus + score;
                 debug!(
@@ -412,6 +413,7 @@ impl<'a> Searcher<'a> {
         pv: &mut Vec<Move>,
         eval_tree_file: &mut Option<File>,
         move_tree: &mut Vec<String>,
+        reductions: u8,
     ) -> i16 {
         if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
             debug!("Board hash of interest found: {:#?}", self.board)
@@ -447,10 +449,12 @@ impl<'a> Searcher<'a> {
             if let Some(e) = eval_tree_file {
                 writeln!(
                     e,
-                    "r/{}/eval {} hash {:#018x}",
+                    "r/{}/eval {} hash {:#018x} {} reductions {}",
                     move_tree.join("/"),
                     score,
-                    self.board.hash
+                    self.board.hash,
+                    if is_pv { "pv" } else { "not_pv" },
+                    reductions,
                 )
                 .unwrap();
             }
@@ -485,10 +489,12 @@ impl<'a> Searcher<'a> {
                             if let Some(e) = eval_tree_file {
                                 writeln!(
                                     e,
-                                    "r/{}/eval_high_tt {} hash {:#018x}",
+                                    "r/{}/eval_high_tt {} hash {:#018x} {} reductions {}",
                                     move_tree.join("/"),
                                     eval,
-                                    self.board.hash
+                                    self.board.hash,
+                                    if is_pv { "pv" } else { "not_pv" },
+                                    reductions,
                                 )
                                 .unwrap();
                             }
@@ -508,10 +514,12 @@ impl<'a> Searcher<'a> {
                         if let Some(e) = eval_tree_file {
                             writeln!(
                                 e,
-                                "r/{}/eval_tt {} hash {:#018x}",
+                                "r/{}/eval_tt {} hash {:#018x} {} reductions {}",
                                 move_tree.join("/"),
                                 eval,
-                                self.board.hash
+                                self.board.hash,
+                                if is_pv { "pv" } else { "not_pv" },
+                                reductions,
                             )
                             .unwrap();
                         }
@@ -531,10 +539,12 @@ impl<'a> Searcher<'a> {
                             if let Some(e) = eval_tree_file {
                                 writeln!(
                                     e,
-                                    "r/{}/eval_low_tt {} hash {:#018x}",
+                                    "r/{}/eval_low_tt {} hash {:#018x} {} reductions {}",
                                     move_tree.join("/"),
                                     eval,
-                                    self.board.hash
+                                    self.board.hash,
+                                    if is_pv { "pv" } else { "not_pv" },
+                                    reductions,
                                 )
                                 .unwrap();
                             }
@@ -613,6 +623,7 @@ impl<'a> Searcher<'a> {
                         &mut line,
                         eval_tree_file,
                         move_tree,
+                        if reduction > 0 { reductions + 1 } else { reductions },
                     );
 
                     if result > alpha && reduction > 0 {
@@ -626,6 +637,7 @@ impl<'a> Searcher<'a> {
                             &mut line,
                             eval_tree_file,
                             move_tree,
+                            reductions,
                         );
                     }
                 } else {
@@ -638,6 +650,7 @@ impl<'a> Searcher<'a> {
                         &mut line,
                         eval_tree_file,
                         move_tree,
+                        if reduction > 0 { reductions + 1 } else { reductions },
                     );
 
                     // if result > alpha && reduction > 0 {
@@ -654,6 +667,7 @@ impl<'a> Searcher<'a> {
                             &mut line,
                             eval_tree_file,
                             move_tree,
+                            reductions,
                         );
                     }
                 }
@@ -687,10 +701,12 @@ impl<'a> Searcher<'a> {
                     if let Some(e) = eval_tree_file {
                         writeln!(
                             e,
-                            "r/{}/eval_high {} hash {:#018x}",
+                            "r/{}/eval_high {} hash {:#018x} {} reductions {}",
                             move_tree.join("/"),
                             result,
-                            self.board.hash
+                            self.board.hash,
+                            if is_pv { "pv" } else { "not_pv" },
+                            reductions,
                         )
                         .unwrap();
                     }
@@ -779,10 +795,12 @@ impl<'a> Searcher<'a> {
                 if let Some(e) = eval_tree_file {
                     writeln!(
                         e,
-                        "r/{}/eval_mate {} hash {:#018x}",
+                        "r/{}/eval_mate {} hash {:#018x} {} reductions {}",
                         move_tree.join("/"),
                         result,
-                        self.board.hash
+                        self.board.hash,
+                        if is_pv { "pv" } else { "not_pv" },
+                        reductions,
                     )
                     .unwrap();
                 }
@@ -796,9 +814,11 @@ impl<'a> Searcher<'a> {
                 if let Some(e) = eval_tree_file {
                     writeln!(
                         e,
-                        "r/{}/eval_stalemate 0 hash {:#018x}",
+                        "r/{}/eval_stalemate 0 hash {:#018x} {} reductions {}",
                         move_tree.join("/"),
-                        self.board.hash
+                        self.board.hash,
+                        if is_pv { "pv" } else { "not_pv" },
+                        reductions,
                     )
                     .unwrap();
                 }
@@ -820,11 +840,13 @@ impl<'a> Searcher<'a> {
         if let Some(e) = eval_tree_file {
             writeln!(
                 e,
-                "r/{}/eval_inherit{} {} hash {:#018x}",
+                "r/{}/eval_inherit{} {} hash {:#018x} {} reductions {}",
                 move_tree.join("/"),
                 if move_type == MoveType::FailLow { "_low" } else { "" },
                 best_value,
-                self.board.hash
+                self.board.hash,
+                if is_pv { "pv" } else { "not_pv" },
+                reductions,
             )
             .unwrap();
         }
