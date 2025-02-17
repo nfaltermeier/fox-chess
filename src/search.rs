@@ -1,4 +1,6 @@
-use std::{cmp::Reverse, i16, sync::mpsc::Receiver, time::Instant};
+use std::fs;
+use std::io::Write;
+use std::{cmp::Reverse, fs::File, i16, path::PathBuf, sync::mpsc::Receiver, time::Instant};
 
 use log::{debug, error};
 use rand::random;
@@ -83,6 +85,8 @@ impl<'a> Searcher<'a> {
         let search_control: SearchControl;
         let mut max_depth = 40;
 
+        debug!("starting search of {}", self.board.to_fen());
+
         if let Some(t) = time {
             match t {
                 UciTimeControl::TimeLeft {
@@ -144,6 +148,10 @@ impl<'a> Searcher<'a> {
             if s.depth.is_some() {
                 search_control = SearchControl::Depth;
                 max_depth = s.depth.unwrap();
+
+                if fs::exists("eval_trees").unwrap() == false {
+                    fs::create_dir("eval_trees").unwrap();
+                }
             } else {
                 error!("Unsupported search option passed to go, use depth.");
                 unimplemented!("Unsupported search option passed to go, use depth.");
@@ -173,11 +181,26 @@ impl<'a> Searcher<'a> {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
+            let mut eval_tree_file = if search_control == SearchControl::Depth {
+                Some(
+                    File::create(PathBuf::from(format!(
+                        "eval_trees/{:03}_[{}]_depth_{:02}.txt",
+                        (self.board.fullmove_counter - 1) * 2 + if self.board.white_to_move { 0 } else { 1 },
+                        self.board.to_fen().replace("/", "."),
+                        depth
+                    )))
+                    .unwrap(),
+                )
+            } else {
+                None
+            };
+
             let result = self.alpha_beta_init(
                 depth,
                 &cancel_search_time,
                 stop_rx,
                 search_control == SearchControl::Infinite,
+                &mut eval_tree_file,
             );
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
@@ -225,6 +248,7 @@ impl<'a> Searcher<'a> {
         cancel_search_at: &Option<Instant>,
         stop_rx: &Receiver<()>,
         infinite_search: bool,
+        eval_tree_file: &mut Option<File>,
     ) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
@@ -234,6 +258,7 @@ impl<'a> Searcher<'a> {
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
         let mut pv = Vec::new();
         let mut line = Vec::new();
+        let mut move_tree = Vec::new();
 
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main);
@@ -292,15 +317,30 @@ impl<'a> Searcher<'a> {
                     legal_moves += 1;
                 }
 
+                move_tree.push(r#move.m.simple_long_algebraic_notation());
+
                 // let bonus = (random::<u16>() % 11) as i16 - 5;
                 let bonus = 0;
                 assert!(bonus > -6);
                 assert!(bonus < 6);
-                let score = -self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers, &mut line);
+                let score = -self.alpha_beta_recurse(
+                    -i16::MAX,
+                    -alpha,
+                    draft - 1,
+                    1,
+                    &mut killers,
+                    &mut line,
+                    eval_tree_file,
+                    &mut move_tree,
+                );
                 let result = bonus + score;
-                debug!("{}: score {score} bonus {bonus} result {result}", r#move.m.pretty_print(Some(self.board)));
+                debug!(
+                    "{}: score {score} bonus {bonus} result {result}",
+                    r#move.m.pretty_print(Some(self.board))
+                );
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
+                move_tree.pop();
 
                 if result > best_value {
                     best_value = result;
@@ -329,6 +369,10 @@ impl<'a> Searcher<'a> {
                 self.board
             );
             panic!("Tried to search on a position but found no moves");
+        }
+
+        if let Some(e) = eval_tree_file {
+            writeln!(e, "eval_inherit {} hash {:#018x}", best_value, self.board.hash).unwrap();
         }
 
         self.stats.depth = draft;
@@ -366,6 +410,8 @@ impl<'a> Searcher<'a> {
         ply: u8,
         killers: &mut [Move; 2],
         pv: &mut Vec<Move>,
+        eval_tree_file: &mut Option<File>,
+        move_tree: &mut Vec<String>,
     ) -> i16 {
         if DEBUG_BOARD_HASH_OF_INTEREST.is_some_and(|h| h == self.board.hash) {
             debug!("Board hash of interest found: {:#?}", self.board)
@@ -391,12 +437,25 @@ impl<'a> Searcher<'a> {
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
-            
+
             if is_pv {
                 pv.clear();
             }
 
-            return self.quiescense_side_to_move_relative(alpha, beta);
+            let score = self.quiescense_side_to_move_relative(alpha, beta);
+
+            if let Some(e) = eval_tree_file {
+                writeln!(
+                    e,
+                    "r/{}/eval {} hash {:#018x}",
+                    move_tree.join("/"),
+                    score,
+                    self.board.hash
+                )
+                .unwrap();
+            }
+
+            return score;
         }
 
         let mut best_value = -i16::MAX;
@@ -423,6 +482,17 @@ impl<'a> Searcher<'a> {
                                 );
                             }
 
+                            if let Some(e) = eval_tree_file {
+                                writeln!(
+                                    e,
+                                    "r/{}/eval_high_tt {} hash {:#018x}",
+                                    move_tree.join("/"),
+                                    eval,
+                                    self.board.hash
+                                )
+                                .unwrap();
+                            }
+
                             return eval;
                         }
                     }
@@ -435,6 +505,17 @@ impl<'a> Searcher<'a> {
                             );
                         }
 
+                        if let Some(e) = eval_tree_file {
+                            writeln!(
+                                e,
+                                "r/{}/eval_tt {} hash {:#018x}",
+                                move_tree.join("/"),
+                                eval,
+                                self.board.hash
+                            )
+                            .unwrap();
+                        }
+
                         return eval;
                     }
                     transposition_table::MoveType::FailLow => {
@@ -445,6 +526,17 @@ impl<'a> Searcher<'a> {
                                     tt_data.important_move.pretty_print(Some(self.board)),
                                     tt_data.important_move.data
                                 );
+                            }
+
+                            if let Some(e) = eval_tree_file {
+                                writeln!(
+                                    e,
+                                    "r/{}/eval_low_tt {} hash {:#018x}",
+                                    move_tree.join("/"),
+                                    eval,
+                                    self.board.hash
+                                )
+                                .unwrap();
                             }
 
                             return eval;
@@ -485,6 +577,8 @@ impl<'a> Searcher<'a> {
                     found_legal_move = true;
                 }
 
+                move_tree.push(r#move.m.simple_long_algebraic_notation());
+
                 let mut reduction = 0;
                 // Late move reduction
                 if draft > 2 && searched_moves > 3 {
@@ -517,12 +611,22 @@ impl<'a> Searcher<'a> {
                         ply + 1,
                         &mut new_killers,
                         &mut line,
+                        eval_tree_file,
+                        move_tree,
                     );
 
                     if result > alpha && reduction > 0 {
                         line.clear();
-                        result =
-                            -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, &mut line);
+                        result = -self.alpha_beta_recurse(
+                            -beta,
+                            -alpha,
+                            draft - 1,
+                            ply + 1,
+                            &mut new_killers,
+                            &mut line,
+                            eval_tree_file,
+                            move_tree,
+                        );
                     }
                 } else {
                     result = -self.alpha_beta_recurse(
@@ -532,6 +636,8 @@ impl<'a> Searcher<'a> {
                         ply + 1,
                         &mut new_killers,
                         &mut line,
+                        eval_tree_file,
+                        move_tree,
                     );
 
                     // if result > alpha && reduction > 0 {
@@ -539,13 +645,22 @@ impl<'a> Searcher<'a> {
                     // }
 
                     if result > alpha {
-                        result =
-                            -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, &mut line);
+                        result = -self.alpha_beta_recurse(
+                            -beta,
+                            -alpha,
+                            draft - 1,
+                            ply + 1,
+                            &mut new_killers,
+                            &mut line,
+                            eval_tree_file,
+                            move_tree,
+                        );
                     }
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
                 searched_moves += 1;
+                move_tree.pop();
 
                 if result >= beta {
                     self.update_killers_and_history(killers, &r#move.m, ply);
@@ -567,6 +682,17 @@ impl<'a> Searcher<'a> {
                             r#move.m.pretty_print(Some(self.board)),
                             r#move.m.data
                         );
+                    }
+
+                    if let Some(e) = eval_tree_file {
+                        writeln!(
+                            e,
+                            "r/{}/eval_high {} hash {:#018x}",
+                            move_tree.join("/"),
+                            result,
+                            self.board.hash
+                        )
+                        .unwrap();
                     }
 
                     if is_pv {
@@ -648,12 +774,35 @@ impl<'a> Searcher<'a> {
             }
 
             if is_check {
+                let result = self.board.evaluate_checkmate_side_to_move_relative(ply);
+
+                if let Some(e) = eval_tree_file {
+                    writeln!(
+                        e,
+                        "r/{}/eval_mate {} hash {:#018x}",
+                        move_tree.join("/"),
+                        result,
+                        self.board.hash
+                    )
+                    .unwrap();
+                }
+
                 if is_pv {
                     pv.clear();
                 }
 
-                return self.board.evaluate_checkmate_side_to_move_relative(ply);
+                return result;
             } else {
+                if let Some(e) = eval_tree_file {
+                    writeln!(
+                        e,
+                        "r/{}/eval_stalemate 0 hash {:#018x}",
+                        move_tree.join("/"),
+                        self.board.hash
+                    )
+                    .unwrap();
+                }
+
                 if is_pv {
                     pv.clear();
                 }
@@ -662,13 +811,26 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        let entry_type = if alpha == best_value {
+        let move_type = if alpha == best_value {
             MoveType::Best
         } else {
             MoveType::FailLow
         };
+
+        if let Some(e) = eval_tree_file {
+            writeln!(
+                e,
+                "r/{}/eval_inherit{} {} hash {:#018x}",
+                move_tree.join("/"),
+                if move_type == MoveType::FailLow { "_low" } else { "" },
+                best_value,
+                self.board.hash
+            )
+            .unwrap();
+        }
+
         self.transposition_table.store_entry(
-            TTEntry::new(self.board.hash, best_move.unwrap(), entry_type, best_value, draft, ply),
+            TTEntry::new(self.board.hash, best_move.unwrap(), move_type, best_value, draft, ply),
             TableType::Main,
         );
 

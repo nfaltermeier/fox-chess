@@ -195,7 +195,7 @@ impl UciInterface {
                     }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in '{}'", cmds.0)
+                    error!("Unhandled UCI cmd in '{}'", cmds.0);
                 }
             }
         }
