@@ -298,7 +298,10 @@ impl<'a> Searcher<'a> {
                 assert!(bonus < 6);
                 let score = -self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers, &mut line);
                 let result = bonus + score;
-                debug!("{}: score {score} bonus {bonus} result {result}", r#move.m.pretty_print(Some(self.board)));
+                // debug!(
+                //     "{}: score {score} bonus {bonus} result {result}",
+                //     r#move.m.pretty_print(Some(self.board))
+                // );
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
@@ -371,7 +374,7 @@ impl<'a> Searcher<'a> {
             debug!("Board hash of interest found: {:#?}", self.board)
         }
 
-        let is_pv = alpha + 1 == beta;
+        let is_pv = alpha + 1 != beta;
 
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
