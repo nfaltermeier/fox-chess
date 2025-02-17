@@ -15,7 +15,7 @@ use crate::{
     board::Board,
     evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY, MATE_THRESHOLD, MATE_VALUE},
     moves::{find_and_run_moves, Move, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
-    search::{HistoryTable, SearchStats},
+    search::{HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
     STARTING_FEN,
 };
@@ -129,13 +129,10 @@ impl UciInterface {
                         // Drain the queue before searching
                         for _ in self.stop_rx.try_iter() {}
 
-                        let search_result = b.iterative_deepening_search(
-                            &time_control,
-                            &search_control,
-                            &mut self.transposition_table,
-                            &mut self.history_table,
-                            &self.stop_rx,
-                        );
+                        let mut searcher = Searcher::new(b, &mut self.transposition_table, &mut self.history_table);
+
+                        let search_result =
+                            searcher.iterative_deepening_search(&time_control, &search_control, &self.stop_rx);
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
 

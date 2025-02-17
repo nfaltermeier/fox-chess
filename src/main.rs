@@ -12,7 +12,7 @@ use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 use moves::{square_indices_to_moves, Move, MoveRollback};
-use search::DEFAULT_HISTORY_TABLE;
+use search::{Searcher, DEFAULT_HISTORY_TABLE};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
@@ -136,7 +136,8 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         let tc = None;
         let sc = Some(UciSearchControl::depth(depth));
 
-        board.iterative_deepening_search(&tc, &sc, &mut transposition_table, &mut history, &rx);
+        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history);
+        searcher.iterative_deepening_search(&tc, &sc, &rx);
 
         board.unmake_move(&r#move.m, &mut rollback);
     }
