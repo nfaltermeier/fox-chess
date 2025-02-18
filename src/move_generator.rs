@@ -4,7 +4,11 @@ use log::{debug, error, info, log_enabled, trace};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES},
+    bitboard::{
+        bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one,
+        north_one, north_west_one, south_east_one, south_one, south_west_one, BIT_SQUARES, RANK_1, RANK_3, RANK_6,
+        RANK_8,
+    },
     board::{
         piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
         CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
@@ -128,193 +132,121 @@ impl Board {
         let side = if self.white_to_move { 0 } else { 1 };
         let other_side = if self.white_to_move { 1 } else { 0 };
 
+        // Pawns
         if self.piece_bitboards[side][PIECE_PAWN as usize] != 0 {
             let pawns = self.piece_bitboards[side][PIECE_PAWN as usize];
-            let make_move = |from: u8, to: u8, capture: bool, promo: bool, result: &mut Vec<ScoredMove>| {
-                let score = if !capture {
-                    MOVE_SCORE_QUIET
-                        + if USE_HISTORY {
-                            history_table[side][PIECE_PAWN as usize - 1][to as usize]
-                        } else {
-                            0
+
+            for round in 0..2 {
+                let mut moves;
+                let offset;
+                if self.white_to_move {
+                    match round {
+                        0 => {
+                            moves = north_east_one(pawns);
+                            offset = -9;
                         }
+                        1 => {
+                            moves = north_west_one(pawns);
+                            offset = -7;
+                        }
+                        _ => panic!(),
+                    }
                 } else {
-                    let target_piece = self.get_piece_64(to as usize);
-                    MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES[PIECE_PAWN as usize]
-                };
-
-                if !promo {
-                    result.push(ScoredMove {
-                        m: Move::new(from, to, if capture { MOVE_FLAG_CAPTURE } else { 0 }),
-                        score,
-                    });
-                } else {
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_QUEEN | if capture { MOVE_FLAG_CAPTURE } else { 0 },
-                        score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
-                    ));
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_ROOK | if capture { MOVE_FLAG_CAPTURE } else { 0 },
-                        score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
-                    ));
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_BISHOP | if capture { MOVE_FLAG_CAPTURE } else { 0 },
-                        score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
-                    ));
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_KNIGHT | if capture { MOVE_FLAG_CAPTURE } else { 0 },
-                        score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
-                    ));
+                    match round {
+                        0 => {
+                            moves = south_east_one(pawns);
+                            offset = 7;
+                        }
+                        1 => {
+                            moves = south_west_one(pawns);
+                            offset = 9;
+                        }
+                        _ => panic!(),
+                    }
                 }
-            };
-        }
 
-        // Pawn move generation TODO: setwise pawn attacks
-        let mut pieces = self.piece_bitboards[side][PIECE_PAWN as usize];
-        while pieces != 0 {
-            let from = bitscan_forward_and_reset(&mut pieces) as u8;
-            let promo =
-                (self.white_to_move && from >= 48 && from <= 55) || (!self.white_to_move && from >= 8 && from <= 15);
+                moves &= self.side_occupancy[other_side];
+                self.add_pawn_moves::<false, true, false, false>(
+                    moves,
+                    offset,
+                    &mut result,
+                    side,
+                    other_side,
+                    history_table,
+                );
+                self.add_pawn_moves::<false, true, true, false>(
+                    moves,
+                    offset,
+                    &mut result,
+                    side,
+                    other_side,
+                    history_table,
+                );
+            }
 
-            let mut attacks = lookup_pawn_attack(from, self.white_to_move) & self.side_occupancy[other_side];
-            while attacks != 0 {
-                let to = bitscan_forward_and_reset(&mut attacks) as u8;
-                let target_piece = self.get_piece_64(to as usize);
+            // En passant
+            if let Some(ep_target_64) = self.en_passant_target_square_index {
+                let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
+                let mut takers = potential_takers & self.piece_bitboards[side][PIECE_PAWN as usize];
+                while takers != 0 {
+                    let from = bitscan_forward_and_reset(&mut takers) as u8;
 
-                if !promo {
                     result.push(ScoredMove {
-                        m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES[PIECE_PAWN as usize],
+                        m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
+                        score: MOVE_SCORE_CAPTURE,
                     });
-                } else {
-                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES[PIECE_PAWN as usize];
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
-                    ));
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
-                    ));
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
-                    ));
-                    result.push(ScoredMove::new(
-                        from,
-                        to,
-                        MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
-                    ));
                 }
             }
 
             if !ONLY_CAPTURES {
-                let from_bitsquare = BIT_SQUARES[from as usize];
-                let to_bitsquare = if self.white_to_move {
-                    from_bitsquare << 8
+                let mut moves;
+                let mut offset;
+                if self.white_to_move {
+                    moves = north_one(pawns);
+                    offset = -8;
                 } else {
-                    from_bitsquare >> 8
-                };
-
-                if to_bitsquare & self.occupancy == 0 {
-                    let to = if self.white_to_move { from + 8 } else { from - 8 };
-                    if promo {
-                        result.push(ScoredMove::new(
-                            from,
-                            to,
-                            MOVE_PROMO_QUEEN,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
-                        ));
-                        result.push(ScoredMove::new(
-                            from,
-                            to,
-                            MOVE_PROMO_ROOK,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
-                        ));
-                        result.push(ScoredMove::new(
-                            from,
-                            to,
-                            MOVE_PROMO_BISHOP,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
-                        ));
-                        result.push(ScoredMove::new(
-                            from,
-                            to,
-                            MOVE_PROMO_KNIGHT,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
-                        ));
-                    } else {
-                        result.push(ScoredMove::new(
-                            from,
-                            to,
-                            0,
-                            MOVE_SCORE_QUIET
-                                + if USE_HISTORY {
-                                    history_table[side][PIECE_PAWN as usize - 1][to as usize]
-                                } else {
-                                    0
-                                },
-                        ));
-                    }
-
-                    // double move
-                    if (!self.white_to_move && from >= 48 && from <= 55)
-                        || (self.white_to_move && from >= 8 && from <= 15)
-                    {
-                        let doublemove_bitsquare = if self.white_to_move {
-                            to_bitsquare << 8
-                        } else {
-                            to_bitsquare >> 8
-                        };
-                        let doublemove_to = if self.white_to_move { to + 8 } else { to - 8 };
-
-                        if doublemove_bitsquare & self.occupancy == 0 {
-                            result.push(ScoredMove::new(
-                                from,
-                                doublemove_to,
-                                MOVE_DOUBLE_PAWN,
-                                MOVE_SCORE_QUIET
-                                    + if USE_HISTORY {
-                                        history_table[side][PIECE_PAWN as usize - 1][doublemove_to as usize]
-                                    } else {
-                                        0
-                                    },
-                            ));
-                        }
-                    }
+                    moves = south_one(pawns);
+                    offset = 8;
                 }
-            }
-        }
 
-        // En passant
-        if let Some(ep_target_64) = self.en_passant_target_square_index {
-            let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
-            let mut takers = potential_takers & self.piece_bitboards[side][PIECE_PAWN as usize];
-            while takers != 0 {
-                let from = bitscan_forward_and_reset(&mut takers) as u8;
+                moves &= !self.occupancy;
+                self.add_pawn_moves::<USE_HISTORY, false, false, false>(
+                    moves,
+                    offset,
+                    &mut result,
+                    side,
+                    other_side,
+                    history_table,
+                );
+                self.add_pawn_moves::<USE_HISTORY, false, true, false>(
+                    moves,
+                    offset,
+                    &mut result,
+                    side,
+                    other_side,
+                    history_table,
+                );
 
-                result.push(ScoredMove {
-                    m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
-                    score: MOVE_SCORE_CAPTURE,
-                });
+                if self.white_to_move {
+                    // The pawns have already been shifted forward once so mask to only ranks 3 and 6 instead of 2 and 7
+                    moves &= RANK_3;
+                    moves = north_one(moves);
+                    offset = -16;
+                } else {
+                    moves &= RANK_6;
+                    moves = south_one(moves);
+                    offset = 16;
+                }
+
+                moves &= !self.occupancy;
+                self.add_pawn_moves::<USE_HISTORY, false, false, true>(
+                    moves,
+                    offset,
+                    &mut result,
+                    side,
+                    other_side,
+                    history_table,
+                );
             }
         }
 
@@ -430,6 +362,76 @@ impl Board {
                             - CENTIPAWN_VALUES[piece_type as usize],
                     });
                 }
+            }
+        }
+    }
+
+    fn add_pawn_moves<const USE_HISTORY: bool, const CAPTURES: bool, const PROMOS: bool, const DOUBLE_PUSH: bool>(
+        &self,
+        mut to_squares: u64,
+        offset: i8,
+        result: &mut Vec<ScoredMove>,
+        side: usize,
+        other_side: usize,
+        history_table: &HistoryTable,
+    ) {
+        if PROMOS {
+            to_squares &= (RANK_1 | RANK_8);
+        } else {
+            to_squares &= !(RANK_1 | RANK_8);
+        }
+
+        while to_squares != 0 {
+            let to = bitscan_forward_and_reset(&mut to_squares) as u8;
+            let from = to.checked_add_signed(offset).unwrap();
+
+            let score = if !CAPTURES {
+                MOVE_SCORE_QUIET
+                    + if USE_HISTORY {
+                        history_table[side][PIECE_PAWN as usize - 1][to as usize]
+                    } else {
+                        0
+                    }
+            } else {
+                let target_piece = self.get_piece_64(to as usize);
+                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                    - CENTIPAWN_VALUES[PIECE_PAWN as usize]
+            };
+
+            if !PROMOS {
+                result.push(ScoredMove {
+                    m: Move::new(
+                        from,
+                        to,
+                        if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 } | if DOUBLE_PUSH { MOVE_DOUBLE_PAWN } else { 0 },
+                    ),
+                    score,
+                });
+            } else {
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_QUEEN | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                ));
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_ROOK | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                ));
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_BISHOP | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                ));
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_KNIGHT | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                ));
             }
         }
     }
