@@ -4,15 +4,19 @@ use log::{debug, error, info, log_enabled, trace};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES}, board::{
-        piece_to_name, Board, CASTLE_BLACK_KING_FLAG,
-        CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK,
-        HASH_VALUES, PIECE_BISHOP, PIECE_KING,
-        PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-    }, evaluate::CENTIPAWN_VALUES, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
+    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES},
+    board::{
+        piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
+        CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
+        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+    },
+    evaluate::CENTIPAWN_VALUES,
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::{
         Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
         MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
-    }, search::{HistoryTable, DEFAULT_HISTORY_TABLE}
+    },
+    search::{HistoryTable, DEFAULT_HISTORY_TABLE},
 };
 
 const ENABLE_PERFT_STATS: bool = true;
@@ -264,28 +268,75 @@ impl Board {
             }
         }
 
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_KNIGHT, side, other_side, &mut result, history_table, |sq| lookup_knight_attack(sq));
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_BISHOP, side, other_side, &mut result, history_table, |sq| lookup_bishop_attack(sq, self.occupancy));
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_ROOK, side, other_side, &mut result, history_table, |sq| lookup_rook_attack(sq, self.occupancy));
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_QUEEN, side, other_side, &mut result, history_table, |sq| lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy));
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_KING, side, other_side, &mut result, history_table, |sq| lookup_king_attack(sq));
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
+            PIECE_KNIGHT,
+            side,
+            other_side,
+            &mut result,
+            history_table,
+            |sq| lookup_knight_attack(sq),
+        );
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
+            PIECE_BISHOP,
+            side,
+            other_side,
+            &mut result,
+            history_table,
+            |sq| lookup_bishop_attack(sq, self.occupancy),
+        );
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
+            PIECE_ROOK,
+            side,
+            other_side,
+            &mut result,
+            history_table,
+            |sq| lookup_rook_attack(sq, self.occupancy),
+        );
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
+            PIECE_QUEEN,
+            side,
+            other_side,
+            &mut result,
+            history_table,
+            |sq| lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy),
+        );
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
+            PIECE_KING,
+            side,
+            other_side,
+            &mut result,
+            history_table,
+            |sq| lookup_king_attack(sq),
+        );
 
         // Castling
         if !ONLY_CAPTURES && self.castling_rights != 0 {
             if self.white_to_move {
-                if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 && (self.occupancy & 0x1f) == 0x11 {
+                if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
+                    && (self.occupancy & 0x1f) == 0x11
+                    && (self.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
+                {
                     result.push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
                 }
 
-                if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 && (self.occupancy & 0xf0) == 0x90 {
+                if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0
+                    && (self.occupancy & 0xf0) == 0x90
+                    && (self.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
+                {
                     result.push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
                 }
             } else {
-                if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 && (self.occupancy & 0x1f00000000000000) == 0x1100000000000000 {
+                if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
+                    && (self.occupancy & 0x1f00000000000000) == 0x1100000000000000
+                    && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
+                {
                     result.push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
                 }
 
-                if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 && (self.occupancy & 0xf000000000000000) == 0x9000000000000000 {
+                if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0
+                    && (self.occupancy & 0xf000000000000000) == 0x9000000000000000
+                    && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
+                {
                     result.push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
                 }
             }
@@ -402,12 +453,14 @@ impl Board {
             }
         }
 
-        let danger_rooks = self.piece_bitboards[side as usize][PIECE_ROOK as usize] | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
+        let danger_rooks = self.piece_bitboards[side as usize][PIECE_ROOK as usize]
+            | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
         if danger_rooks != 0 && lookup_rook_attack(king_pos, self.occupancy) & danger_rooks != 0 {
             return true;
         }
 
-        let danger_bishops = self.piece_bitboards[side as usize][PIECE_BISHOP as usize] | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
+        let danger_bishops = self.piece_bitboards[side as usize][PIECE_BISHOP as usize]
+            | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
         if danger_bishops != 0 && lookup_bishop_attack(king_pos, self.occupancy) & danger_bishops != 0 {
             return true;
         }
@@ -520,7 +573,11 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
         do_perft(draft - 1, ply + 1, board, rollback, stats, divide);
 
         if divide && ply == 1 {
-            debug!("{}: {}", r#move.m.simple_long_algebraic_notation(), stats.nodes - start_nodes)
+            debug!(
+                "{}: {}",
+                r#move.m.simple_long_algebraic_notation(),
+                stats.nodes - start_nodes
+            )
         }
 
         board.unmake_move(&r#move.m, rollback);
