@@ -34,6 +34,7 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
     - [ ] [Pawn chains](https://www.chessprogramming.org/Connected_Pawns)
     - [ ] [Passed pawns (wiki lists lots of subtypes to maybe consider)](https://www.chessprogramming.org/Passed_Pawn)
 - [x] [Use bitboards to improve move generation](https://www.chessprogramming.org/Bitboards)
+  - [x] Use pext when available instead of magic numbers for rook and bishop attacks
 - [ ] Opening book
 - [ ] Endgame tablebase
 - [ ] [Contempt factor](https://www.chessprogramming.org/Contempt_Factor)

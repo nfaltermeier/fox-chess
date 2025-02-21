@@ -49,9 +49,7 @@ fn lookup_attack(square_index: u8, occupancy: u64, lookup_table: *const [MagicEn
     unsafe {
         let entry = &(*lookup_table)[square_index as usize];
 
-        let mut attack_index = occupancy & entry.mask;
-        attack_index = attack_index.wrapping_mul(entry.magic);
-        attack_index >>= 64 - entry.shift;
+        let attack_index = get_index(occupancy, entry);
 
         ATTACKS[entry.attacks_offset as usize + attack_index as usize]
     }
@@ -62,28 +60,25 @@ pub fn initialize_magic_bitboards() {
     let attacks = &raw mut ATTACKS;
 
     unsafe {
-        (*attacks).reserve_exact(93312);
+        (*attacks).reserve_exact(get_total_entry_count());
 
         for i in 0..64 {
             let entry = &raw mut ROOK_ATTACK_LOOKUP[i];
             let mask = generate_rook_relevant_occupancy(i as u8);
-            let shift = (*entry).shift;
-            let magic = (*entry).magic;
             let attacks_offset = (*attacks).len();
 
             (*entry).mask = mask;
             (*entry).attacks_offset = attacks_offset as u32;
-            (*attacks).reserve(1 << shift);
-            for _ in 0..(1 << shift) {
+            let count = get_entry_count(entry);
+            (*attacks).reserve(count);
+            for _ in 0..(count) {
                 (*attacks).push(0);
             }
 
             for occupancy_value in 0..(1 << mask.count_ones()) {
                 let occupancy = map_value_to_mask(occupancy_value, mask);
 
-                let mut attack_index = occupancy & mask;
-                attack_index = attack_index.wrapping_mul(magic);
-                attack_index >>= 64 - shift;
+                let attack_index = get_index(occupancy, entry);
 
                 let attack = generate_occluded_rook_attack(i as u8, occupancy);
                 let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
@@ -103,23 +98,20 @@ pub fn initialize_magic_bitboards() {
         for i in 0..64 {
             let entry = &raw mut BISHOP_ATTACK_LOOKUP[i];
             let mask = generate_bishop_relevant_occupancy(i as u8);
-            let shift = (*entry).shift;
-            let magic = (*entry).magic;
             let attacks_offset = (*attacks).len();
 
             (*entry).mask = mask;
             (*entry).attacks_offset = attacks_offset as u32;
-            (*attacks).reserve(1 << shift);
-            for _ in 0..(1 << shift) {
+            let count = get_entry_count(entry);
+            (*attacks).reserve(count);
+            for _ in 0..(count) {
                 (*attacks).push(0);
             }
 
             for occupancy_value in 0..(1 << mask.count_ones()) {
                 let occupancy = map_value_to_mask(occupancy_value, mask);
 
-                let mut attack_index = occupancy & mask;
-                attack_index = attack_index.wrapping_mul(magic);
-                attack_index >>= 64 - shift;
+                let attack_index = get_index(occupancy, entry);
 
                 let attack = generate_occluded_bishop_attack(i as u8, occupancy);
                 let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
@@ -128,6 +120,7 @@ pub fn initialize_magic_bitboards() {
             }
         }
     }
+
 }
 
 const fn generate_rook_attack(square_index: u8) -> u64 {
@@ -251,6 +244,72 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     } else {
         ray
     }
+}
+
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "bmi2",
+    feature = "use_pext"
+))]
+#[inline]
+unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
+    use core::arch::x86_64::_pext_u64;
+
+    _pext_u64(occupancy, (*entry).mask)
+}
+
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "bmi2",
+    feature = "use_pext"
+))]
+#[inline]
+unsafe fn get_entry_count(entry: *const MagicEntry) -> usize {
+    1 << (*entry).mask.count_ones()
+}
+
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "bmi2",
+    feature = "use_pext"
+))]
+#[inline]
+fn get_total_entry_count() -> usize {
+    107648
+}
+
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "bmi2",
+    feature = "use_pext"
+)))]
+#[inline]
+unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
+    let mut attack_index = occupancy & (*entry).mask;
+    attack_index = attack_index.wrapping_mul((*entry).magic);
+    attack_index >>= 64 - (*entry).shift;
+
+    attack_index
+}
+
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "bmi2",
+    feature = "use_pext"
+)))]
+#[inline]
+unsafe fn get_entry_count(entry: *const MagicEntry) -> usize {
+    1 << (*entry).shift
+}
+
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "bmi2",
+    feature = "use_pext"
+)))]
+#[inline]
+fn get_total_entry_count() -> usize {
+    93312
 }
 
 // Most values self-generated, some values from https://www.chessprogramming.org/Best_Magics_so_far
