@@ -277,8 +277,8 @@ impl<'a> Searcher<'a> {
 
                 // let bonus = (random::<u16>() % 11) as i16 - 5;
                 let bonus = 0;
-                assert!(bonus > -6);
-                assert!(bonus < 6);
+                debug_assert!(bonus > -6);
+                debug_assert!(bonus < 6);
                 let score = -self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
                 let result = bonus + score;
                 // debug!(
@@ -357,7 +357,7 @@ impl<'a> Searcher<'a> {
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(alpha, beta);
+            return self.quiescense_side_to_move_relative(alpha, beta, 4);
         }
 
         let mut best_value = -i16::MAX;
@@ -557,7 +557,7 @@ impl<'a> Searcher<'a> {
         best_value
     }
 
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16) -> i16 {
+    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
         self.stats.quiescense_nodes += 1;
 
         if self.board.is_insufficient_material() {
@@ -569,20 +569,22 @@ impl<'a> Searcher<'a> {
             .transposition_table
             .get_entry(self.board.hash, TableType::Quiescense);
         if let Some(tt_data) = tt_entry {
-            let tt_eval = tt_data.get_eval(0);
-
-            match tt_data.move_type {
-                transposition_table::MoveType::FailHigh => {
-                    if tt_eval >= beta {
+            if tt_data.draft >= draft {
+                let tt_eval = tt_data.get_eval(0);
+    
+                match tt_data.move_type {
+                    transposition_table::MoveType::FailHigh => {
+                        if tt_eval >= beta {
+                            return tt_eval;
+                        }
+                    }
+                    transposition_table::MoveType::Best => {
                         return tt_eval;
                     }
-                }
-                transposition_table::MoveType::Best => {
-                    return tt_eval;
-                }
-                transposition_table::MoveType::FailLow => {
-                    if tt_eval < alpha {
-                        return tt_eval;
+                    transposition_table::MoveType::FailLow => {
+                        if tt_eval < alpha {
+                            return tt_eval;
+                        }
                     }
                 }
             }
@@ -595,31 +597,49 @@ impl<'a> Searcher<'a> {
             moves = Vec::new();
         }
 
-        let stand_pat = self.board.evaluate_side_to_move_relative();
+        let in_check = self.board.can_capture_opponent_king(false);
 
-        if stand_pat >= beta {
-            return stand_pat;
-        }
+        let mut best_value;
+        if !in_check {
+            let stand_pat = self.board.evaluate_side_to_move_relative();
 
-        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
-            // avoid underflow
-            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
-                self.stats.quiescense_cut_by_hopeless += 1;
-                return alpha;
+            if stand_pat >= beta {
+                return stand_pat;
             }
+
+            if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+                // avoid underflow
+                if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
+                    self.stats.quiescense_cut_by_hopeless += 1;
+                    return alpha;
+                }
+            }
+
+            if alpha < stand_pat {
+                alpha = stand_pat;
+            }
+            best_value = stand_pat;
+        } else {
+            best_value = -i16::MAX;
         }
 
-        if alpha < stand_pat {
-            alpha = stand_pat;
-        }
+        // TODO: Generate check evasions if in check
+        // TODO: Generate check evasions if in check
+        // TODO: Generate check evasions if in check
 
-        let mut best_value = stand_pat;
         let mut best_move = None;
+        let next_draft = if draft > 0 { draft - 1 } else { 0 };
+        let mut checks = Vec::new();
 
-        // Round 0 is the tt move, round 1 is regular move gen
-        for round in 0..2 {
-            for r#move in moves {
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+        // Round 0 is the tt move, round 1 is checks, round 2 is captures
+        let mut round = 0;
+        while round < 3 {
+            for r#move in &moves {
+                if round > 0 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                    continue;
+                }
+
+                if round > 1 && draft > 0 && checks.iter().any(|m: &ScoredMove| r#move.m == m.m) {
                     continue;
                 }
 
@@ -635,13 +655,13 @@ impl<'a> Searcher<'a> {
                 }
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                let result = -self.quiescense_side_to_move_relative(-beta, -alpha);
+                let result = -self.quiescense_side_to_move_relative(-beta, -alpha, next_draft);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
                 if result >= beta {
                     self.transposition_table.store_entry(
-                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, result, 0, 0),
+                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, result, draft, 0),
                         TableType::Quiescense,
                     );
 
@@ -659,11 +679,24 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
+                if draft > 0 {
+                    moves = self.board.generate_pseudo_legal_check_moves();
+    
+                    moves.sort_unstable_by_key(|m| Reverse(m.score));
+
+                    round += 1;
+                } else {
+                    round += 2;
+                }
+            } else {
+                round += 1;
+            }
+
+            if round == 2 {
+                checks = moves;
                 moves = self.board.generate_pseudo_legal_capture_moves();
 
                 moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
@@ -674,7 +707,7 @@ impl<'a> Searcher<'a> {
                 MoveType::FailLow
             };
             self.transposition_table.store_entry(
-                TTEntry::new(self.board.hash, bm, entry_type, best_value, 0, 0),
+                TTEntry::new(self.board.hash, bm, entry_type, best_value, draft, 0),
                 TableType::Quiescense,
             );
         }

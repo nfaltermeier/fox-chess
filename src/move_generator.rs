@@ -4,7 +4,7 @@ use log::{debug, error, info, log_enabled, trace};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES},
+    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES},
     board::{
         piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
         CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
@@ -72,6 +72,15 @@ impl Board {
         moves
     }
 
+    #[inline]
+    pub fn generate_pseudo_legal_check_moves(&mut self) -> Vec<ScoredMove> {
+        let moves = self.generate_pseudo_legal_checks();
+
+        self.do_make_unmake_move_test(&moves);
+
+        moves
+    }
+
     /// if make and unmake move work properly then at the end board should be back to it's original state
     pub fn generate_legal_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
         &mut self,
@@ -83,12 +92,6 @@ impl Board {
         if ENABLE_UNMAKE_MOVE_TEST {
             board_copy = Some(self.clone());
         }
-
-        // if log_enabled!(log::Level::Trace) {
-        //     for m in &moves {
-        //         trace!("{}", m.pretty_print(Some(self)));
-        //     }
-        // }
 
         moves.retain(|r#move| {
             let (result, move_made) = self.test_legality_and_maybe_make_move(r#move.m, &mut rollback);
@@ -120,7 +123,7 @@ impl Board {
         moves
     }
 
-    pub fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
+    fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
         &self,
         history_table: &HistoryTable,
     ) -> Vec<ScoredMove> {
@@ -338,6 +341,112 @@ impl Board {
                     && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
                 {
                     result.push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Does not search for discovered checks and (currently) pawn checks
+    fn generate_pseudo_legal_checks(&mut self) -> Vec<ScoredMove> {
+        let mut result = Vec::new();
+        let side = if self.white_to_move { 0 } else { 1 };
+        let other_side = if self.white_to_move { 1 } else { 0 };
+        let square_color_mask = if self.piece_bitboards[other_side][PIECE_KING as usize] & LIGHT_SQUARES != 0 { LIGHT_SQUARES } else { DARK_SQUARES };
+        let king_pos = self.piece_bitboards[other_side][PIECE_KING as usize].trailing_zeros() as u8;
+
+        let mut knights = self.piece_bitboards[side][PIECE_KNIGHT as usize] & square_color_mask;
+        if knights != 0 {
+            let possible_squares = lookup_knight_attack(king_pos) & !self.side_occupancy[side];
+
+            while knights != 0 {
+                let from = bitscan_forward_and_reset(&mut knights) as u8;
+
+                let mut attacks = lookup_knight_attack(from) & possible_squares;
+
+                while attacks != 0 {
+                    let to = bitscan_forward_and_reset(&mut attacks) as u8;
+                    let target_piece = self.get_piece_64(to as usize);
+    
+                    if target_piece == PIECE_NONE {
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            0,
+                            MOVE_SCORE_QUIET
+                        ));
+                    } else {
+                        result.push(ScoredMove {
+                            m: Move::new(from, to, MOVE_FLAG_CAPTURE),
+                            score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                                - CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                        });
+                    }
+                }
+            }
+        }
+
+        
+        let mut bishops = (self.piece_bitboards[side][PIECE_BISHOP as usize] | self.piece_bitboards[side][PIECE_QUEEN as usize]) & square_color_mask;
+        if bishops != 0 {
+            let possible_squares = lookup_bishop_attack(king_pos, self.occupancy) & !self.side_occupancy[side];
+
+            while bishops != 0 {
+                let from = bitscan_forward_and_reset(&mut bishops) as u8;
+
+                let mut attacks = lookup_bishop_attack(king_pos, self.occupancy) & possible_squares;
+
+                while attacks != 0 {
+                    let to = bitscan_forward_and_reset(&mut attacks) as u8;
+                    let target_piece = self.get_piece_64(to as usize);
+    
+                    if target_piece == PIECE_NONE {
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            0,
+                            MOVE_SCORE_QUIET
+                        ));
+                    } else {
+                        result.push(ScoredMove {
+                            m: Move::new(from, to, MOVE_FLAG_CAPTURE),
+                            score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                                - CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                        });
+                    }
+                }
+            }
+        }
+
+        
+        let mut rooks = self.piece_bitboards[side][PIECE_ROOK as usize] | self.piece_bitboards[side][PIECE_QUEEN as usize];
+        if rooks != 0 {
+            let possible_squares = lookup_rook_attack(king_pos, self.occupancy) & !self.side_occupancy[side];
+
+            while rooks != 0 {
+                let from = bitscan_forward_and_reset(&mut rooks) as u8;
+
+                let mut attacks = lookup_rook_attack(king_pos, self.occupancy) & possible_squares;
+
+                while attacks != 0 {
+                    let to = bitscan_forward_and_reset(&mut attacks) as u8;
+                    let target_piece = self.get_piece_64(to as usize);
+    
+                    if target_piece == PIECE_NONE {
+                        result.push(ScoredMove::new(
+                            from,
+                            to,
+                            0,
+                            MOVE_SCORE_QUIET
+                        ));
+                    } else {
+                        result.push(ScoredMove {
+                            m: Move::new(from, to, MOVE_FLAG_CAPTURE),
+                            score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                                - CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                        });
+                    }
                 }
             }
         }
