@@ -73,8 +73,8 @@ impl Board {
     }
 
     #[inline]
-    pub fn generate_pseudo_legal_check_moves(&mut self) -> Vec<ScoredMove> {
-        let moves = self.generate_pseudo_legal_checks();
+    pub fn generate_pseudo_legal_checks(&mut self, include_captures: bool) -> Vec<ScoredMove> {
+        let moves = self.generate_pseudo_legal_checks_impl(include_captures);
 
         self.do_make_unmake_move_test(&moves);
 
@@ -349,16 +349,17 @@ impl Board {
     }
 
     /// Does not search for discovered checks and (currently) pawn checks
-    fn generate_pseudo_legal_checks(&mut self) -> Vec<ScoredMove> {
+    fn generate_pseudo_legal_checks_impl(&mut self, include_captures: bool) -> Vec<ScoredMove> {
         let mut result = Vec::new();
         let side = if self.white_to_move { 0 } else { 1 };
         let other_side = if self.white_to_move { 1 } else { 0 };
         let square_color_mask = if self.piece_bitboards[other_side][PIECE_KING as usize] & LIGHT_SQUARES != 0 { LIGHT_SQUARES } else { DARK_SQUARES };
         let king_pos = self.piece_bitboards[other_side][PIECE_KING as usize].trailing_zeros() as u8;
+        let possible_squares_mask = if include_captures { !self.side_occupancy[side] } else { !self.occupancy };
 
         let mut knights = self.piece_bitboards[side][PIECE_KNIGHT as usize] & square_color_mask;
         if knights != 0 {
-            let possible_squares = lookup_knight_attack(king_pos) & !self.side_occupancy[side];
+            let possible_squares = lookup_knight_attack(king_pos) & possible_squares_mask;
 
             while knights != 0 {
                 let from = bitscan_forward_and_reset(&mut knights) as u8;
@@ -387,15 +388,14 @@ impl Board {
             }
         }
 
-        
         let mut bishops = (self.piece_bitboards[side][PIECE_BISHOP as usize] | self.piece_bitboards[side][PIECE_QUEEN as usize]) & square_color_mask;
         if bishops != 0 {
-            let possible_squares = lookup_bishop_attack(king_pos, self.occupancy) & !self.side_occupancy[side];
+            let possible_squares = lookup_bishop_attack(king_pos, self.occupancy) & possible_squares_mask;
 
             while bishops != 0 {
                 let from = bitscan_forward_and_reset(&mut bishops) as u8;
 
-                let mut attacks = lookup_bishop_attack(king_pos, self.occupancy) & possible_squares;
+                let mut attacks = lookup_bishop_attack(from, self.occupancy) & possible_squares;
 
                 while attacks != 0 {
                     let to = bitscan_forward_and_reset(&mut attacks) as u8;
@@ -419,15 +419,14 @@ impl Board {
             }
         }
 
-        
         let mut rooks = self.piece_bitboards[side][PIECE_ROOK as usize] | self.piece_bitboards[side][PIECE_QUEEN as usize];
         if rooks != 0 {
-            let possible_squares = lookup_rook_attack(king_pos, self.occupancy) & !self.side_occupancy[side];
+            let possible_squares = lookup_rook_attack(king_pos, self.occupancy) & possible_squares_mask;
 
             while rooks != 0 {
                 let from = bitscan_forward_and_reset(&mut rooks) as u8;
 
-                let mut attacks = lookup_rook_attack(king_pos, self.occupancy) & possible_squares;
+                let mut attacks = lookup_rook_attack(from, self.occupancy) & possible_squares;
 
                 while attacks != 0 {
                     let to = bitscan_forward_and_reset(&mut attacks) as u8;

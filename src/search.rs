@@ -597,24 +597,24 @@ impl<'a> Searcher<'a> {
             moves = Vec::new();
         }
 
+        let stand_pat = self.board.evaluate_side_to_move_relative();
+
+        if stand_pat >= beta {
+            return stand_pat;
+        }
+
+        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+            // avoid underflow
+            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
+                self.stats.quiescense_cut_by_hopeless += 1;
+                return alpha;
+            }
+        }
+
         let in_check = self.board.can_capture_opponent_king(false);
 
         let mut best_value;
         if !in_check {
-            let stand_pat = self.board.evaluate_side_to_move_relative();
-
-            if stand_pat >= beta {
-                return stand_pat;
-            }
-
-            if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
-                // avoid underflow
-                if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
-                    self.stats.quiescense_cut_by_hopeless += 1;
-                    return alpha;
-                }
-            }
-
             if alpha < stand_pat {
                 alpha = stand_pat;
             }
@@ -623,23 +623,14 @@ impl<'a> Searcher<'a> {
             best_value = -i16::MAX;
         }
 
-        // TODO: Generate check evasions if in check
-        // TODO: Generate check evasions if in check
-        // TODO: Generate check evasions if in check
-
         let mut best_move = None;
         let next_draft = if draft > 0 { draft - 1 } else { 0 };
-        let mut checks = Vec::new();
 
-        // Round 0 is the tt move, round 1 is checks, round 2 is captures
+        // Round 0 is the tt move, round 1 is captures/check evasions, round 2 is checks (if draft > 0, no improving move found, and not in check)
         let mut round = 0;
         while round < 3 {
             for r#move in &moves {
                 if round > 0 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
-                    continue;
-                }
-
-                if round > 1 && draft > 0 && checks.iter().any(|m: &ScoredMove| r#move.m == m.m) {
                     continue;
                 }
 
@@ -679,25 +670,28 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
-                if draft > 0 {
-                    moves = self.board.generate_pseudo_legal_check_moves();
-    
+                if in_check {
+                    moves = self.board.generate_pseudo_legal_moves_with_history(&self.history_table);
+
                     moves.sort_unstable_by_key(|m| Reverse(m.score));
-
-                    round += 1;
                 } else {
-                    round += 2;
+                    moves = self.board.generate_pseudo_legal_capture_moves();
+
+                    moves.sort_unstable_by_key(|m| Reverse(m.score));
                 }
-            } else {
-                round += 1;
+            } else if round == 1 {
+                if in_check {
+                    round += 1;
+                } else if draft > 0 && best_move.is_none() {
+                    moves = self.board.generate_pseudo_legal_checks(false);
+
+                    moves.sort_unstable_by_key(|m| Reverse(m.score));
+                } else {
+                    round += 1;
+                }
             }
 
-            if round == 2 {
-                checks = moves;
-                moves = self.board.generate_pseudo_legal_capture_moves();
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            }
+            round += 1;
         }
 
         if let Some(bm) = best_move {
