@@ -628,7 +628,7 @@ impl<'a> Searcher<'a> {
 
         // Round 0 is the tt move, round 1 is captures/check evasions, round 2 is checks (if draft > 0, no improving move found, and not in check)
         let mut round = 0;
-        while round < 3 {
+        while round < 2 {
             for r#move in &moves {
                 if round > 0 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
@@ -679,17 +679,18 @@ impl<'a> Searcher<'a> {
 
                     moves.sort_unstable_by_key(|m| Reverse(m.score));
                 }
-            } else if round == 1 {
-                if in_check {
-                    round += 1;
-                } else if draft > 0 && best_move.is_none() {
-                    moves = self.board.generate_pseudo_legal_checks(false);
-
-                    moves.sort_unstable_by_key(|m| Reverse(m.score));
-                } else {
-                    round += 1;
-                }
             }
+            // else if round == 1 {
+            //     if in_check {
+            //         round += 1;
+            //     } else if draft > 0 && best_move.is_none() {
+            //         moves = self.board.generate_pseudo_legal_checks(false);
+
+            //         moves.sort_unstable_by_key(|m| Reverse(m.score));
+            //     } else {
+            //         round += 1;
+            //     }
+            // }
 
             round += 1;
         }
