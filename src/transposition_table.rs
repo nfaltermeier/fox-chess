@@ -8,17 +8,36 @@ pub enum TableType {
 }
 
 #[derive(Copy, Clone)]
+#[repr(u8)]
 pub enum MoveType {
-    FailHigh,
+    FailHigh = 0,
     Best,
     FailLow,
+}
+
+impl From<u8> for MoveType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::FailHigh,
+            1 => Self::Best,
+            2 => Self::FailLow,
+            _ => Self::FailLow
+        }
+    }
+}
+
+#[derive(Copy, Clone, Default)]
+pub struct TwoTierEntry {
+    pub always_replace: TTEntry,
+    pub depth_first: TTEntry,
 }
 
 #[derive(Copy, Clone)]
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
-    pub move_type: MoveType,
+    /// Bottom 2 bits: age, top 2 bits: MoveType
+    packed: u8,
     eval: i16,
     pub draft: u8,
     pub empty: bool,
@@ -26,7 +45,7 @@ pub struct TTEntry {
 
 impl TTEntry {
     #[inline]
-    pub fn new(hash: u64, important_move: Move, move_type: MoveType, eval: i16, draft: u8, ply: u8) -> Self {
+    pub fn new(hash: u64, important_move: Move, move_type: MoveType, eval: i16, draft: u8, ply: u8, search_starting_halfmove: u8) -> Self {
         let mut tt_eval = eval;
         if tt_eval >= MATE_THRESHOLD {
             tt_eval += 10 * ply as i16;
@@ -34,10 +53,13 @@ impl TTEntry {
             tt_eval -= 10 * ply as i16;
         }
 
+        let mut packed= search_starting_halfmove % 4;
+        packed |= (move_type as u8) << 6;
+
         Self {
             hash,
             important_move,
-            move_type,
+            packed,
             eval: tt_eval,
             draft,
             empty: false,
@@ -56,6 +78,24 @@ impl TTEntry {
 
         eval
     }
+
+    #[inline]
+    pub fn get_move_type(&self) -> MoveType {
+        MoveType::from(self.packed >> 6)
+    }
+
+    #[inline]
+    pub fn get_age(&self) -> u8 {
+        self.packed & 0b11
+    }
+
+    /// Age should be 0..3
+    pub fn set_age(&mut self, age: u8) {
+        debug_assert!(age <= 3);
+
+        self.packed &= !0b11;
+        self.packed |= age;
+    }
 }
 
 impl Default for TTEntry {
@@ -63,7 +103,7 @@ impl Default for TTEntry {
         TTEntry {
             hash: 0,
             important_move: Move { data: 0 },
-            move_type: MoveType::FailHigh,
+            packed: 0xFF,
             eval: 0,
             draft: 0,
             empty: true,
@@ -72,8 +112,8 @@ impl Default for TTEntry {
 }
 
 pub struct TranspositionTable {
-    main_table: Vec<TTEntry>,
-    quiescense_table: Vec<TTEntry>,
+    main_table: Vec<TwoTierEntry>,
+    quiescense_table: Vec<TwoTierEntry>,
     key_mask: usize,
     pub index_collisions: u64,
 }
@@ -86,31 +126,33 @@ impl TranspositionTable {
         }
 
         TranspositionTable {
-            main_table: vec![TTEntry::default(); 1 << (size_log_2 - 1)],
-            quiescense_table: vec![TTEntry::default(); 1 << (size_log_2 - 1)],
-            key_mask: (1 << (size_log_2 - 1)) - 1,
+            main_table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 2)],
+            quiescense_table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 2)],
+            key_mask: (1 << (size_log_2 - 2)) - 1,
             index_collisions: 0,
         }
     }
 
-    pub fn get_entry(&mut self, key: u64, table: TableType) -> Option<TTEntry> {
+    pub fn get_entry(&mut self, key: u64, table: TableType, search_starting_halfmove: u8) -> Option<TTEntry> {
         let index = key as usize & self.key_mask;
         let table = match table {
-            TableType::Main => &self.main_table,
-            TableType::Quiescense => &self.quiescense_table,
+            TableType::Main => &mut self.main_table,
+            TableType::Quiescense => &mut self.quiescense_table,
         };
 
-        if let Some(entry) = table.get(index) {
+        if let Some(entry) = table.get_mut(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
-            if entry.empty {
-                return None;
+            if !entry.depth_first.empty && entry.depth_first.hash == key {
+                entry.depth_first.set_age(search_starting_halfmove % 4);
+                return Some(entry.depth_first);
             }
 
-            if entry.hash == key {
-                return Some(*entry);
-            } else {
-                self.index_collisions += 1;
+            if !entry.always_replace.empty && entry.always_replace.hash == key {
+                return Some(entry.always_replace);
             }
+
+            // Technically should check for emptyness but eh
+            self.index_collisions += 1;
         }
 
         None
@@ -123,11 +165,17 @@ impl TranspositionTable {
             TableType::Quiescense => &mut self.quiescense_table,
         };
 
-        table[index] = val;
+        if let Some(entry) = table.get_mut(index) {
+            if entry.depth_first.empty || entry.depth_first.get_age() != val.get_age() || entry.depth_first.draft <= val.draft {
+                entry.depth_first = val;
+            } else {
+                entry.always_replace = val;
+            }
+        }
     }
 
     pub fn clear(&mut self) {
-        let default_entry = TTEntry::default();
+        let default_entry = TwoTierEntry::default();
         for i in 0..self.main_table.len() {
             self.main_table[i] = default_entry;
             self.quiescense_table[i] = default_entry;
