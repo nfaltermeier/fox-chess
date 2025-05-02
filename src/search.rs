@@ -405,6 +405,24 @@ impl<'a> Searcher<'a> {
             moves = Vec::new();
         }
 
+        // Null move pruning
+        let our_side = if self.board.white_to_move { 0 } else { 1 };
+        if beta < i16::MAX &&
+                draft > 4 &&
+                !in_check &&
+                self.board.piece_bitboards[our_side][PIECE_PAWN as usize] | self.board.piece_bitboards[our_side][PIECE_KING as usize] != self.board.side_occupancy[our_side] {
+            let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
+            self.board.make_null_move(&mut self.rollback);
+
+            let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers);
+
+            self.board.unmake_null_move(&mut self.rollback);
+
+            if eval >= beta {
+                return eval;
+            }
+        }
+
         let mut searched_quiet_moves = Vec::new();
         let mut found_legal_move = false;
         let mut searched_moves = 0;
@@ -427,18 +445,6 @@ impl<'a> Searcher<'a> {
                     continue;
                 } else {
                     found_legal_move = true;
-                }
-
-                // Null move pruning
-                let our_side = if self.board.white_to_move { 0 } else { 1 };
-                if draft > 4 && !in_check && self.board.piece_bitboards[our_side][PIECE_PAWN as usize] | self.board.piece_bitboards[our_side][PIECE_KING as usize] != self.board.side_occupancy[our_side] {
-                    self.board.white_to_move = !self.board.white_to_move;
-                    let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut new_killers);
-                    self.board.white_to_move = !self.board.white_to_move;
-
-                    if eval >= beta {
-                        return eval;
-                    }
                 }
 
                 let mut reduction = 0;

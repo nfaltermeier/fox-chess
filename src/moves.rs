@@ -494,6 +494,37 @@ impl Board {
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
+
+    pub fn make_null_move(&mut self, rollback: &mut MoveRollback) {
+        let hash_values = &*HASH_VALUES;
+
+        rollback.ep_index.push(self.en_passant_target_square_index);
+
+        if self.en_passant_target_square_index.is_some() {
+            let file = file_8x8(self.en_passant_target_square_index.unwrap());
+            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+        }
+
+        self.en_passant_target_square_index = None;
+
+        // should I increment move clocks/counters?
+        self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
+
+    pub fn unmake_null_move(&mut self, rollback: &mut MoveRollback) {
+        let hash_values = &*HASH_VALUES;
+
+        self.en_passant_target_square_index = rollback.ep_index.pop().unwrap();
+        if self.en_passant_target_square_index.is_some() {
+            let file = file_8x8(self.en_passant_target_square_index.unwrap());
+            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+        }
+
+        // should I decrement move clocks/counters?
+        self.white_to_move = !self.white_to_move;
+        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
 }
 
 // Not going to be super optimized probably and only support basic PGNs
