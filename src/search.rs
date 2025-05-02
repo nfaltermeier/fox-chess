@@ -9,7 +9,7 @@ use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_MASK},
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
     move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
@@ -427,6 +427,18 @@ impl<'a> Searcher<'a> {
                     continue;
                 } else {
                     found_legal_move = true;
+                }
+
+                // Null move pruning
+                let our_side = if self.board.white_to_move { 0 } else { 1 };
+                if draft > 4 && !in_check && self.board.piece_bitboards[our_side][PIECE_PAWN as usize] | self.board.piece_bitboards[our_side][PIECE_KING as usize] != self.board.side_occupancy[our_side] {
+                    self.board.white_to_move = !self.board.white_to_move;
+                    let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut new_killers);
+                    self.board.white_to_move = !self.board.white_to_move;
+
+                    if eval >= beta {
+                        return eval;
+                    }
                 }
 
                 let mut reduction = 0;

@@ -18,7 +18,7 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
   - [ ] Better replacement scheme. Can pack some data into part of the hash, using the index to recover the rest of the hash.
 - [x] [Iterative deepening](https://www.chessprogramming.org/Iterative_Deepening)
   - [ ] [Aspiration window?](https://www.chessprogramming.org/Aspiration_Windows)
-- [ ] [Null move pruning](https://www.chessprogramming.org/Null_Move_Pruning)
+- [x] [Null move pruning](https://www.chessprogramming.org/Null_Move_Pruning)
 - [ ] [Some kind of better Move Ordering](https://www.chessprogramming.org/Move_Ordering)
   - [x] [Killer heuristic](https://www.chessprogramming.org/Killer_Heuristic)
   - [x] [History heuristic](https://www.chessprogramming.org/History_Heuristic)
