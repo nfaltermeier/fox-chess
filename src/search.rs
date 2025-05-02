@@ -354,10 +354,12 @@ impl<'a> Searcher<'a> {
             return 0;
         }
 
+        self.board.white_to_move = !self.board.white_to_move;
         let in_check = self.board.can_capture_opponent_king(false);
         if in_check {
             draft += 1;
         }
+        self.board.white_to_move = !self.board.white_to_move;
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
@@ -439,11 +441,11 @@ impl<'a> Searcher<'a> {
                         3
                     };
 
-                    if is_pv {
+                    if is_pv && reduction > 0 {
                         reduction -= 1;
                     }
 
-                    if in_check {
+                    if in_check && reduction > 0 {
                         reduction -= 1;
                     }
 

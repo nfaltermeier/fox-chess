@@ -306,7 +306,7 @@ impl Board {
         Ok(board)
     }
 
-    fn pretty_print(&self) -> String {
+    pub fn pretty_print(&self) -> String {
         (0..64)
             .map(|i| piece_to_name(self.get_piece_64(i)).to_string())
             // Could not chunk the map result directly for some reason
