@@ -181,10 +181,7 @@ impl<'a> Searcher<'a> {
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
-                // print less when using TT values
-                if self.stats.leaf_nodes != 0 || depth == 1 {
-                    UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
-                }
+                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
 
                 if search_control != SearchControl::Infinite
                     && (result.end_search
