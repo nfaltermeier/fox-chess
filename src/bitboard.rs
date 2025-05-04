@@ -1,5 +1,7 @@
 use array_macro::array;
 
+use crate::magic_bitboard::{BISHOP_RAYS, ROOK_RAYS};
+
 // Little endian rank file mapping
 pub const A_FILE: u64 = 0x0101010101010101;
 pub const B_FILE: u64 = 0x0202020202020202;
@@ -16,6 +18,8 @@ pub static BIT_SQUARES: [u64; 64] = array![i => 1 << i; 64];
 static KNIGHT_ATTACKS: [u64; 64] = array![i => generate_knight_attack(BIT_SQUARES[i]); 64];
 static KING_ATTACKS: [u64; 64] = array![i => generate_king_attack(BIT_SQUARES[i]); 64];
 static PAWN_ATTACKS: [[u64; 64]; 2] = array![x => array![y => generate_pawn_attack(BIT_SQUARES[y], x == 0); 64]; 2];
+#[allow(long_running_const_eval)]
+static BETWEEN_SQUARES: [[u64; 64]; 64] = generate_between_squares_table();
 
 #[inline]
 pub fn lookup_knight_attack(square_bitindex: u8) -> u64 {
@@ -115,4 +119,26 @@ pub fn bitscan_forward_and_reset(num: &mut u64) -> u32 {
     *num &= !(1 << val);
 
     val
+}
+
+const fn generate_between_squares_table() -> [[u64; 64]; 64] {
+    let data = [[0; 64]; 64];
+    let rays_data = [&ROOK_RAYS, &BISHOP_RAYS];
+
+    let mut i = 0;
+    while i < 64 {
+        let mut rays_set = 0;
+        while rays_set < 2 {
+            let mut direction = 0;
+            while direction < 4 {
+                
+            }
+
+            rays_set += 1;
+        }
+
+        i += 1;
+    }
+
+    data
 }

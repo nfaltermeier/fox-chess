@@ -392,6 +392,64 @@ impl Board {
         }
     }
 
+    /// Assumes the king of the side to move is in check
+    pub fn generate_pseudo_legal_check_evasions(&self, history_table: &HistoryTable) -> Vec<ScoredMove> {
+        let (self_side, other_side) = if self.white_to_move { (0, 1) } else { (1, 0) };
+        let mut result = vec![];
+
+        let king_pos = self.piece_bitboards[self_side][PIECE_KING as usize].trailing_zeros() as u8;
+        if king_pos == 64 {
+            panic!("Could not find king in generate_pseudo_legal_check_evasions")
+        }
+
+        let double_check;
+        let move_to_mask;
+        let pawns = lookup_pawn_attack(king_pos, self.white_to_move) & self.piece_bitboards[other_side][PIECE_PAWN as usize];
+        if pawns != 0 {
+            // I'm pretty sure you can't give double check with a pawn
+            double_check = false;
+            move_to_mask = pawns;
+        } else {
+            let mut checks = 0;
+            let knights = lookup_knight_attack(king_pos) & self.piece_bitboards[other_side][PIECE_KNIGHT as usize];
+            if knights != 0 {
+                checks += 1;
+            }
+
+            let rooks = lookup_rook_attack(king_pos, self.occupancy) & (self.piece_bitboards[other_side][PIECE_ROOK as usize] | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
+            if rooks != 0 {
+                checks += 1;
+            }
+
+            if checks == 2 {
+                double_check = true;
+                move_to_mask = 0;
+            } else {
+                let bishops = lookup_bishop_attack(king_pos, self.occupancy) & (self.piece_bitboards[other_side][PIECE_BISHOP as usize] | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
+                if bishops != 0 {
+                    checks += 1;
+                }
+
+                if checks == 2 {
+                    double_check = true;
+                    move_to_mask = 0;
+                } else if checks == 0 {
+                    panic!("Could not find a checking piece in generate_pseudo_legal_check_evasions")
+                } else {
+                    double_check = false;
+
+                    if knights != 0 {
+                        move_to_mask = knights;
+                    } else if rooks != 0 {
+                        
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
     /// If the move is legal then the move will have been made.
     /// First bool of return: if move is legal
     /// Second bool of return: if move is made
