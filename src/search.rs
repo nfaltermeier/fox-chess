@@ -31,6 +31,7 @@ pub struct SearchStats {
     pub depth: u8,
     pub quiescense_cut_by_hopeless: u64,
     pub leaf_nodes: u64,
+    pub total_search_leaves: u64,
 }
 
 #[derive(PartialEq, Eq)]
@@ -57,6 +58,7 @@ pub struct Searcher<'a> {
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
     starting_halfmove: u8,
+    cancel_search_at: Option<Instant>,
 }
 
 impl<'a> Searcher<'a> {
@@ -74,6 +76,7 @@ impl<'a> Searcher<'a> {
             transposition_table,
             history_table,
             starting_halfmove,
+            cancel_search_at: None,
         }
     }
 
@@ -160,24 +163,23 @@ impl<'a> Searcher<'a> {
         // Above 5 depth moves can start taking a lot more time
         let cutoff_low_depth;
         let cutoff;
-        let cancel_search_time;
         match target_dur {
             Some(d) => {
                 cutoff_low_depth = Some(d.mul_f32(0.55));
                 cutoff = Some(d.mul_f32(0.35));
-                cancel_search_time = Some(start_time.checked_add(d.mul_f32(2.0)).unwrap());
+                self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.5)).unwrap());
             }
             None => {
                 cutoff = None;
                 cutoff_low_depth = None;
-                cancel_search_time = None;
+                self.cancel_search_at = None;
             }
         }
 
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth, &cancel_search_time);
+            let result = self.alpha_beta_init(depth);
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
@@ -213,7 +215,7 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8, cancel_search_at: &Option<Instant>) -> AlphaBetaResult {
+    pub fn alpha_beta_init(&mut self, draft: u8) -> AlphaBetaResult {
         let mut alpha = -i16::MAX;
         let mut best_value = -i16::MAX;
         let mut best_move = None;
@@ -256,13 +258,6 @@ impl<'a> Searcher<'a> {
                     continue;
                 }
 
-                if cancel_search_at.is_some_and(|t| Instant::now() >= t) {
-                    return AlphaBetaResult {
-                        search_result: None,
-                        end_search: true,
-                    };
-                }
-
                 let (legal, move_made) = self
                     .board
                     .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
@@ -280,8 +275,17 @@ impl<'a> Searcher<'a> {
                 let bonus = 0;
                 assert!(bonus > -6);
                 assert!(bonus < 6);
-                let score = -self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
-                let result = bonus + score;
+                let result = self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
+                let score;
+                if let Some(e) = result {
+                    score = -e;
+                } else {
+                    return AlphaBetaResult {
+                        search_result: None,
+                        end_search: true,
+                    };
+                }
+                let eval = bonus + score;
                 // debug!(
                 //     "{}: score {score} bonus {bonus} result {result}",
                 //     r#move.m.pretty_print(Some(self.board))
@@ -289,11 +293,11 @@ impl<'a> Searcher<'a> {
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
-                if result > best_value {
-                    best_value = result;
+                if eval > best_value {
+                    best_value = eval;
                     best_move = Some(r#move.m);
-                    if result > alpha {
-                        alpha = result;
+                    if eval > alpha {
+                        alpha = eval;
                     }
                 }
             }
@@ -343,12 +347,12 @@ impl<'a> Searcher<'a> {
         mut draft: u8,
         ply: u8,
         killers: &mut [Move; 2],
-    ) -> i16 {
+    ) -> Option<i16> {
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
-            return 0;
+            return Some(0);
         }
 
         self.board.white_to_move = !self.board.white_to_move;
@@ -360,7 +364,13 @@ impl<'a> Searcher<'a> {
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
-            return self.quiescense_side_to_move_relative(alpha, beta, 255);
+            self.stats.total_search_leaves += 1;
+
+            if self.stats.total_search_leaves % 16384 == 16383 && self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+                return None;
+            }
+
+            return Some(self.quiescense_side_to_move_relative(alpha, beta, 255));
         }
 
         let mut best_value = -i16::MAX;
@@ -380,15 +390,15 @@ impl<'a> Searcher<'a> {
                         if eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, ply);
 
-                            return eval;
+                            return Some(eval);
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return eval;
+                        return Some(eval);
                     }
                     transposition_table::MoveType::FailLow => {
                         if eval < alpha {
-                            return eval;
+                            return Some(eval);
                         }
                     }
                 }
@@ -411,12 +421,18 @@ impl<'a> Searcher<'a> {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
 
-            let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers);
+            let result = self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers);
+            let eval;
+            if let Some(e) = result {
+                eval = -e;
+            } else {
+                return None;
+            }
 
             self.board.unmake_null_move(&mut self.rollback);
 
             if eval >= beta {
-                return eval;
+                return Some(eval);
             }
         }
 
@@ -467,30 +483,54 @@ impl<'a> Searcher<'a> {
                     reduction = reduction.clamp(0, draft - 1)
                 }
 
-                let mut result;
+                let mut eval;
                 if searched_moves == 0 {
-                    result = -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                    let mut result = self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
 
-                    if result > alpha && reduction > 0 {
-                        result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                    if let Some(e) = result {
+                        eval = -e;
+                    } else {
+                        return None;
+                    }
+
+                    if eval > alpha && reduction > 0 {
+                        result = self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+
+                        if let Some(e) = result {
+                            eval = -e;
+                        } else {
+                            return None;
+                        }
                     }
                 } else {
-                    result =
-                        -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                    let mut result =
+                        self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+
+                    if let Some(e) = result {
+                        eval = -e;
+                    } else {
+                        return None;
+                    }
 
                     // if result > alpha && reduction > 0 {
                     //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
                     // }
 
-                    if result > alpha {
-                        result = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+                    if eval > alpha {
+                        result = self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
+
+                        if let Some(e) = result {
+                            eval = -e;
+                        } else {
+                            return None;
+                        }
                     }
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
                 searched_moves += 1;
 
-                if result >= beta {
+                if eval >= beta {
                     self.update_killers_and_history(killers, &r#move.m, ply);
 
                     let penalty = -(ply as i16) * (ply as i16);
@@ -499,18 +539,18 @@ impl<'a> Searcher<'a> {
                     }
 
                     self.transposition_table.store_entry(
-                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, result, draft, ply, self.starting_halfmove),
+                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, eval, draft, ply, self.starting_halfmove),
                         TableType::Main,
                     );
 
-                    return result;
+                    return Some(eval);
                 }
 
-                if result > best_value {
-                    best_value = result;
+                if eval > best_value {
+                    best_value = eval;
                     best_move = Some(r#move.m);
-                    if result > alpha {
-                        alpha = result;
+                    if eval > alpha {
+                        alpha = eval;
                     }
                 }
 
@@ -559,9 +599,9 @@ impl<'a> Searcher<'a> {
             self.board.white_to_move = !self.board.white_to_move;
 
             if is_check {
-                return self.board.evaluate_checkmate_side_to_move_relative(ply);
+                return Some(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
-                return 0;
+                return Some(0);
             }
         }
 
@@ -575,7 +615,7 @@ impl<'a> Searcher<'a> {
             TableType::Main,
         );
 
-        best_value
+        Some(best_value)
     }
 
     pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
