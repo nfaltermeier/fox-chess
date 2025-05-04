@@ -31,6 +31,7 @@ pub struct SearchStats {
     pub depth: u8,
     pub quiescense_cut_by_hopeless: u64,
     pub leaf_nodes: u64,
+    pub total_search_leaves: u64,
 }
 
 #[derive(PartialEq, Eq)]
@@ -366,8 +367,9 @@ impl<'a> Searcher<'a> {
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
+            self.stats.total_search_leaves += 1;
 
-            if self.stats.leaf_nodes % 16384 == 16383 && self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+            if self.stats.total_search_leaves % 16384 == 16383 && self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
                 return None;
             }
 
