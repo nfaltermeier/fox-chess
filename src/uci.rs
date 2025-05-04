@@ -10,7 +10,7 @@ use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
 
 use crate::{
     board::Board,
-    evaluate::{DOUBLED_PAWN_PENALTY, ISOLATED_PAWN_PENALTY, MATE_THRESHOLD, MATE_VALUE},
+    evaluate::{MATE_THRESHOLD, MATE_VALUE},
     moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
     search::{HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
@@ -57,8 +57,8 @@ impl UciInterface {
                     println!("id name FoxChess {} {}", build_info.profile, commit);
                     println!("id author IDK");
                     println!("uciok");
-                    println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
-                    println!("option name DoubledPawnPenalty type spin default 25 min 0 max 100");
+                    // println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
+                    // println!("option name DoubledPawnPenalty type spin default 25 min 0 max 100");
                 }
                 UciMessage::IsReady => {
                     println!("readyok")
@@ -143,23 +143,23 @@ impl UciInterface {
                     // println!("bestmove <>")
                 }
                 UciMessage::Quit => exit(0),
-                UciMessage::SetOption { name, value } => match name.as_str() {
-                    "IsolatedPawnPenalty" => {
-                        if let Some(ipp) = value {
-                            ISOLATED_PAWN_PENALTY.set(
-                                ipp.parse()
-                                    .expect("IsolatedPawnPenalty setoption value was not a valid number"),
-                            );
-                        }
-                    }
-                    "DoubledPawnPenalty" => {
-                        if let Some(ipp) = value {
-                            DOUBLED_PAWN_PENALTY.set(
-                                ipp.parse()
-                                    .expect("DoubledPawnPenalty setoption value was not a valid number"),
-                            );
-                        }
-                    }
+                UciMessage::SetOption { name, .. } => match name.as_str() {
+                    // "IsolatedPawnPenalty" => {
+                    //     if let Some(ipp) = value {
+                    //         ISOLATED_PAWN_PENALTY.set(
+                    //             ipp.parse()
+                    //                 .expect("IsolatedPawnPenalty setoption value was not a valid number"),
+                    //         );
+                    //     }
+                    // }
+                    // "DoubledPawnPenalty" => {
+                    //     if let Some(ipp) = value {
+                    //         DOUBLED_PAWN_PENALTY.set(
+                    //             ipp.parse()
+                    //                 .expect("DoubledPawnPenalty setoption value was not a valid number"),
+                    //         );
+                    //     }
+                    // }
                     _ => {
                         error!("Unknown UCI setoption name '{name}'");
                     }

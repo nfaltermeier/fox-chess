@@ -146,10 +146,10 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 12],
 ];
 
-thread_local! {
-    pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
-    pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
-}
+// thread_local! {
+//     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
+//     pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
+// }
 
 impl Board {
     pub fn evaluate(&self) -> i16 {
