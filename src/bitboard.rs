@@ -1,7 +1,5 @@
 use array_macro::array;
 
-use crate::magic_bitboard::{BISHOP_RAYS, ROOK_RAYS};
-
 // Little endian rank file mapping
 pub const A_FILE: u64 = 0x0101010101010101;
 pub const B_FILE: u64 = 0x0202020202020202;
@@ -118,34 +116,6 @@ pub fn bitscan_forward_and_reset(num: &mut u64) -> u32 {
     *num &= !(1 << val);
 
     val
-}
-
-const fn generate_between_squares_table() -> [[u64; 64]; 64] {
-    let mut data = [[0; 64]; 64];
-    let use_trailing_zeros = [false, true, true, false, false, true, true, false];
-
-    let mut i = 0;
-    while i < 64 {
-        let mut direction = 0;
-        while direction < 8 {
-            let set_idx = direction % 4;
-            let set = if direction < 4 { &ROOK_RAYS } else { &BISHOP_RAYS };
-
-            let mut ray = set[i][set_idx];
-            while ray > 0 {
-                let sq = if use_trailing_zeros[direction] { ray.trailing_zeros() } else { ray.leading_zeros() } as usize;
-                ray &= !BIT_SQUARES[sq];
-
-                data[i][sq] = ray;
-            }
-
-            direction += 1;
-        }
-
-        i += 1;
-    }
-
-    data
 }
 
 /// Code copied from https://www.chessprogramming.org/Square_Attacked_By#Pure_Calculation

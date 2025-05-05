@@ -15,8 +15,8 @@ const NORTH_WEST: usize = 3;
 
 static mut ATTACKS: Vec<u64> = Vec::new();
 
-pub static ROOK_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_rook_rays(i as u8) } else { [0; 4] }; 65];
-pub static BISHOP_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_bishop_rays(i as u8) } else { [0; 4] }; 65];
+static ROOK_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_rook_rays(i as u8) } else { [0; 4] }; 65];
+static BISHOP_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_bishop_rays(i as u8) } else { [0; 4] }; 65];
 
 struct MagicEntry {
     attacks_offset: u32,
