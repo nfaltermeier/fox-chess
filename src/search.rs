@@ -111,9 +111,9 @@ impl<'a> Searcher<'a> {
                     }
 
                     let divisor = if self.board.fullmove_counter < 15 {
-                        30
+                        35
                     } else if self.board.fullmove_counter < 25 {
-                        25
+                        30
                     } else {
                         40
                     };
@@ -157,8 +157,8 @@ impl<'a> Searcher<'a> {
         let cutoff;
         match target_dur {
             Some(d) => {
-                cutoff = Some(d.mul_f32(0.55));
-                self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.5)).unwrap());
+                cutoff = Some(d.mul_f32(0.5));
+                self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.1)).unwrap());
             }
             None => {
                 cutoff = None;
