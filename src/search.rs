@@ -99,10 +99,10 @@ impl<'a> Searcher<'a> {
                     black_increment,
                     moves_to_go,
                 } => {
-                    let time_left = if self.board.white_to_move {
-                        white_time
+                    let (time_left, increment) = if self.board.white_to_move {
+                        (white_time, white_increment)
                     } else {
-                        black_time
+                        (black_time, black_increment)
                     };
 
                     if time_left.is_none() {
@@ -110,12 +110,12 @@ impl<'a> Searcher<'a> {
                         panic!("No time left value provided when searching");
                     }
 
-                    let divisor = if self.board.fullmove_counter < 10 {
-                        21
-                    } else if self.board.fullmove_counter < 20 {
-                        18
-                    } else {
+                    let divisor = if self.board.fullmove_counter < 15 {
+                        30
+                    } else if self.board.fullmove_counter < 25 {
                         25
+                    } else {
+                        40
                     };
                     target_dur = Some(time_left
                         .as_ref()
@@ -123,14 +123,8 @@ impl<'a> Searcher<'a> {
                         .to_std()
                         .unwrap()
                         .checked_div(divisor)
-                        .unwrap());
-
-                    // maybe something like https://www.desmos.com/calculator/47t9iys2fo
-                    // let expected_moves_left = if let Some(mtg) = moves_to_go {
-                    //     *mtg
-                    // } else {
-                    //     let eval = self.board.evaluate();
-                    // }
+                        .unwrap()
+                        .saturating_add(increment.unwrap_or_default().to_std().unwrap()));
 
                     search_control = SearchControl::Time;
                 }
@@ -160,18 +154,14 @@ impl<'a> Searcher<'a> {
             panic!("One of search or time is required to be passed to go.");
         }
 
-        // Above 5 depth moves can start taking a lot more time
-        let cutoff_low_depth;
         let cutoff;
         match target_dur {
             Some(d) => {
-                cutoff_low_depth = Some(d.mul_f32(0.55));
-                cutoff = Some(d.mul_f32(0.35));
+                cutoff = Some(d.mul_f32(0.55));
                 self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.5)).unwrap());
             }
             None => {
                 cutoff = None;
-                cutoff_low_depth = None;
                 self.cancel_search_at = None;
             }
         }
@@ -191,18 +181,13 @@ impl<'a> Searcher<'a> {
                     || depth >= max_depth
                     || match search_control {
                         SearchControl::Time => {
-                            (depth >= 5 && elapsed >= cutoff.unwrap()) || elapsed >= cutoff_low_depth.unwrap()
+                            elapsed >= cutoff.unwrap()
                         }
                         SearchControl::Depth | SearchControl::Infinite => false,
                     })
                 {
                     return search_result;
                 }
-
-                // This seems like it could go really wrong. For when entire search is skipped by tt best move node.
-                // if search_result.self.stats.depth > depth {
-                //     depth = search_result.self.stats.depth;
-                // }
 
                 latest_result = Some(search_result);
             } else {
@@ -226,20 +211,6 @@ impl<'a> Searcher<'a> {
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
-            // if tt_data.draft >= draft {
-            //     if let self.transposition_table::MoveType::Best = tt_data.move_type {
-            //         // should this be done for the root????
-            //         self.stats.depth = tt_data.draft;
-            //         return AlphaBetaResult {
-            //             search_result: Some(SearchResult {
-            //                 best_move: tt_data.important_move,
-            //                 eval: tt_data.eval * if self.board.white_to_move { 1 } else { -1 },
-            //                 self.stats,
-            //             }),
-            //             end_search: false,
-            //         };
-            //     }
-            // }
 
             moves = Vec::from([ScoredMove {
                 m: tt_data.important_move,
