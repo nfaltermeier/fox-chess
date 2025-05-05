@@ -4,7 +4,7 @@ use log::{debug, error, info, log_enabled, trace};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, BIT_SQUARES},
+    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, SQUARES_BETWEEN, BIT_SQUARES},
     board::{
         piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
         CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
@@ -440,11 +440,78 @@ impl Board {
 
                     if knights != 0 {
                         move_to_mask = knights;
-                    } else if rooks != 0 {
-                        
+                    } else {
+                        let piece = if rooks != 0 { rooks } else { bishops };
+
+                        let sq = piece.trailing_zeros();
+                        move_to_mask = SQUARES_BETWEEN[king_pos as usize][sq as usize] | piece;
                     }
                 }
             }
+        }
+        
+        self.add_moves::<true, false, _>(
+            PIECE_KING,
+            self_side,
+            other_side,
+            &mut result,
+            history_table,
+            |sq| lookup_king_attack(sq),
+        );
+
+        if !double_check {
+            self.add_moves::<true, false, _>(
+                PIECE_KNIGHT,
+                self_side,
+                other_side,
+                &mut result,
+                history_table,
+                |sq| lookup_knight_attack(sq) & move_to_mask,
+            );
+            self.add_moves::<true, false, _>(
+                PIECE_BISHOP,
+                self_side,
+                other_side,
+                &mut result,
+                history_table,
+                |sq| lookup_bishop_attack(sq, self.occupancy) & move_to_mask,
+            );
+            self.add_moves::<true, false, _>(
+                PIECE_ROOK,
+                self_side,
+                other_side,
+                &mut result,
+                history_table,
+                |sq| lookup_rook_attack(sq, self.occupancy) & move_to_mask,
+            );
+            self.add_moves::<true, false, _>(
+                PIECE_QUEEN,
+                self_side,
+                other_side,
+                &mut result,
+                history_table,
+                |sq| (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask,
+            );
+
+            let pawn_direction = if self.white_to_move { 8 } else { -8 };
+
+            // En passant
+            if let Some(ep_target_64) = self.en_passant_target_square_index {
+                if move_to_mask & BIT_SQUARES[ep_target_64.checked_add_signed(-(pawn_direction as i8)).unwrap() as usize] != 0 {
+                    let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
+                    let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
+                    while takers != 0 {
+                        let from = bitscan_forward_and_reset(&mut takers) as u8;
+    
+                        result.push(ScoredMove {
+                            m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
+                            score: MOVE_SCORE_CAPTURE,
+                        });
+                    }
+                }
+            }
+
+            // TODO: shift from the move_to_mask and see if that intersects our pawns
         }
 
         result

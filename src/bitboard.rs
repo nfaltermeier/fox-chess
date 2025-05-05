@@ -18,8 +18,7 @@ pub static BIT_SQUARES: [u64; 64] = array![i => 1 << i; 64];
 static KNIGHT_ATTACKS: [u64; 64] = array![i => generate_knight_attack(BIT_SQUARES[i]); 64];
 static KING_ATTACKS: [u64; 64] = array![i => generate_king_attack(BIT_SQUARES[i]); 64];
 static PAWN_ATTACKS: [[u64; 64]; 2] = array![x => array![y => generate_pawn_attack(BIT_SQUARES[y], x == 0); 64]; 2];
-#[allow(long_running_const_eval)]
-static BETWEEN_SQUARES: [[u64; 64]; 64] = generate_between_squares_table();
+pub static SQUARES_BETWEEN: [[u64; 64]; 64] = array![x => array![y => squares_in_between(x as u64, y as u64); 64]; 64];
 
 #[inline]
 pub fn lookup_knight_attack(square_bitindex: u8) -> u64 {
@@ -122,19 +121,25 @@ pub fn bitscan_forward_and_reset(num: &mut u64) -> u32 {
 }
 
 const fn generate_between_squares_table() -> [[u64; 64]; 64] {
-    let data = [[0; 64]; 64];
-    let rays_data = [&ROOK_RAYS, &BISHOP_RAYS];
+    let mut data = [[0; 64]; 64];
+    let use_trailing_zeros = [false, true, true, false, false, true, true, false];
 
     let mut i = 0;
     while i < 64 {
-        let mut rays_set = 0;
-        while rays_set < 2 {
-            let mut direction = 0;
-            while direction < 4 {
-                
+        let mut direction = 0;
+        while direction < 8 {
+            let set_idx = direction % 4;
+            let set = if direction < 4 { &ROOK_RAYS } else { &BISHOP_RAYS };
+
+            let mut ray = set[i][set_idx];
+            while ray > 0 {
+                let sq = if use_trailing_zeros[direction] { ray.trailing_zeros() } else { ray.leading_zeros() } as usize;
+                ray &= !BIT_SQUARES[sq];
+
+                data[i][sq] = ray;
             }
 
-            rays_set += 1;
+            direction += 1;
         }
 
         i += 1;
@@ -142,3 +147,22 @@ const fn generate_between_squares_table() -> [[u64; 64]; 64] {
 
     data
 }
+
+/// Code copied from https://www.chessprogramming.org/Square_Attacked_By#Pure_Calculation
+/// It is magic I do not understand, but seems to work. Comments are original.
+const fn squares_in_between(sq1: u64, sq2: u64) -> u64 {
+    let m1   = u64::MAX;
+    let a2a7 = 0x0001010101010100;
+    let b2g7 = 0x0040201008040200;
+    let h1b7 = 0x0002040810204080; /* Thanks Dustin, g2b7 did not work for c1-a3 */
+ 
+    let btwn  = (m1 << sq1) ^ (m1 << sq2);
+    let file  =   (sq2 & 7).wrapping_sub(sq1   & 7);
+    let rank  =  ((sq2 | 7).wrapping_sub(sq1)) >> 3 ;
+    let mut line  =      (   (file  &  7).wrapping_sub(1)) & a2a7; /* a2a7 if same file */
+    line += 2 * ((   (rank  &  7).wrapping_sub(1)) >> 58); /* b1g1 if same rank */
+    line += (((rank.wrapping_sub(file)) & 15).wrapping_sub(1)) & b2g7; /* b2g7 if same diagonal */
+    line += (((rank.wrapping_add(file)) & 15).wrapping_sub(1)) & h1b7; /* h1b7 if same antidiag */
+    line = line.wrapping_mul(btwn & (!btwn).overflowing_add(1).0); /* mul acts like shift by smaller square */
+    return line & btwn;   /* return the bits on that line in-between */
+ }
