@@ -169,7 +169,7 @@ impl<'a> Searcher<'a> {
         let cutoff;
         match target_dur {
             Some(d) => {
-                cutoff = Some(d.mul_f32(if use_stricter_cutoff { 0.4 } else { 0.5 }));
+                cutoff = Some(d.mul_f32(if use_stricter_cutoff { 0.3 } else { 0.5 }));
                 self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.1)).unwrap());
             }
             None => {
