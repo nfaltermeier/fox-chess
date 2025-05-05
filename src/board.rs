@@ -262,7 +262,7 @@ impl Board {
 
             match chars[1] {
                 '3' | '6' => {
-                    ep_square_index += 8 * chars[1].to_digit(10).unwrap() as u8;
+                    ep_square_index += 8 * (chars[1].to_digit(10).unwrap() as u8 - 1);
                 }
                 _ => {
                     return Err(format!(
