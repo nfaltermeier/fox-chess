@@ -1,7 +1,7 @@
 use std::{
     cmp::{Ordering, Reverse},
     i16, iter,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use log::{debug, error};
@@ -89,6 +89,7 @@ impl<'a> Searcher<'a> {
         let mut target_dur = None;
         let search_control: SearchControl;
         let mut max_depth = 40;
+        let use_stricter_cutoff;
 
         if let Some(t) = time {
             match t {
@@ -117,20 +118,30 @@ impl<'a> Searcher<'a> {
                     } else {
                         40
                     };
-                    target_dur = Some(time_left
+
+                    let time_left = time_left
                         .as_ref()
                         .unwrap()
                         .to_std()
-                        .unwrap()
-                        .checked_div(divisor)
-                        .unwrap()
-                        .saturating_add(increment.unwrap_or_default().to_std().unwrap().mul_f32(0.7)));
+                        .unwrap();
+                    target_dur = Some(time_left.checked_div(divisor).unwrap());
+
+                    if let Some(inc) = increment {
+                        let inc = inc.to_std().unwrap();
+
+                        target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
+
+                        use_stricter_cutoff = inc.abs_diff(time_left) < inc;
+                    } else {
+                        use_stricter_cutoff = time_left < Duration::from_secs(5);
+                    }
 
                     search_control = SearchControl::Time;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
                     target_dur = Some(time_delta.to_std().unwrap());
                     search_control = SearchControl::Time;
+                    use_stricter_cutoff = true;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
@@ -149,6 +160,7 @@ impl<'a> Searcher<'a> {
                 error!("Unsupported search option passed to go, use depth.");
                 unimplemented!("Unsupported search option passed to go, use depth.");
             }
+            use_stricter_cutoff = false;
         } else {
             error!("One of search or time is required to be passed to go.");
             panic!("One of search or time is required to be passed to go.");
@@ -157,7 +169,7 @@ impl<'a> Searcher<'a> {
         let cutoff;
         match target_dur {
             Some(d) => {
-                cutoff = Some(d.mul_f32(0.5));
+                cutoff = Some(d.mul_f32(if use_stricter_cutoff { 0.4 } else { 0.5 }));
                 self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.1)).unwrap());
             }
             None => {
