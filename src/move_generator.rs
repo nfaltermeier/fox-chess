@@ -4,7 +4,7 @@ use log::{debug, error, info, log_enabled, trace};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, SQUARES_BETWEEN, BIT_SQUARES},
+    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one, south_west_one, BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN},
     board::{
         piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
         CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
@@ -77,7 +77,11 @@ impl Board {
         &mut self,
         history_table: &HistoryTable,
     ) -> Vec<ScoredMove> {
-        let mut moves = self.generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(history_table);
+        let moves = self.generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(history_table);
+        self.filter_to_legal_moves(moves)
+    }
+
+    fn filter_to_legal_moves(&mut self, mut moves: Vec<ScoredMove>) -> Vec<ScoredMove> {
         let mut rollback = MoveRollback::default();
         let mut board_copy = None;
         if ENABLE_UNMAKE_MOVE_TEST {
@@ -493,28 +497,193 @@ impl Board {
                 |sq| (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask,
             );
 
-            let pawn_direction = if self.white_to_move { 8 } else { -8 };
-
-            // En passant
-            if let Some(ep_target_64) = self.en_passant_target_square_index {
-                if move_to_mask & BIT_SQUARES[ep_target_64.checked_add_signed(-(pawn_direction as i8)).unwrap() as usize] != 0 {
-                    let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
-                    let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
-                    while takers != 0 {
-                        let from = bitscan_forward_and_reset(&mut takers) as u8;
+            if self.piece_bitboards[self_side][PIECE_PAWN as usize] != 0 {
+                let pawns = self.piece_bitboards[self_side][PIECE_PAWN as usize];
     
-                        result.push(ScoredMove {
-                            m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
-                            score: MOVE_SCORE_CAPTURE,
-                        });
+                // Pawn captures
+                for round in 0..2 {
+                    let mut moves;
+                    let offset;
+                    if self.white_to_move {
+                        match round {
+                            0 => {
+                                moves = north_east_one(pawns);
+                                offset = -9;
+                            }
+                            1 => {
+                                moves = north_west_one(pawns);
+                                offset = -7;
+                            }
+                            _ => panic!(),
+                        }
+                    } else {
+                        match round {
+                            0 => {
+                                moves = south_east_one(pawns);
+                                offset = 7;
+                            }
+                            1 => {
+                                moves = south_west_one(pawns);
+                                offset = 9;
+                            }
+                            _ => panic!(),
+                        }
+                    }
+    
+                    moves &= self.side_occupancy[other_side];
+                    moves &= move_to_mask;
+                    self.add_pawn_moves::<false, true, false, false>(
+                        moves,
+                        offset,
+                        &mut result,
+                        self_side,
+                        history_table,
+                    );
+                    self.add_pawn_moves::<false, true, true, false>(
+                        moves,
+                        offset,
+                        &mut result,
+                        self_side,
+                        history_table,
+                    );
+                }
+    
+                let mut moves;
+                let mut offset;
+                if self.white_to_move {
+                    moves = north_one(pawns);
+                    offset = -8;
+                } else {
+                    moves = south_one(pawns);
+                    offset = 8;
+                }
+
+                moves &= !self.occupancy;
+                let masked_moves = moves & move_to_mask;
+                self.add_pawn_moves::<true, false, false, false>(
+                    masked_moves,
+                    offset,
+                    &mut result,
+                    self_side,
+                    history_table,
+                );
+                self.add_pawn_moves::<true, false, true, false>(
+                    masked_moves,
+                    offset,
+                    &mut result,
+                    self_side,
+                    history_table,
+                );
+
+                if self.white_to_move {
+                    // The pawns have already been shifted forward once so mask to only ranks 3 and 6 instead of 2 and 7
+                    moves &= RANK_3;
+                    moves = north_one(moves);
+                    offset = -16;
+                } else {
+                    moves &= RANK_6;
+                    moves = south_one(moves);
+                    offset = 16;
+                }
+
+                moves &= !self.occupancy;
+                moves &= move_to_mask;
+                self.add_pawn_moves::<true, false, false, true>(
+                    moves,
+                    offset,
+                    &mut result,
+                    self_side,
+                    history_table,
+                );
+
+                // En passant
+                if let Some(ep_target_64) = self.en_passant_target_square_index {
+                    if move_to_mask & BIT_SQUARES[ep_target_64.checked_add_signed(if self.white_to_move { -8 } else { 8 }).unwrap() as usize] != 0 {
+                        let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
+                        let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
+                        while takers != 0 {
+                            let from = bitscan_forward_and_reset(&mut takers) as u8;
+        
+                            result.push(ScoredMove {
+                                m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
+                                score: MOVE_SCORE_CAPTURE,
+                            });
+                        }
                     }
                 }
             }
-
-            // TODO: shift from the move_to_mask and see if that intersects our pawns
         }
 
         result
+    }
+
+    fn add_pawn_moves<const USE_HISTORY: bool, const CAPTURES: bool, const PROMOS: bool, const DOUBLE_PUSH: bool>(
+        &self,
+        mut to_squares: u64,
+        offset: i8,
+        result: &mut Vec<ScoredMove>,
+        side: usize,
+        history_table: &HistoryTable,
+    ) {
+        if PROMOS {
+            to_squares &= (RANK_1 | RANK_8);
+        } else {
+            to_squares &= !(RANK_1 | RANK_8);
+        }
+
+        while to_squares != 0 {
+            let to = bitscan_forward_and_reset(&mut to_squares) as u8;
+            let from = to.checked_add_signed(offset).unwrap();
+
+            let score = if !CAPTURES {
+                MOVE_SCORE_QUIET
+                    + if USE_HISTORY {
+                        history_table[side][PIECE_PAWN as usize - 1][to as usize]
+                    } else {
+                        0
+                    }
+            } else {
+                let target_piece = self.get_piece_64(to as usize);
+                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
+                    - CENTIPAWN_VALUES[PIECE_PAWN as usize]
+            };
+
+            if !PROMOS {
+                result.push(ScoredMove {
+                    m: Move::new(
+                        from,
+                        to,
+                        if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 } | if DOUBLE_PUSH { MOVE_DOUBLE_PAWN } else { 0 },
+                    ),
+                    score,
+                });
+            } else {
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_QUEEN | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                ));
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_ROOK | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                ));
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_BISHOP | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                ));
+                result.push(ScoredMove::new(
+                    from,
+                    to,
+                    MOVE_PROMO_KNIGHT | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
+                    score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                ));
+            }
+        }
     }
 
     /// If the move is legal then the move will have been made.
@@ -743,5 +912,52 @@ impl ScoredMove {
             m: Move::new(from_square_index, to_square_index, flags),
             score,
         }
+    }
+}
+
+#[cfg(test)]
+mod check_evasion_tests {
+    use super::*;
+    use crate::initialize_magic_bitboards;
+    use std::sync::OnceLock;
+
+    static CELL: OnceLock<bool> = OnceLock::new();
+
+    macro_rules! check_evasion_tests_legal_moves {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    CELL.get_or_init(|| {
+                        initialize_magic_bitboards();
+                        true
+                    });
+
+                    let mut board = Board::from_fen(input).unwrap();
+                    let moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
+                    let legal_moves = board.filter_to_legal_moves(moves);
+
+                    assert_eq!(expected, legal_moves.len());
+                }
+            )*
+        }
+    }
+
+    check_evasion_tests_legal_moves! {
+        guarded_pawn: ("k7/8/2p5/3p4/4K3/8/8/8 w - - 0 1", 7),
+        block_or_take_rook: ("k7/8/4B3/8/r3K3/3P4/Q1N5/8 w - - 0 1", 11),
+        double_check: ("k7/7b/4B3/8/r3K3/3P4/Q1N5/8 w - - 0 1", 4),
+        pawns_use_correct_direction_white: ("k7/8/8/3p1p2/r3K3/4P3/8/8 w - - 0 1", 5),
+        pawns_use_correct_direction_black: ("K7/8/8/3P1P2/R3k3/4p3/8/8 b - - 0 1", 5),
+        en_passant_white: ("k7/8/2p5/3pP3/4K3/8/8/8 w - d6 0 1", 7),
+        en_passant_black: ("K7/8/8/4k3/3Pp3/2P5/8/8 b - d3 0 1", 7),
+        promotion_white: ("K5r1/5P2/8/4k3/8/8/8/8 w - - 0 1", 10),
+        promotion_black: ("8/8/8/8/4K3/8/5p2/k5R1 b - - 0 1", 10),
+        pawn_double_move_white: ("8/8/3k4/8/3K3r/8/5P2/8 w - - 0 1", 4),
+        pawn_double_move_black: ("8/5p2/8/3k3R/8/3K4/8/8 b - - 0 1", 4),
+        pawn_block_or_take_white: ("k2r4/8/8/7r/1r2K3/2P4r/8/5r2 w - - 0 1", 2),
+        pawn_block_or_take_black: ("K2R4/8/2p4R/1R2k3/7R/8/8/5R2 b - - 0 1", 2),
     }
 }

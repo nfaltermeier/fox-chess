@@ -7,6 +7,8 @@ pub const G_FILE: u64 = 0x4040404040404040;
 pub const H_FILE: u64 = 0x8080808080808080;
 pub const RANK_1: u64 = 0x00000000000000FF;
 pub const RANK_2: u64 = 0x000000000000FF00;
+pub const RANK_3: u64 = 0x0000000000FF0000;
+pub const RANK_6: u64 = 0x0000FF0000000000;
 pub const RANK_7: u64 = 0x00FF000000000000;
 pub const RANK_8: u64 = 0xFF00000000000000;
 pub const LIGHT_SQUARES: u64 = 0x55AA55AA55AA55AA;
@@ -66,7 +68,7 @@ const fn generate_pawn_attack(pawn_position: u64, white: bool) -> u64 {
     }
 }
 
-const fn north_one(board: u64) -> u64 {
+pub const fn north_one(board: u64) -> u64 {
     board << 8
 }
 
@@ -74,7 +76,7 @@ const fn east_one(board: u64) -> u64 {
     (board << 1) & !A_FILE
 }
 
-const fn south_one(board: u64) -> u64 {
+pub const fn south_one(board: u64) -> u64 {
     board >> 8
 }
 
@@ -82,19 +84,19 @@ const fn west_one(board: u64) -> u64 {
     (board >> 1) & !H_FILE
 }
 
-const fn north_east_one(board: u64) -> u64 {
+pub const fn north_east_one(board: u64) -> u64 {
     (board << 9) & !A_FILE
 }
 
-const fn south_east_one(board: u64) -> u64 {
+pub const fn south_east_one(board: u64) -> u64 {
     (board >> 7) & !A_FILE
 }
 
-const fn south_west_one(board: u64) -> u64 {
+pub const fn south_west_one(board: u64) -> u64 {
     (board >> 9) & !H_FILE
 }
 
-const fn north_west_one(board: u64) -> u64 {
+pub const fn north_west_one(board: u64) -> u64 {
     (board << 7) & !H_FILE
 }
 
