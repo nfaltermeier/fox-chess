@@ -124,7 +124,7 @@ impl<'a> Searcher<'a> {
                         .unwrap()
                         .checked_div(divisor)
                         .unwrap()
-                        .saturating_add(increment.unwrap_or_default().to_std().unwrap()));
+                        .saturating_add(increment.unwrap_or_default().to_std().unwrap().mul_f32(0.8)));
 
                     search_control = SearchControl::Time;
                 }
