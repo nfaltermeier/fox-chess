@@ -59,6 +59,7 @@ pub struct Searcher<'a> {
     history_table: &'a mut HistoryTable,
     starting_halfmove: u8,
     cancel_search_at: Option<Instant>,
+    starting_in_check: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -77,6 +78,7 @@ impl<'a> Searcher<'a> {
             history_table,
             starting_halfmove,
             cancel_search_at: None,
+            starting_in_check: false,
         }
     }
 
@@ -90,6 +92,10 @@ impl<'a> Searcher<'a> {
         let search_control: SearchControl;
         let mut max_depth = 40;
         let use_stricter_cutoff;
+
+        self.board.white_to_move = !self.board.white_to_move;
+        self.starting_in_check = self.board.can_capture_opponent_king(false);
+        self.board.white_to_move = !self.board.white_to_move;
 
         if let Some(t) = time {
             match t {
@@ -286,7 +292,11 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
-                moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
+                if !self.starting_in_check {
+                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
+                } else {
+                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
+                }
 
                 moves.sort_unstable_by_key(|m| Reverse(m.score));
             } else {
@@ -340,10 +350,10 @@ impl<'a> Searcher<'a> {
 
         self.board.white_to_move = !self.board.white_to_move;
         let in_check = self.board.can_capture_opponent_king(false);
+        self.board.white_to_move = !self.board.white_to_move;
         if in_check {
             draft += 1;
         }
-        self.board.white_to_move = !self.board.white_to_move;
 
         if draft == 0 {
             self.stats.leaf_nodes += 1;
@@ -543,7 +553,11 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
-                moves = self.board.generate_pseudo_legal_moves_with_history(&self.history_table);
+                if !in_check {
+                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
+                } else {
+                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
+                }
 
                 if killers[0] != EMPTY_MOVE {
                     let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
@@ -577,11 +591,7 @@ impl<'a> Searcher<'a> {
 
         // Assuming no bug with move generation...
         if !found_legal_move {
-            self.board.white_to_move = !self.board.white_to_move;
-            let is_check = self.board.can_capture_opponent_king(false);
-            self.board.white_to_move = !self.board.white_to_move;
-
-            if is_check {
+            if in_check {
                 return Some(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
                 return Some(0);
