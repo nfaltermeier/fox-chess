@@ -729,6 +729,7 @@ impl Board {
         (result, true)
     }
 
+    #[inline]
     pub fn is_in_check(&mut self, is_legality_test_after_move: bool) -> bool {
         self.white_to_move = !self.white_to_move;
         let result = self.can_capture_opponent_king(is_legality_test_after_move);
