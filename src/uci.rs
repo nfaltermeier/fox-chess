@@ -87,6 +87,8 @@ impl UciInterface {
                         }
                     }
 
+                    println!("board size is {}", size_of_val(self.board.as_ref().unwrap()));
+
                     if !moves.is_empty() && self.board.is_some() {
                         debug!("running {} moves", moves.len());
                         let mapped = moves.iter().map(|m| {

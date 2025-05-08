@@ -13,6 +13,7 @@ use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 use moves::{square_indices_to_moves, Move, MoveRollback};
 use search::{SearchResult, Searcher, DEFAULT_HISTORY_TABLE};
+use texel::{find_scaling_constant, load_positions};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
@@ -27,6 +28,7 @@ mod repetition_tracker;
 mod search;
 mod transposition_table;
 mod uci;
+mod texel;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -53,7 +55,10 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    run_uci();
+    let positions = load_positions("texel_positions.txt");
+    find_scaling_constant(positions);
+
+    // run_uci();
 
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");

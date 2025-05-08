@@ -8,7 +8,8 @@ use crate::{
     moves::Move,
 };
 
-const TABLE_LOG_2_SIZE: usize = 14;
+// Repetition tracking is not needed when only doing quiescense for texel tuning
+const TABLE_LOG_2_SIZE: usize = 0;
 const MAX_MOVE_HISTORY: usize = 201;
 const TABLE_MASK: u64 = (1 << TABLE_LOG_2_SIZE) - 1;
 
