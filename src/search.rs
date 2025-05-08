@@ -93,9 +93,7 @@ impl<'a> Searcher<'a> {
         let mut max_depth = 40;
         let use_stricter_cutoff;
 
-        self.board.white_to_move = !self.board.white_to_move;
-        self.starting_in_check = self.board.can_capture_opponent_king(false);
-        self.board.white_to_move = !self.board.white_to_move;
+        self.starting_in_check = self.board.is_in_check(false);
 
         if let Some(t) = time {
             match t {
@@ -348,9 +346,7 @@ impl<'a> Searcher<'a> {
             return Some(0);
         }
 
-        self.board.white_to_move = !self.board.white_to_move;
-        let in_check = self.board.can_capture_opponent_king(false);
-        self.board.white_to_move = !self.board.white_to_move;
+        let in_check = self.board.is_in_check(false);
         if in_check {
             draft += 1;
         }
