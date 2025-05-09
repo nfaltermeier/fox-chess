@@ -133,9 +133,13 @@ impl<'a> Searcher<'a> {
                     if let Some(inc) = increment {
                         let inc = inc.to_std().unwrap();
 
-                        target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
+                        if time_left > inc {
+                            target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
 
-                        use_stricter_cutoff = inc.abs_diff(time_left) < inc;
+                            use_stricter_cutoff = inc.abs_diff(time_left) < inc;
+                        } else {
+                            use_stricter_cutoff = time_left < Duration::from_secs(5);
+                        }
                     } else {
                         use_stricter_cutoff = time_left < Duration::from_secs(5);
                     }
