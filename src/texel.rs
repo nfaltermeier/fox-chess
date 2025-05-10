@@ -138,16 +138,14 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
         }
 
         let c2_index = line.find("c2");
-        if c2_index.is_none() {
-            panic!("Could not find c2, possibly a malformed line: {}", line);
-        }
-        let c2_index = c2_index.unwrap();
+        // The first positions are when it left book but they lack a comment
+        if let Some(c2_index) = c2_index {
+            let c2 = &line[c2_index..];
 
-        let c2 = &line[c2_index..];
-
-        // If forced mate was found or evaluation was skipped because only one move was possible (which may indicate the player is being mated)
-        if c2.contains("M") || c2.contains("/1") {
-            continue;
+            // If forced mate was found or evaluation was skipped because only one move was possible (which may indicate the player is being mated)
+            if c2.contains("M") || c2.contains("/1") {
+                continue;
+            }
         }
 
         let c0_index = line.find("c0");

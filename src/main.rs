@@ -55,7 +55,7 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    let positions = load_positions("texel_positions.txt");
+    let positions = load_positions("janfiltered-positions.txt");
     find_scaling_constant(positions);
     // find_best_params(positions);
 
