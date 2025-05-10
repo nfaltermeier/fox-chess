@@ -318,12 +318,11 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         }
 
         count += 1;
-        println!("Saving, error: {best_error}, iterations: {count}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+        println!("Saving, error: {best_error}, iterations: {count}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
         save_params(&params);
     }
 
-    println!("Regression done, error: {best_error}, iterations: {count}");
-    save_params(&params);
+    println!("Regression done");
 }
 
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
