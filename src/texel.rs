@@ -188,7 +188,7 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
     let mut evals = vec![];
     evals.reserve_exact(positions.len());
     let mut history = DEFAULT_HISTORY_TABLE.clone();
-    let mut transposition = TranspositionTable::new(1);
+    let mut transposition = TranspositionTable::new(2);
 
     for mut p in positions {
         let mut searcher = Searcher::new(&mut p.board, &mut transposition, &mut history);
@@ -234,7 +234,7 @@ fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 
 pub fn find_best_params(mut positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS.clone();
     let mut history = DEFAULT_HISTORY_TABLE.clone();
-    let mut transposition = TranspositionTable::new(1);
+    let mut transposition = TranspositionTable::new(2);
 
     let scaling_constant = 1.0;
     let mut best_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
