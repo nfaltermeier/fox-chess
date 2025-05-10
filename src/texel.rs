@@ -1,6 +1,9 @@
 use std::{fs::File, io::{BufRead, BufReader}, time::{Instant, SystemTime, UNIX_EPOCH}};
 use std::io::Write;
 
+#[allow(internal_features)]
+use std::intrinsics::fadd_algebraic;
+
 use crate::{board::Board, moves::MoveRollback, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
 
 pub struct TexelPosition {
@@ -194,7 +197,7 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
         evals.push((p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 }));
     }
 
-    let mut scaling_constant = 1.15;
+    let mut scaling_constant = 1.06;
     let mut best_error = find_error_from_evals(&evals, scaling_constant);
 
     let mut improving = true;
@@ -222,19 +225,21 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
 }
 
 fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 {
-    let mut sum = 0.0;
+    let mut errors = vec![];
+    errors.reserve_exact(evals.len());
 
     for e in evals {
-        sum += (e.0 - sigmoid(e.1, scaling_constant)).powi(2);
+        let val_sqrt = e.0 - sigmoid(e.1, scaling_constant);
+        errors.push(val_sqrt * val_sqrt);
     }
 
-    sum / evals.len() as f32
+    sum_orlp(&errors[..]) / evals.len() as f32
 }
 
 pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS.clone();
 
-    let scaling_constant = 1.15;
+    let scaling_constant = 1.06;
     let mut best_error = f32::NAN;
 
     let mut improving = true;
@@ -323,20 +328,24 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 }
 
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
-    let mut sum = 0.0;
+    let mut errors = vec![];
+    errors.reserve_exact(positions.len());
+
     let mut rollback = MoveRollback::default();
 
     for p in &mut *positions {
         let eval = (p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback).0  * if p.board.white_to_move { 1 } else { -1 }) as f32;
         let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-        sum += val_sqrt * val_sqrt;
+        errors.push(val_sqrt * val_sqrt);
     }
 
-    sum / positions.len() as f32
+    sum_orlp(&errors[..]) / positions.len() as f32
 }
 
 fn find_quiet_positions_and_error(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> (f32, Vec<TexelPosition>) {
-    let mut sum = 0.0;
+    let mut errors = vec![];
+    errors.reserve_exact(positions.len());
+
     let mut rollback = MoveRollback::default();
     let mut quiet_positions = vec![];
     quiet_positions.reserve_exact(positions.len());
@@ -350,23 +359,24 @@ fn find_quiet_positions_and_error(positions: &mut Vec<TexelPosition>, params: &[
 
         let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
         let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-        sum += val_sqrt * val_sqrt;
+        errors.push(val_sqrt * val_sqrt);
     }
 
-    (sum / positions.len() as f32, quiet_positions)
+    (sum_orlp(&errors[..]) / positions.len() as f32, quiet_positions)
 }
 
 
 fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
-    let mut sum = 0.0;
+    let mut errors = vec![];
+    errors.reserve_exact(quiet_positions.len());
 
     for p in quiet_positions {
         let eval = p.board.evaluate(params) as f32;
         let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-        sum += val_sqrt * val_sqrt;
+        errors.push(val_sqrt * val_sqrt);
     }
 
-    sum / quiet_positions.len() as f32
+    sum_orlp(&errors[..]) / quiet_positions.len() as f32
 }
 
 fn save_params(params: &[i16; 776]) {
@@ -380,4 +390,23 @@ fn save_params(params: &[i16; 776]) {
             write!(f, "{v},").unwrap();
         }
     }
+}
+
+// Summing floats can be surprisingly complicated. These methods are taken from https://orlp.net/blog/taming-float-sums/
+// which has a lovely writeup on the issue and solutions
+fn sum_block(arr: &[f32]) -> f32 {
+    arr.iter().fold(0.0, |x, y| fadd_algebraic(x, *y))
+}
+
+pub fn sum_orlp(arr: &[f32]) -> f32 {
+    let mut chunks = arr.chunks_exact(256);
+    let mut sum = 0.0;
+    let mut c = 0.0;
+    for chunk in &mut chunks {
+        let y = sum_block(chunk) - c;
+        let t = sum + y;
+        c = (t - sum) - y;
+        sum = t;
+    }
+    sum + (sum_block(chunks.remainder()) - c)
 }

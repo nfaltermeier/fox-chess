@@ -1,3 +1,5 @@
+#![feature(core_intrinsics)]
+
 use std::{
     cmp::Reverse,
     io,
@@ -56,8 +58,8 @@ fn main() {
     }
 
     let positions = load_positions("janfiltered-positions.txt");
-    // find_scaling_constant(positions);
-    find_best_params(positions);
+    find_scaling_constant(positions);
+    // find_best_params(positions);
 
     // run_uci();
 
