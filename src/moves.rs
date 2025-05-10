@@ -160,7 +160,7 @@ impl std::fmt::Debug for Move {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MoveRollback {
     // Only added when a piece is actually captured
     pub captured_pieces: Vec<u8>,

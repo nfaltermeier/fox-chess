@@ -184,16 +184,15 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
     result
 }
 
-fn sigmoid(eval: f32, scaling_contant: f32) -> f32 {
-    let exp = -eval * scaling_contant / 400.0;
+fn sigmoid(eval: f32, scaling_constant: f32) -> f32 {
+    let exp = -eval * scaling_constant / 400.0;
     1.0 / (1.0 + 10.0_f32.powf(exp))
 }
 
 pub fn find_scaling_constant(mut positions: Vec<TexelPosition>) {
     let evals = positions.par_iter_mut()
-        .map(|p| {
-            let mut rollback = MoveRollback::default();
-            let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, &mut rollback).0 as f32;
+        .map_with(MoveRollback::default(), |r, p| {
+            let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, r).0 as f32;
             (p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 })
         })
         .collect::<Vec<(f32, f32)>>();
@@ -328,55 +327,49 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 }
 
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
-    let mut errors = vec![];
-    errors.reserve_exact(positions.len());
+    let errors = positions.par_iter_mut()
+        .map_with(MoveRollback::default(), |r, p| {
+            let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
 
-    let mut rollback = MoveRollback::default();
-
-    for p in &mut *positions {
-        let eval = (p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback).0  * if p.board.white_to_move { 1 } else { -1 }) as f32;
-        let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-        errors.push(val_sqrt * val_sqrt);
-    }
+            let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
+            let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+            val_sqrt * val_sqrt
+        })
+        .collect::<Vec<f32>>();
 
     sum_orlp(&errors[..]) / positions.len() as f32
 }
 
 fn find_quiet_positions_and_error(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> (f32, Vec<TexelPosition>) {
-    let mut errors = vec![];
-    errors.reserve_exact(positions.len());
-
-    let mut rollback = MoveRollback::default();
     let mut quiet_positions = vec![];
-    quiet_positions.reserve_exact(positions.len());
+    let mut errors = vec![];
 
-    for p in &mut *positions {
-        let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback);
-        quiet_positions.push(TexelPosition {
-            board: result.1,
-            result: p.result,
-        });
+    positions.par_iter_mut()
+        .map_with(MoveRollback::default(), |r, p| {
+            let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
+            let qp = TexelPosition {
+                board: result.1,
+                result: p.result,
+            };
 
-        let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
-        let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-        errors.push(val_sqrt * val_sqrt);
-    }
+            let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
+            let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+            (qp, val_sqrt * val_sqrt)
+        })
+        .unzip_into_vecs(&mut quiet_positions, &mut errors);
 
     (sum_orlp(&errors[..]) / positions.len() as f32, quiet_positions)
 }
 
-
 fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
-    let mut errors = vec![];
-    errors.reserve_exact(quiet_positions.len());
+    let errors = quiet_positions.par_iter()
+        .map(|p| {
+            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f32, scaling_constant);
+            val_sqrt * val_sqrt
+        })
+        .collect::<Vec<f32>>();
 
-    for p in quiet_positions {
-        let eval = p.board.evaluate(params) as f32;
-        let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-        errors.push(val_sqrt * val_sqrt);
-    }
-
-    sum_orlp(&errors[..]) / quiet_positions.len() as f32
+    sum_orlp(&errors[..]) / errors.len() as f32
 }
 
 fn save_params(params: &[i16; 776]) {
