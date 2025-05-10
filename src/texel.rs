@@ -247,8 +247,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     while improving {
         improving = false;
 
-        let quiet_positions;
-        (best_error, quiet_positions) = find_quiet_positions_and_error(&mut nonquiet_positions, &params, scaling_constant);
+        let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
+        best_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
         println!("Starting new loop, new best error is {best_error}");
 
         for i in 0..params.len() {
@@ -355,25 +355,16 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 77
     sum_orlp(&errors[..]) / positions.len() as f32
 }
 
-fn find_quiet_positions_and_error(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> (f32, Vec<TexelPosition>) {
-    let mut quiet_positions = vec![];
-    let mut errors = vec![];
-
+fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &[i16; 776]) -> Vec<TexelPosition> {
     positions.par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
             let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
-            let qp = TexelPosition {
+            TexelPosition {
                 board: result.1,
                 result: p.result,
-            };
-
-            let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
-            let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-            (qp, val_sqrt * val_sqrt)
+            }
         })
-        .unzip_into_vecs(&mut quiet_positions, &mut errors);
-
-    (sum_orlp(&errors[..]) / positions.len() as f32, quiet_positions)
+        .collect()
 }
 
 fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
@@ -384,7 +375,8 @@ fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: 
         })
         .collect::<Vec<f32>>();
 
-    sum_orlp(&errors[..]) / errors.len() as f32
+    let sum = sum_orlp(&errors[..]);
+    sum / errors.len() as f32
 }
 
 fn save_params(params: &[i16; 776]) {
@@ -392,7 +384,7 @@ fn save_params(params: &[i16; 776]) {
     write!(f, "[").unwrap();
 
     for (i, v) in params.iter().enumerate() {
-        if i % 10 == 9 {
+        if i % 8 == 7 {
             writeln!(f, "{v},").unwrap();
         } else {
             write!(f, "{v},").unwrap();
