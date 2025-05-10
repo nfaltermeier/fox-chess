@@ -275,16 +275,20 @@ impl Board {
             board.en_passant_target_square_index = Some(ep_square_index);
         }
 
-        let hmc_result = fen_pieces[4].parse::<u8>();
-        match hmc_result {
-            Ok(hmc) => {
-                board.halfmove_clock = hmc;
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Encountered error while parsing halfmove counter value '{}' as u8: {}",
-                    fen_pieces[4], e
-                ));
+        if fen_pieces[4] == "" {
+            board.halfmove_clock = 0;
+        } else {
+            let hmc_result = fen_pieces[4].parse::<u8>();
+            match hmc_result {
+                Ok(hmc) => {
+                    board.halfmove_clock = hmc;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Encountered error while parsing halfmove counter value '{}' as u8: {}",
+                        fen_pieces[4], e
+                    ));
+                }
             }
         }
 
