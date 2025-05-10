@@ -196,7 +196,7 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
         evals.push((p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 }));
     }
 
-    let mut scaling_constant = 1.0;
+    let mut scaling_constant = 1.1;
     let mut best_error = find_error_from_evals(&evals, scaling_constant);
 
     let mut improving = true;
@@ -214,6 +214,8 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
             if new_error < best_error {
                 best_error = new_error;
                 improving = true;
+            } else {
+                scaling_constant += 0.01;
             }
         }
     }
