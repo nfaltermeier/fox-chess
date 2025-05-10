@@ -1,7 +1,7 @@
 use std::{fs::File, io::{BufRead, BufReader}, time::{Instant, SystemTime, UNIX_EPOCH}};
 use std::io::Write;
 
-use crate::{board::Board, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
+use crate::{board::Board, moves::MoveRollback, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
 
 pub struct TexelPosition {
     pub board: Board,
@@ -187,16 +187,14 @@ fn sigmoid(eval: f32, scaling_contant: f32) -> f32 {
 pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
     let mut evals = vec![];
     evals.reserve_exact(positions.len());
-    let mut history = DEFAULT_HISTORY_TABLE.clone();
-    let mut transposition = TranspositionTable::new(2);
+    let mut rollback = MoveRollback::default();
 
     for mut p in positions {
-        let mut searcher = Searcher::new(&mut p.board, &mut transposition, &mut history);
-        let eval = searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS) as f32;
+        let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, &mut rollback).0 as f32;
         evals.push((p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 }));
     }
 
-    let mut scaling_constant = 1.1;
+    let mut scaling_constant = 1.15;
     let mut best_error = find_error_from_evals(&evals, scaling_constant);
 
     let mut improving = true;
@@ -235,52 +233,97 @@ fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 
 
 pub fn find_best_params(mut positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS.clone();
-    let mut history = DEFAULT_HISTORY_TABLE.clone();
-    let mut transposition = TranspositionTable::new(2);
 
-    let scaling_constant = 1.0;
-    let mut best_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
+    let scaling_constant = 1.15;
+    let mut best_error = search_error_for_params(&mut positions, &params, scaling_constant);
 
     let mut improving = true;
-    let mut i = 0;
+    let mut count = 0;
+    let mut adjustments: u64 = 0;
     while improving {
         improving = false;
 
         for i in 0..params.len() {
             params[i] += 1;
-            let new_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
+            let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
             if new_error < best_error {
                 best_error = new_error;
                 improving = true;
+                adjustments += 1;
+
+                if adjustments % 1000 == 999 {
+                    println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                    save_params(&params);
+                }
+
+                let mut local_improving = true;
+                while local_improving {
+                    params[i] += 1;
+                    let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
+                    local_improving = new_error < best_error;
+                    if local_improving {
+                        best_error = new_error;
+                        adjustments += 1;
+
+                        if adjustments % 1000 == 999 {
+                            println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                            save_params(&params);
+                        }
+                    }
+                }
+
+                params[i] -= 1;
             } else {
                 params[i] -= 2;
-                let new_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
+                let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
                 if new_error < best_error {
                     best_error = new_error;
                     improving = true;
+                    adjustments += 1;
+
+                    if adjustments % 1000 == 999 {
+                        println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                        save_params(&params);
+                    }
+
+                    let mut local_improving = true;
+                    while local_improving {
+                        params[i] -= 1;
+                        let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
+                        local_improving = new_error < best_error;
+                        if local_improving {
+                            best_error = new_error;
+                            adjustments += 1;
+
+                            if adjustments % 1000 == 999 {
+                                println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                                save_params(&params);
+                            }
+                        }
+                    }
+
+                    params[i] += 1;
                 } else {
                     params[i] += 1;
                 }
             }
         }
 
-        i += 1;
-        if i % 10 == 0 {
-            println!("Saving, error: {best_error}, iterations: {i}, time: {}", humantime::format_rfc3339(SystemTime::now()));
-            save_params(&params);
-        }
+        count += 1;
+        println!("Saving, error: {best_error}, iterations: {count}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+        save_params(&params);
     }
 
-    println!("Regression done, error: {best_error}, iterations: {i}");
+    println!("Regression done, error: {best_error}, iterations: {count}");
     save_params(&params);
 }
 
-fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 776], history: &mut HistoryTable, tt: &mut TranspositionTable, scaling_constant: f32) -> f32 {
+fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
     let mut sum = 0.0;
+    let mut rollback = MoveRollback::default();
 
     for p in &mut *positions {
-        let mut searcher = Searcher::new(&mut p.board, tt, history);
-        let eval = searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params) as f32;
+        let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback).0 as f32;
         let val_sqrt = p.result - sigmoid(eval, scaling_constant);
         sum += val_sqrt * val_sqrt;
     }
@@ -289,7 +332,7 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 77
 }
 
 fn save_params(params: &[i16; 776]) {
-    let mut f = File::create(format!("paths/{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis())).unwrap();
+    let mut f = File::create(format!("params/{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis())).unwrap();
     write!(f, "[").unwrap();
 
     for (i, v) in params.iter().enumerate() {

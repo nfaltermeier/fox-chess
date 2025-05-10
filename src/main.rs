@@ -56,8 +56,8 @@ fn main() {
     }
 
     let positions = load_positions("janfiltered-positions.txt");
-    find_scaling_constant(positions);
-    // find_best_params(positions);
+    // find_scaling_constant(positions);
+    find_best_params(positions);
 
     // run_uci();
 
@@ -127,7 +127,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         } else {
             result = SearchResult {
                 best_move: r#move.m,
-                eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS) * if board.white_to_move { 1 } else { -1 },
+                eval: 0,
             };
         }
 
