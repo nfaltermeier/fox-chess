@@ -6,7 +6,7 @@ use std::intrinsics::fadd_algebraic;
 
 use rayon::prelude::*;
 
-use crate::{board::Board, moves::MoveRollback, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
+use crate::{board::{Board, PIECE_KING}, moves::MoveRollback, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
 
 pub struct TexelPosition {
     pub board: Board,
@@ -252,6 +252,22 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         println!("Starting new loop, new best error is {best_error}");
 
         for i in 0..params.len() {
+            // midgame pawns on first row
+            if i < 8
+                // midgame pawns on last row
+                || (i >= 56 && i < 64)
+                // endgame pawns on first row
+                || (i >= 6 * 64 && i < 8 + 6 * 64)
+                // endgame pawns on last row
+                || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
+                // None piece centipawn value
+                || i == EP_PIECE_VALUES_IDX
+                // King centipawn value
+                || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
+            {
+                continue;
+            }
+
             params[i] += 1;
             let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
             if new_error < best_error {
