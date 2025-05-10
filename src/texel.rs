@@ -4,6 +4,8 @@ use std::io::Write;
 #[allow(internal_features)]
 use std::intrinsics::fadd_algebraic;
 
+use rayon::prelude::*;
+
 use crate::{board::Board, moves::MoveRollback, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
 
 pub struct TexelPosition {
@@ -187,15 +189,14 @@ fn sigmoid(eval: f32, scaling_contant: f32) -> f32 {
     1.0 / (1.0 + 10.0_f32.powf(exp))
 }
 
-pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
-    let mut evals = vec![];
-    evals.reserve_exact(positions.len());
-    let mut rollback = MoveRollback::default();
-
-    for mut p in positions {
-        let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, &mut rollback).0 as f32;
-        evals.push((p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 }));
-    }
+pub fn find_scaling_constant(mut positions: Vec<TexelPosition>) {
+    let evals = positions.par_iter_mut()
+        .map(|p| {
+            let mut rollback = MoveRollback::default();
+            let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, &mut rollback).0 as f32;
+            (p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 })
+        })
+        .collect::<Vec<(f32, f32)>>();
 
     let mut scaling_constant = 1.06;
     let mut best_error = find_error_from_evals(&evals, scaling_constant);
@@ -225,13 +226,12 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
 }
 
 fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 {
-    let mut errors = vec![];
-    errors.reserve_exact(evals.len());
-
-    for e in evals {
-        let val_sqrt = e.0 - sigmoid(e.1, scaling_constant);
-        errors.push(val_sqrt * val_sqrt);
-    }
+    let errors = evals.par_iter()
+        .map(|e| {
+            let val_sqrt = e.0 - sigmoid(e.1, scaling_constant);
+            val_sqrt * val_sqrt
+        })
+        .collect::<Vec<f32>>();
 
     sum_orlp(&errors[..]) / evals.len() as f32
 }

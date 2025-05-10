@@ -57,6 +57,8 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
+    rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
+
     let positions = load_positions("janfiltered-positions.txt");
     find_scaling_constant(positions);
     // find_best_params(positions);
