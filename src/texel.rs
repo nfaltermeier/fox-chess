@@ -231,11 +231,11 @@ fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 
     sum / evals.len() as f32
 }
 
-pub fn find_best_params(mut positions: Vec<TexelPosition>) {
+pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS.clone();
 
     let scaling_constant = 1.15;
-    let mut best_error = search_error_for_params(&mut positions, &params, scaling_constant);
+    let mut best_error = f32::NAN;
 
     let mut improving = true;
     let mut count = 0;
@@ -243,9 +243,13 @@ pub fn find_best_params(mut positions: Vec<TexelPosition>) {
     while improving {
         improving = false;
 
+        let quiet_positions;
+        (best_error, quiet_positions) = find_quiet_positions_and_error(&mut nonquiet_positions, &params, scaling_constant);
+        println!("Starting new loop, new best error is {best_error}");
+
         for i in 0..params.len() {
             params[i] += 1;
-            let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
+            let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
             if new_error < best_error {
                 best_error = new_error;
                 improving = true;
@@ -259,7 +263,7 @@ pub fn find_best_params(mut positions: Vec<TexelPosition>) {
                 let mut local_improving = true;
                 while local_improving {
                     params[i] += 1;
-                    let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
+                    let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
                     local_improving = new_error < best_error;
                     if local_improving {
                         best_error = new_error;
@@ -275,7 +279,7 @@ pub fn find_best_params(mut positions: Vec<TexelPosition>) {
                 params[i] -= 1;
             } else {
                 params[i] -= 2;
-                let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
+                let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
                 if new_error < best_error {
                     best_error = new_error;
                     improving = true;
@@ -289,7 +293,7 @@ pub fn find_best_params(mut positions: Vec<TexelPosition>) {
                     let mut local_improving = true;
                     while local_improving {
                         params[i] -= 1;
-                        let new_error = search_error_for_params(&mut positions, &params, scaling_constant);
+                        let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
                         local_improving = new_error < best_error;
                         if local_improving {
                             best_error = new_error;
@@ -323,12 +327,46 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 77
     let mut rollback = MoveRollback::default();
 
     for p in &mut *positions {
-        let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback).0 as f32;
+        let eval = (p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback).0  * if p.board.white_to_move { 1 } else { -1 }) as f32;
         let val_sqrt = p.result - sigmoid(eval, scaling_constant);
         sum += val_sqrt * val_sqrt;
     }
 
     sum / positions.len() as f32
+}
+
+fn find_quiet_positions_and_error(positions: &mut Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> (f32, Vec<TexelPosition>) {
+    let mut sum = 0.0;
+    let mut rollback = MoveRollback::default();
+    let mut quiet_positions = vec![];
+    quiet_positions.reserve_exact(positions.len());
+
+    for p in &mut *positions {
+        let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, &mut rollback);
+        quiet_positions.push(TexelPosition {
+            board: result.1,
+            result: p.result,
+        });
+
+        let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
+        let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+        sum += val_sqrt * val_sqrt;
+    }
+
+    (sum / positions.len() as f32, quiet_positions)
+}
+
+
+fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: &[i16; 776], scaling_constant: f32) -> f32 {
+    let mut sum = 0.0;
+
+    for p in quiet_positions {
+        let eval = p.board.evaluate(params) as f32;
+        let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+        sum += val_sqrt * val_sqrt;
+    }
+
+    sum / quiet_positions.len() as f32
 }
 
 fn save_params(params: &[i16; 776]) {
