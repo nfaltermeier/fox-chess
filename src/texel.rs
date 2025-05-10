@@ -1,11 +1,129 @@
-use std::{fs::File, io::{BufRead, BufReader}};
+use std::{fs::File, io::{BufRead, BufReader}, time::{Instant, SystemTime, UNIX_EPOCH}};
+use std::io::Write;
 
-use crate::{board::Board, search::{Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
+use crate::{board::Board, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable};
 
 pub struct TexelPosition {
     pub board: Board,
     pub result: f32,
 }
+
+pub const EP_PIECE_VALUES_IDX: usize = 768;
+pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
+pub static DEFAULT_PARAMS: [i16; 776] = [
+        // pawn midgame
+        0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        10, 10, 20, 30, 30, 20, 10, 10,
+        5,  5, 10, 25, 25, 10,  5,  5,
+        0,  0,  0, 20, 20,  0,  0,  0,
+        5, -5,-10,  0,  0,-10, -5,  5,
+        5, 10, 10,-20,-20, 10, 10,  5,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        // knight midgame
+        -50,-40,-30,-30,-30,-30,-40,-50,
+        -40,-20,  0,  0,  0,  0,-20,-40,
+        -30,  0, 10, 15, 15, 10,  0,-30,
+        -30,  5, 15, 20, 20, 15,  5,-30,
+        -30,  0, 15, 20, 20, 15,  0,-30,
+        -30,  5, 10, 15, 15, 10,  5,-30,
+        -40,-20,  0,  5,  5,  0,-20,-40,
+        -50,-40,-30,-30,-30,-30,-40,-50,
+        // bishop midgame
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        // rook midgame
+        0,  0,  0,  0,  0,  0,  0,  0,
+        5, 10, 10, 10, 10, 10, 10,  5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        0,  0,  0,  5,  5,  0,  0,  0,
+        // queen midgame
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        // king midgame
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30,
+        -20,-30,-30,-40,-40,-30,-30,-20,
+        -10,-20,-20,-20,-20,-20,-20,-10,
+        20, 20,  0,  0,  0,  0, 20, 20,
+        20, 30, 10,  0,  0, 10, 30, 20,
+        // pawn endgame
+        0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        30, 30, 30, 30, 30, 30, 30, 30,
+        20, 20, 20, 20, 20, 20, 20, 20,
+        10, 10, 10, 10, 10, 10, 10, 10,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        // knight endgame
+        -50,-40,-30,-30,-30,-30,-40,-50,
+        -40,-20,  0,  0,  0,  0,-20,-40,
+        -30,  0, 10, 15, 15, 10,  0,-30,
+        -30,  5, 15, 20, 20, 15,  5,-30,
+        -30,  0, 15, 20, 20, 15,  0,-30,
+        -30,  5, 10, 15, 15, 10,  5,-30,
+        -40,-20,  0,  5,  5,  0,-20,-40,
+        -50,-40,-30,-30,-30,-30,-40,-50,
+        // bishop endgame
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        // rook endgame
+        0,  0,  0,  0,  0,  0,  0,  0,
+        5, 10, 10, 10, 10, 10, 10,  5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        0,  0,  0,  5,  5,  0,  0,  0,
+        // queen endgame
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        // king endgame
+        -50,-40,-30,-20,-20,-30,-40,-50,
+        -30,-20,-10,  0,  0,-10,-20,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-30,  0,  0,  0,  0,-30,-30,
+        -50,-30,-30,-30,-30,-30,-30,-50,
+        // piece values
+        0, 100, 315, 350, 500, 900, 20000,
+        // doubled pawns
+        25
+    ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
     let mut result = vec![];
@@ -76,7 +194,7 @@ pub fn find_scaling_constant(positions: Vec<TexelPosition>) {
 
     for mut p in positions {
         let mut searcher = Searcher::new(&mut p.board, &mut transposition, &mut history);
-        let eval = searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255) as f32;
+        let eval = searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS) as f32;
         evals.push((p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 }));
     }
 
@@ -113,4 +231,72 @@ fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 
     }
 
     sum / evals.len() as f32
+}
+
+pub fn find_best_params(mut positions: Vec<TexelPosition>) {
+    let mut params = DEFAULT_PARAMS.clone();
+    let mut history = DEFAULT_HISTORY_TABLE.clone();
+    let mut transposition = TranspositionTable::new(1);
+
+    let scaling_constant = 1.0;
+    let mut best_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
+
+    let mut improving = true;
+    let mut i = 0;
+    while improving {
+        improving = false;
+
+        for i in 0..params.len() {
+            params[i] += 1;
+            let new_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
+            if new_error < best_error {
+                best_error = new_error;
+                improving = true;
+            } else {
+                params[i] -= 2;
+                let new_error = search_error_for_params(&mut positions, &params, &mut history, &mut transposition, scaling_constant);
+                if new_error < best_error {
+                    best_error = new_error;
+                    improving = true;
+                } else {
+                    params[i] += 1;
+                }
+            }
+        }
+
+        i += 1;
+        if i % 10 == 0 {
+            println!("Saving, error: {best_error}, iterations: {i}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+            save_params(&params);
+        }
+    }
+
+    println!("Regression done, error: {best_error}, iterations: {i}");
+    save_params(&params);
+}
+
+fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &[i16; 776], history: &mut HistoryTable, tt: &mut TranspositionTable, scaling_constant: f32) -> f32 {
+    let mut sum = 0.0;
+
+    for p in &mut *positions {
+        let mut searcher = Searcher::new(&mut p.board, tt, history);
+        let eval = searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params) as f32;
+        let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+        sum += val_sqrt * val_sqrt;
+    }
+
+    sum / positions.len() as f32
+}
+
+fn save_params(params: &[i16; 776]) {
+    let mut f = File::create(format!("paths/{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis())).unwrap();
+    write!(f, "[").unwrap();
+
+    for (i, v) in params.iter().enumerate() {
+        if i % 10 == 9 {
+            writeln!(f, "{v},").unwrap();
+        } else {
+            write!(f, "{v},").unwrap();
+        }
+    }
 }

@@ -9,13 +9,7 @@ use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
-    move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
-    moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
-    repetition_tracker::RepetitionTracker,
-    transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
-    uci::UciInterface,
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN}, evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE}, move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2}, moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION}, repetition_tracker::RepetitionTracker, texel::DEFAULT_PARAMS, transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable}, uci::UciInterface
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
@@ -317,7 +311,7 @@ impl<'a> Searcher<'a> {
             return AlphaBetaResult {
                 search_result: Some(SearchResult {
                     best_move: best_move.unwrap(),
-                    eval: self.board.evaluate(),
+                    eval: self.board.evaluate(&DEFAULT_PARAMS),
                 }),
                 end_search: true,
             };
@@ -363,7 +357,7 @@ impl<'a> Searcher<'a> {
                 return None;
             }
 
-            return Some(self.quiescense_side_to_move_relative(alpha, beta, 255));
+            return Some(self.quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS));
         }
 
         let mut best_value = -i16::MAX;
@@ -611,7 +605,7 @@ impl<'a> Searcher<'a> {
         Some(best_value)
     }
 
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
+    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8, params: &[i16; 776]) -> i16 {
         self.stats.quiescense_nodes += 1;
 
         if self.board.is_insufficient_material() {
@@ -649,7 +643,7 @@ impl<'a> Searcher<'a> {
             moves = Vec::new();
         }
 
-        let stand_pat = self.board.evaluate_side_to_move_relative();
+        let stand_pat = self.board.evaluate_side_to_move_relative(params);
 
         if stand_pat >= beta {
             return stand_pat;
@@ -689,7 +683,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                let result = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1);
+                let result = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1, params);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 

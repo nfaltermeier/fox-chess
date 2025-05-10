@@ -1,12 +1,12 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use array_macro::array;
 use rand::random;
 
-use crate::board::{
+use crate::{board::{
     file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-};
+}, texel::{EP_DOUBLED_PAWNS_IDX, EP_PIECE_VALUES_IDX}};
 
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 100, 315, 350, 500, 900, 20000];
@@ -146,13 +146,27 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 12],
 ];
 
+
+
 // thread_local! {
 //     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
 //     pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
 // }
 
+
+#[inline]
+/// for piece_type, pawn is 0
+fn get_piece_square_value(params: &[i16; 776], color: usize, piece_type: usize, square: usize) -> i16 {
+    if color == 0 {
+        params[piece_type * 64 + (square ^ 0b00111000)]
+    } else {
+        -params[piece_type * 64 + square]
+    }
+}
+
 impl Board {
-    pub fn evaluate(&self) -> i16 {
+    pub fn evaluate(&self, params: &[i16; 776]) -> i16 {
+
         let mut material_score = 0;
         let mut position_score_midgame = 0;
         let mut position_score_endgame = 0;
@@ -170,8 +184,8 @@ impl Board {
                 let piece_type = (piece & PIECE_MASK) as usize;
                 piece_counts[color][piece_type] += 1;
 
-                position_score_midgame += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
-                position_score_endgame += PIECE_SQUARE_TABLES[color][piece_type - 1 + 6][i];
+                position_score_midgame += get_piece_square_value(params, color, piece_type - 1, i);
+                position_score_endgame += get_piece_square_value(params, color, piece_type - 1 + 6, i);
 
                 if piece_type == PIECE_PAWN as usize {
                     let file = file_8x8(i as u8) as usize;
@@ -181,7 +195,7 @@ impl Board {
         }
 
         for i in 1..7 {
-            material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
+            material_score += params[EP_PIECE_VALUES_IDX + i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
         }
 
         // positive value: black has more isolated pawns than white
@@ -204,7 +218,7 @@ impl Board {
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + doubled_pawns * 25
+        material_score + position_score_final + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX]
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -215,8 +229,8 @@ impl Board {
         }
     }
 
-    pub fn evaluate_side_to_move_relative(&self) -> i16 {
-        self.evaluate() * if self.white_to_move { 1 } else { -1 }
+    pub fn evaluate_side_to_move_relative(&self, params: &[i16; 776]) -> i16 {
+        self.evaluate(params) * if self.white_to_move { 1 } else { -1 }
     }
 
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
