@@ -293,3 +293,26 @@ impl Board {
         false
     }
 }
+
+#[cfg(test)]
+mod eval_tests {
+    use super::*;
+
+    #[test]
+    pub fn simplest_kings_mirrorred() {
+        let b1 = Board::from_fen("8/8/8/1k6/8/8/8/4K3 w - - 0 1").unwrap();
+        let b2 = Board::from_fen("4k3/8/8/8/1K6/8/8/8 b - - 0 1").unwrap();
+
+        assert_eq!(b1.evaluate(), -b2.evaluate());
+        assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
+    }
+
+    #[test]
+    pub fn unbalanced_pieces_mirrorred() {
+        let b1 = Board::from_fen("4k3/8/8/8/2P5/1PB2N2/6Q1/2R1K3 w - - 0 1").unwrap();
+        let b2 = Board::from_fen("2r1k3/6q1/1pb2n2/2p5/8/8/8/4K3 b - - 0 1").unwrap();
+
+        assert_eq!(b1.evaluate(), -b2.evaluate());
+        assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
+    }
+}
