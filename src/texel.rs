@@ -130,7 +130,7 @@ pub static DEFAULT_PARAMS: EvalParams = [
         0,87,309,338,502,1021,20000,
 
         17,
-        75
+        20,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {

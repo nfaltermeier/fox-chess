@@ -141,7 +141,7 @@ const fn squares_in_between(sq1: u64, sq2: u64) -> u64 {
     return line & btwn;   /* return the bits on that line in-between */
 }
 
-const fn south_fill(mut b: u64) -> u64 {
+pub const fn south_fill(mut b: u64) -> u64 {
     b |= b >> 8;
     b |= b >> 16;
     b |= b >> 32;
@@ -149,7 +149,7 @@ const fn south_fill(mut b: u64) -> u64 {
     b
 }
 
-const fn north_fill(mut b: u64) -> u64 {
+pub const fn north_fill(mut b: u64) -> u64 {
     b |= b << 8;
     b |= b << 16;
     b |= b << 32;
