@@ -3,10 +3,10 @@ use std::cell::Cell;
 use array_macro::array;
 use rand::random;
 
-use crate::board::{
+use crate::{bitboard::{north_fill, south_fill}, board::{
     file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-};
+}};
 
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 87, 309, 338, 502, 1021, 20000];
@@ -250,11 +250,17 @@ impl Board {
             + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
-        let net_passed_pawns = (self.white_passed_pawns().count_ones() - self.black_passed_pawns().count_ones()) as i16;
+        let white_passed = self.white_passed_pawns();
+        let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones();
+        
+        let black_passed = self.black_passed_pawns();
+        let black_passed_distance = (north_fill(black_passed) &!black_passed).count_ones();
+
+        let net_passed_pawns = (white_passed_distance - black_passed_distance) as i16;
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + doubled_pawns * 17 + net_passed_pawns * 75
+        material_score + position_score_final + doubled_pawns * 17 + net_passed_pawns * 20
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
