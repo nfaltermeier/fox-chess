@@ -250,9 +250,11 @@ impl Board {
             + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
+        let net_passed_pawns = (self.white_passed_pawns().count_ones() - self.black_passed_pawns().count_ones()) as i16;
+
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + doubled_pawns * 17
+        material_score + position_score_final + doubled_pawns * 17 + net_passed_pawns * 75
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
