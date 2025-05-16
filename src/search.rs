@@ -9,7 +9,7 @@ use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN}, evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE}, move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2}, moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION}, repetition_tracker::RepetitionTracker, texel::DEFAULT_PARAMS, transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable}, uci::UciInterface
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN}, evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE}, move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2}, moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION}, repetition_tracker::RepetitionTracker, texel::{EvalParams, DEFAULT_PARAMS}, transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable}, uci::UciInterface
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
@@ -604,7 +604,7 @@ impl<'a> Searcher<'a> {
 }
 
 impl Board {
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8, params: &[i16; 776], rollback: &mut MoveRollback) -> (i16, Board) {
+    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8, params: &EvalParams, rollback: &mut MoveRollback) -> (i16, Board) {
         if self.is_insufficient_material() {
             return (0, self.clone());
         }

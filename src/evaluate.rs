@@ -6,7 +6,7 @@ use rand::random;
 use crate::{board::{
     file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-}, texel::{EP_DOUBLED_PAWNS_IDX, EP_PIECE_VALUES_IDX}};
+}, texel::{EvalParams, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX}};
 
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 87, 309, 338, 502, 1021, 20000];
@@ -204,7 +204,7 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 
 #[inline]
 /// for piece_type, pawn is 0
-fn get_piece_square_value(params: &[i16; 776], color: usize, piece_type: usize, square: usize) -> i16 {
+fn get_piece_square_value(params: &EvalParams, color: usize, piece_type: usize, square: usize) -> i16 {
     if color == 0 {
         params[piece_type * 64 + (square ^ 0b00111000)]
     } else {
@@ -213,7 +213,7 @@ fn get_piece_square_value(params: &[i16; 776], color: usize, piece_type: usize, 
 }
 
 impl Board {
-    pub fn evaluate(&self, params: &[i16; 776]) -> i16 {
+    pub fn evaluate(&self, params: &EvalParams) -> i16 {
 
         let mut material_score = 0;
         let mut position_score_midgame = 0;
@@ -264,9 +264,11 @@ impl Board {
             + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
+        let net_passed_pawns = (self.white_passed_pawns().count_ones() - self.black_passed_pawns().count_ones()) as i16;
+
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX]
+        material_score + position_score_final + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX] + net_passed_pawns * params[EP_PASSED_PAWN_IDX]
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -277,7 +279,7 @@ impl Board {
         }
     }
 
-    pub fn evaluate_side_to_move_relative(&self, params: &[i16; 776]) -> i16 {
+    pub fn evaluate_side_to_move_relative(&self, params: &EvalParams) -> i16 {
         self.evaluate(params) * if self.white_to_move { 1 } else { -1 }
     }
 

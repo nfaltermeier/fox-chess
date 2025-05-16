@@ -1,5 +1,7 @@
 use array_macro::array;
 
+use crate::board::{Board, PIECE_PAWN};
+
 // Little endian rank file mapping
 pub const A_FILE: u64 = 0x0101010101010101;
 pub const B_FILE: u64 = 0x0202020202020202;
@@ -137,4 +139,64 @@ const fn squares_in_between(sq1: u64, sq2: u64) -> u64 {
     line += (((rank.wrapping_add(file)) & 15).wrapping_sub(1)) & h1b7; /* h1b7 if same antidiag */
     line = line.wrapping_mul(btwn & (!btwn).overflowing_add(1).0); /* mul acts like shift by smaller square */
     return line & btwn;   /* return the bits on that line in-between */
- }
+}
+
+const fn south_fill(mut b: u64) -> u64 {
+    b |= b >> 8;
+    b |= b >> 16;
+    b |= b >> 32;
+
+    b
+}
+
+const fn north_fill(mut b: u64) -> u64 {
+    b |= b << 8;
+    b |= b << 16;
+    b |= b << 32;
+
+    b
+}
+
+impl Board {
+    pub const fn white_passed_pawns(&self) -> u64 {
+        let mut front_span = south_fill(self.piece_bitboards[1][PIECE_PAWN as usize]) & !self.piece_bitboards[1][PIECE_PAWN as usize];
+        front_span |= east_one(front_span) | west_one(front_span);
+
+        let mut blocked_own_pawns = self.piece_bitboards[0][PIECE_PAWN as usize] >> 8;
+        blocked_own_pawns = south_fill(blocked_own_pawns);
+
+        self.piece_bitboards[0][PIECE_PAWN as usize] & !front_span & !blocked_own_pawns
+    }
+
+    pub const fn black_passed_pawns(&self) -> u64 {
+        let mut front_span = north_fill(self.piece_bitboards[0][PIECE_PAWN as usize]) & !self.piece_bitboards[0][PIECE_PAWN as usize];
+        front_span |= east_one(front_span) | west_one(front_span);
+
+        let mut blocked_own_pawns = self.piece_bitboards[1][PIECE_PAWN as usize] << 8;
+        blocked_own_pawns = north_fill(blocked_own_pawns);
+
+        self.piece_bitboards[1][PIECE_PAWN as usize] & !front_span & !blocked_own_pawns
+    }
+}
+
+#[cfg(test)]
+mod bitboard_tests {
+    use crate::board::Board;
+    use super::*;
+
+    #[test]
+    pub fn basic_passed_pawns() {
+        let board = Board::from_fen("7k/3Pp2p/8/8/8/8/1PP1PPp1/K7 w - - 0 1").unwrap();
+
+        assert_eq!(3, board.white_passed_pawns().count_ones());
+        assert_eq!(2, board.black_passed_pawns().count_ones());
+    }
+
+    #[test]
+    pub fn doubled_pawns_are_not_passed_pawns() {
+        let board = Board::from_fen("7k/8/6p1/6p1/3P4/3P4/8/K7 w - - 0 1").unwrap();
+
+        assert_eq!(1, board.white_passed_pawns().count_ones());
+        assert_eq!(1, board.black_passed_pawns().count_ones());
+    }
+}
