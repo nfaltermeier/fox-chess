@@ -700,12 +700,8 @@ impl Board {
 
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             // Check the king isn't in check to begin with
-            self.white_to_move = !self.white_to_move;
-            result = !self.can_capture_opponent_king(false);
-            self.white_to_move = !self.white_to_move;
-
-            if !result {
-                return (result, false);
+            if self.is_in_check(false) {
+                return (false, false);
             }
 
             let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
@@ -731,6 +727,15 @@ impl Board {
         result = !self.can_capture_opponent_king(true);
 
         (result, true)
+    }
+
+    #[inline]
+    pub fn is_in_check(&mut self, is_legality_test_after_move: bool) -> bool {
+        self.white_to_move = !self.white_to_move;
+        let result = self.can_capture_opponent_king(is_legality_test_after_move);
+        self.white_to_move = !self.white_to_move;
+
+        result
     }
 
     pub fn can_capture_opponent_king(&self, is_legality_test_after_move: bool) -> bool {
