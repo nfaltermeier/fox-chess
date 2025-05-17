@@ -304,6 +304,8 @@ impl Board {
 
 #[cfg(test)]
 mod eval_tests {
+    use crate::STARTING_FEN;
+
     use super::*;
 
     #[test]
@@ -322,5 +324,12 @@ mod eval_tests {
 
         assert_eq!(b1.evaluate(), -b2.evaluate());
         assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
+    }
+
+    #[test]
+    pub fn starting_position_is_even() {
+        let b = Board::from_fen(STARTING_FEN).unwrap();
+
+        assert_eq!(0, b.evaluate());
     }
 }
