@@ -316,7 +316,7 @@ impl Board {
 
 #[cfg(test)]
 mod eval_tests {
-    use crate::texel::DEFAULT_PARAMS;
+    use crate::{texel::DEFAULT_PARAMS, STARTING_FEN};
 
     use super::*;
 
@@ -336,5 +336,12 @@ mod eval_tests {
 
         assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
         assert_eq!(b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS), b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS));
+    }
+
+    #[test]
+    pub fn starting_position_is_even() {
+        let b = Board::from_fen(STARTING_FEN).unwrap();
+
+        assert_eq!(0, b.evaluate(&DEFAULT_PARAMS));
     }
 }
