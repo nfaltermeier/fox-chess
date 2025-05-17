@@ -149,6 +149,11 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
         let c0_index = c0_index.unwrap();
 
         let fen = &line[..c0_index];
+
+        if STARTING_FEN.starts_with(fen) {
+            continue;
+        }
+
         let board = Board::from_fen(fen).unwrap();
 
         let c1_index = line.find("c1");

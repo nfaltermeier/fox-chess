@@ -61,7 +61,7 @@ fn main() {
 
     println!("Loading positions from file");
     let positions = load_positions("new-positions.epd");
-    println!("Positions loaded");
+    println!("{} Positions loaded", positions.len());
     // find_scaling_constant(positions);
     find_best_params(positions);
 
