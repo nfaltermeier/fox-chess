@@ -11,7 +11,7 @@ use crate::{bitboard::{north_fill, south_fill}, board::{
 // Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 81, 309, 338, 501, 1021, 20000];
 
-pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
+pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 1, 1, 2, 4, 0];
 pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_BISHOP as usize]
@@ -242,13 +242,11 @@ impl Board {
             doubled_pawns += (pawn_count[1][i] > 1) as i16;
         }
 
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
-        }
+        game_stage = (game_stage * 256 + (MAX_GAME_STAGE / 2)) / MAX_GAME_STAGE;
 
         let position_score_final = ((position_score_midgame * game_stage)
-            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
-            / (MIN_GAME_STAGE_FULLY_MIDGAME);
+            + (position_score_endgame * (256 - game_stage)))
+            / (256);
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones();
