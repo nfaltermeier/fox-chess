@@ -370,7 +370,6 @@ fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: 
 
 fn save_params(params: &EvalParams) {
     let mut f = File::create(format!("params/{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis())).unwrap();
-    write!(f, "[").unwrap();
 
     for (i, v) in params.iter().enumerate() {
         if i % 8 == 7 {
