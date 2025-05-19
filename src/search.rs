@@ -1,7 +1,5 @@
 use std::{
-    cmp::{Ordering, Reverse},
-    i16, iter,
-    time::{Duration, Instant},
+    cmp::{Ordering, Reverse}, collections::HashSet, i16, iter, time::{Duration, Instant}
 };
 
 use log::{debug, error};
@@ -32,6 +30,7 @@ pub struct SearchStats {
     pub quiescense_cut_by_hopeless: u64,
     pub leaf_nodes: u64,
     pub total_search_leaves: u64,
+    pub pv: Vec<Move>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -193,6 +192,7 @@ impl<'a> Searcher<'a> {
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
+                self.gather_pv(&search_result.best_move);
                 UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
 
                 if search_control != SearchControl::Infinite
@@ -765,5 +765,42 @@ impl<'a> Searcher<'a> {
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
         *current_value +=
             (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
+    }
+
+    fn gather_pv(
+        &mut self,
+        first_move: &Move,
+    ) {
+        self.stats.pv.clear();
+
+        // Prevent cycles from occurring
+        let mut previous_hashes = HashSet::new();
+        previous_hashes.insert(self.board.hash);
+        self.stats.pv.push(*first_move);
+        self.board.make_move(first_move, &mut self.rollback);
+
+        let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        loop {
+            match next_move {
+                None => {
+                    break;
+                }
+                Some(e) => {
+                    if e.get_move_type() != MoveType::Best || previous_hashes.contains(&self.board.hash) {
+                        break;
+                    }
+
+                    previous_hashes.insert(self.board.hash);
+                    self.stats.pv.push(e.important_move);
+                    // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
+                    self.board.make_move(&e.important_move, &mut self.rollback);
+                    next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                }
+            }
+        }
+
+        for m in self.stats.pv.iter().rev() {
+            self.board.unmake_move(&m, &mut self.rollback);
+        }
     }
 }
