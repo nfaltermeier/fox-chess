@@ -243,7 +243,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
         let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
         best_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
-        println!("Starting new loop, new best error is {best_error}");
+        println!("Starting new loop, new best error is {best_error:.8}");
 
         for i in 0..params.len() {
             // midgame pawns on first row
@@ -270,7 +270,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                 adjustments += 1;
 
                 if adjustments % 1000 == 999 {
-                    println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                    println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
                     save_params(&params);
                 }
 
@@ -284,7 +284,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         adjustments += 1;
 
                         if adjustments % 1000 == 999 {
-                            println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                            println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
                             save_params(&params);
                         }
                     }
@@ -300,7 +300,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     adjustments += 1;
 
                     if adjustments % 1000 == 999 {
-                        println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                        println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
                         save_params(&params);
                     }
 
@@ -314,7 +314,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                             adjustments += 1;
 
                             if adjustments % 1000 == 999 {
-                                println!("Saving, error: {best_error}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                                println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
                                 save_params(&params);
                             }
                         }
@@ -328,7 +328,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         }
 
         count += 1;
-        println!("Saving, error: {best_error}, iterations: {count}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+        println!("Saving, error: {best_error:.8}, iterations: {count}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
         save_params(&params);
     }
 
