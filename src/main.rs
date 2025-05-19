@@ -60,7 +60,7 @@ fn main() {
     // rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
 
     println!("Loading positions from file");
-    let positions = load_positions("new-positions.epd");
+    let positions = load_positions("newest_positions.fen");
     println!("{} Positions loaded", positions.len());
     // find_scaling_constant(positions);
     find_best_params(positions);
