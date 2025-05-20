@@ -3,7 +3,7 @@ use std::cell::Cell;
 use array_macro::array;
 use rand::random;
 
-use crate::{bitboard::{north_fill, south_fill}, board::{
+use crate::{bitboard::{north_fill, south_fill, LIGHT_SQUARES}, board::{
     file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
 }};
@@ -293,7 +293,15 @@ impl Board {
             let black_minor_pieces =
                 self.piece_counts[1][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_KNIGHT as usize];
 
-            // TODO: Does not account for bishop vs bishop of same color. Should be simple to check with bitboards.
+            if white_minor_pieces == 1
+                && black_minor_pieces == 1
+                && self.piece_counts[0][PIECE_BISHOP as usize] == 1
+                && self.piece_counts[1][PIECE_BISHOP as usize] == 1
+            {
+                let bishops = self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
+                return (bishops & LIGHT_SQUARES).count_ones() != 1;
+            }
+
             return (white_minor_pieces == 0 && black_minor_pieces == 0)
                 || (white_minor_pieces == 0 && black_minor_pieces == 1)
                 || (white_minor_pieces == 1 && black_minor_pieces == 0);

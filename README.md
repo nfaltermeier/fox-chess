@@ -9,7 +9,7 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
 ## Ideas of features to add
 - [x] Needs some help in endgames. It lost KQK because it wouldn't move the king out of the center to support the queen. Greater depth helps with this.
   - [ ] Still needs help with harder endgames
-- [ ] Avoid draws due to insufficient mating material
+- [x] Avoid draws due to insufficient mating material
   - [ ] [Simple heuristics](https://www.chessprogramming.org/Draw_Evaluation) for not quite drawn games
 - [ ] [Consider checks during quiesence search](https://www.chessprogramming.org/Quiescence_Search#Checks)
   - [ ] [Specialized check-only move generation](https://www.chessprogramming.org/Move_Generation#Special_Generators)
