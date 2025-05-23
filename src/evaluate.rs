@@ -251,12 +251,12 @@ impl Board {
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         let white_passed = self.white_passed_pawns();
-        let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones();
+        let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones() as i16;
         
         let black_passed = self.black_passed_pawns();
-        let black_passed_distance = (north_fill(black_passed) &!black_passed).count_ones();
+        let black_passed_distance = (north_fill(black_passed) &!black_passed).count_ones() as i16;
 
-        let net_passed_pawns = (white_passed_distance - black_passed_distance) as i16;
+        let net_passed_pawns = white_passed_distance - black_passed_distance;
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
