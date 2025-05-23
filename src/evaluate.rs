@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use array_macro::array;
 use rand::random;
 
-use crate::{bitboard::{north_fill, south_fill}, board::{
+use crate::{bitboard::{north_fill, south_fill, LIGHT_SQUARES}, board::{
     file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
     PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
 }, texel::{EvalParams, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX}};
@@ -263,12 +263,12 @@ impl Board {
             / (256);
 
         let white_passed = self.white_passed_pawns();
-        let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones();
+        let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones() as i16;
         
         let black_passed = self.black_passed_pawns();
-        let black_passed_distance = (north_fill(black_passed) &!black_passed).count_ones();
+        let black_passed_distance = (north_fill(black_passed) &!black_passed).count_ones() as i16;
 
-        let net_passed_pawns = (white_passed_distance - black_passed_distance) as i16;
+        let net_passed_pawns = white_passed_distance - black_passed_distance;
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
@@ -305,7 +305,15 @@ impl Board {
             let black_minor_pieces =
                 self.piece_counts[1][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_KNIGHT as usize];
 
-            // TODO: Does not account for bishop vs bishop of same color. Should be simple to check with bitboards.
+            if white_minor_pieces == 1
+                && black_minor_pieces == 1
+                && self.piece_counts[0][PIECE_BISHOP as usize] == 1
+                && self.piece_counts[1][PIECE_BISHOP as usize] == 1
+            {
+                let bishops = self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
+                return (bishops & LIGHT_SQUARES).count_ones() != 1;
+            }
+
             return (white_minor_pieces == 0 && black_minor_pieces == 0)
                 || (white_minor_pieces == 0 && black_minor_pieces == 1)
                 || (white_minor_pieces == 1 && black_minor_pieces == 0);

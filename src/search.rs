@@ -225,7 +225,6 @@ impl<'a> Searcher<'a> {
         let mut moves;
         let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
-
             moves = Vec::from([ScoredMove {
                 m: tt_data.important_move,
                 score: 1,
@@ -318,6 +317,11 @@ impl<'a> Searcher<'a> {
                 end_search: true,
             };
         }
+
+        self.transposition_table.store_entry(
+            TTEntry::new(self.board.hash, best_move.unwrap(), MoveType::Best, best_value, draft, 0, self.starting_halfmove),
+            TableType::Main
+        );
 
         // Make the score not side-to-move relative
         AlphaBetaResult {
