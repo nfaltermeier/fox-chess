@@ -119,8 +119,18 @@ pub static DEFAULT_PARAMS: EvalParams = [
         9,
     ];
 
-pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
+pub struct LoadPositionsResult {
+    pub positions: Vec<TexelPosition>,
+    pub loaded_ratio: i32,
+    pub skipped_ratio: i32,
+}
+
+pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
+    let load_games = 6;
+    let skip_games = 2;
+    let load_skip_cycle_size = load_games + skip_games;
+    let mut considered_to_load = -1;
 
     let file = File::open(filename).unwrap();
 
@@ -156,6 +166,11 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
 
         let board = Board::from_fen(fen).unwrap();
 
+        considered_to_load += 1;
+        if considered_to_load % load_skip_cycle_size >= load_games {
+            continue;
+        }
+
         let c1_index = line.find("c1");
         if c1_index.is_none() {
             panic!("Could not find c1, possibly a malformed line: {}", line);
@@ -175,7 +190,7 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
         result.push(TexelPosition { board, result: match_result_value });
     }
 
-    result
+    LoadPositionsResult { positions: result, loaded_ratio: load_games, skipped_ratio: skip_games }
 }
 
 fn sigmoid(eval: f32, scaling_constant: f32) -> f32 {

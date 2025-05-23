@@ -61,9 +61,9 @@ fn main() {
 
     println!("Loading positions from file");
     let positions = load_positions("newest_positions.fen");
-    println!("{} Positions loaded", positions.len());
-    // find_scaling_constant(positions);
-    find_best_params(positions);
+    println!("{} Positions loaded, take to skip ratio: {}/{}", positions.positions.len(), positions.loaded_ratio, positions.skipped_ratio);
+    // find_scaling_constant(positions.positions);
+    find_best_params(positions.positions);
 
     // run_uci();
 
