@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-// Indexed with piece code, so index 0 is no piece
+/// Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 81, 309, 338, 501, 1021, 20000];
 
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
