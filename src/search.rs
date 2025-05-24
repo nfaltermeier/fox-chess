@@ -1,5 +1,7 @@
 use std::{
-    cmp::{Ordering, Reverse}, collections::HashSet, i16, iter, time::{Duration, Instant}
+    cmp::Reverse,
+    collections::HashSet,
+    time::{Duration, Instant},
 };
 
 use log::{debug, error};
