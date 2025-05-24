@@ -184,6 +184,12 @@ impl UciInterface {
                         } else {
                             error!("Board must be set with position first");
                         }
+                    } else if message.starts_with("fen") {
+                        if let Some(board) = &self.board {
+                            println!("Current fen: {}", board.to_fen())
+                        } else {
+                            error!("Board must be set with position first");
+                        }
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
