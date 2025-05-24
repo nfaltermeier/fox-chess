@@ -59,7 +59,7 @@ pub struct Searcher<'a> {
     history_table: &'a mut HistoryTable,
     starting_halfmove: u8,
     cancel_search_at: Option<Instant>,
-    starting_in_check: bool,
+    end_search: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -78,7 +78,7 @@ impl<'a> Searcher<'a> {
             history_table,
             starting_halfmove,
             cancel_search_at: None,
-            starting_in_check: false,
+            end_search: false,
         }
     }
 
@@ -92,8 +92,6 @@ impl<'a> Searcher<'a> {
         let search_control: SearchControl;
         let mut max_depth = 40;
         let use_stricter_cutoff;
-
-        self.starting_in_check = self.board.is_in_check(false);
 
         if let Some(t) = time {
             match t {
@@ -216,131 +214,46 @@ impl<'a> Searcher<'a> {
     }
 
     pub fn alpha_beta_init(&mut self, draft: u8) -> AlphaBetaResult {
-        let mut alpha = -i16::MAX;
-        let mut best_value = -i16::MAX;
-        let mut best_move = None;
         self.rollback = MoveRollback::default();
         self.stats = SearchStats::default();
+        self.stats.depth = draft;
+        self.end_search = false;
+
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
-        let mut moves;
-        let tt_entry = self
-            .transposition_table
-            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        if let Some(tt_data) = tt_entry {
-            moves = Vec::from([ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            }]);
+        let result = self.alpha_beta_recurse(-i16::MAX, i16::MAX, draft, 0, &mut killers);
+
+        debug_assert!(self.rollback.is_empty());
+
+        let score;
+        if let Ok(e) = result {
+            score = e;
         } else {
-            moves = Vec::new();
-        }
-
-        let mut legal_moves: u16 = 0;
-
-        // Round 0 is the tt move, round 1 is regular move gen
-        for round in 0..2 {
-            for r#move in moves {
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
-                    continue;
-                }
-
-                let (legal, move_made) = self
-                    .board
-                    .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
-                if !legal {
-                    if move_made {
-                        self.board.unmake_move(&r#move.m, &mut self.rollback);
-                    }
-
-                    continue;
-                } else {
-                    legal_moves += 1;
-                }
-
-                // let bonus = (random::<u16>() % 11) as i16 - 5;
-                let bonus = 0;
-                assert!(bonus > -6);
-                assert!(bonus < 6);
-                let result = self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
-                let score;
-                if let Ok(e) = result {
-                    score = -e;
-                } else {
-                    return AlphaBetaResult {
-                        search_result: None,
-                        end_search: true,
-                    };
-                }
-                let eval = bonus + score;
-                // debug!(
-                //     "{}: score {score} bonus {bonus} result {result}",
-                //     r#move.m.pretty_print(Some(self.board))
-                // );
-
-                self.board.unmake_move(&r#move.m, &mut self.rollback);
-
-                if eval > best_value {
-                    best_value = eval;
-                    best_move = Some(r#move.m);
-                    if eval > alpha {
-                        alpha = eval;
-                    }
-                }
-            }
-
-            if round == 0 {
-                if !self.starting_in_check {
-                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
-                } else {
-                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
-                }
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
-            }
-        }
-
-        if legal_moves == 0 {
-            error!(
-                "Tried to search on a position but found no moves. Position: {:#?}",
-                self.board
-            );
-            panic!("Tried to search on a position but found no moves");
-        }
-
-        self.stats.depth = draft;
-        if legal_moves == 1 {
             return AlphaBetaResult {
-                search_result: Some(SearchResult {
-                    best_move: best_move.unwrap(),
-                    eval: self.board.evaluate(),
-                }),
+                search_result: None,
                 end_search: true,
             };
         }
 
-        self.transposition_table.store_entry(
-            TTEntry::new(
-                self.board.hash,
-                best_move.unwrap(),
-                MoveType::Best,
-                best_value,
-                draft,
-                0,
-                self.starting_halfmove,
-            ),
-            TableType::Main,
-        );
+        let best_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        if best_move.is_none() {
+            error!("Did not get a move from transposition table in alpha_beta_init");
+            panic!("Did not get a move from transposition table in alpha_beta_init")
+        }
+
+        let best_move = best_move.unwrap();
+        if best_move.get_move_type() != MoveType::Best {
+            error!("Got a move from transposition table in alpha_beta_init but it is not a best move");
+            panic!("Got a move from transposition table in alpha_beta_init but it is not a best move")
+        }
 
         // Make the score not side-to-move relative
         AlphaBetaResult {
             search_result: Some(SearchResult {
-                best_move: best_move.unwrap(),
-                eval: best_value * if self.board.white_to_move { 1 } else { -1 },
+                best_move: best_move.important_move,
+                eval: score * if self.board.white_to_move { 1 } else { -1 },
             }),
-            end_search: false,
+            end_search: self.end_search,
         }
     }
 
@@ -440,7 +353,6 @@ impl<'a> Searcher<'a> {
         }
 
         let mut searched_quiet_moves = Vec::new();
-        let mut found_legal_move = false;
         let mut searched_moves = 0;
 
         // Round 0 is the tt move, round 1 is regular move gen
@@ -459,8 +371,6 @@ impl<'a> Searcher<'a> {
                     }
 
                     continue;
-                } else {
-                    found_legal_move = true;
                 }
 
                 let mut reduction = 0;
@@ -512,6 +422,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
+                // Using this to track legal moves too so need to not continue before incrementing if the move is legal
                 searched_moves += 1;
 
                 if eval >= beta {
@@ -589,12 +500,20 @@ impl<'a> Searcher<'a> {
         }
 
         // Assuming no bug with move generation...
-        if !found_legal_move {
-            if in_check {
+        if searched_moves == 0 {
+            if ply == 0 {
+                error!(
+                    "Tried to search on a position but found no moves. Position: {:#?}",
+                    self.board
+                );
+                panic!("Found no legal moves from the root of the search")
+            } else if in_check {
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
                 return Ok(0);
             }
+        } else if searched_moves == 1 && ply == 0 {
+            self.end_search = true;
         }
 
         let entry_type = if alpha == best_value {
