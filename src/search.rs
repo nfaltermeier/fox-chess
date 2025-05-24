@@ -1,7 +1,6 @@
 use std::{
     cmp::Reverse,
     collections::HashSet,
-    i16,
     time::{Duration, Instant},
 };
 

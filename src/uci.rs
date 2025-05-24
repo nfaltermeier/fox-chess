@@ -196,15 +196,14 @@ impl UciInterface {
     }
 
     pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
-        let score_string;
         let abs_cp = eval.abs();
-        if abs_cp >= MATE_THRESHOLD {
+        let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
             let moves = (diff as f32 / 20.0).ceil();
-            score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
+            format!("score mate {}{moves}", if eval < 0 { "-" } else { "" })
         } else {
-            score_string = format!("score cp {eval}");
-        }
+            format!("score cp {eval}")
+        };
 
         let nps = stats.quiescense_nodes as f64 / elapsed.as_secs_f64();
         println!(

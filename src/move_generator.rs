@@ -907,9 +907,6 @@ impl ScoredMove {
 mod check_evasion_tests {
     use super::*;
     use crate::initialize_magic_bitboards;
-    use std::sync::OnceLock;
-
-    static CELL: OnceLock<bool> = OnceLock::new();
 
     macro_rules! check_evasion_tests_legal_moves {
         ($($name:ident: $value:expr,)*) => {
@@ -918,10 +915,7 @@ mod check_evasion_tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    CELL.get_or_init(|| {
-                        initialize_magic_bitboards();
-                        true
-                    });
+                    initialize_magic_bitboards();
 
                     let mut board = Board::from_fen(input).unwrap();
                     let moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
