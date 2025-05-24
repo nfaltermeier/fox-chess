@@ -223,17 +223,18 @@ impl<'a> Searcher<'a> {
 
         let result = self.alpha_beta_recurse(-i16::MAX, i16::MAX, draft, 0, &mut killers);
 
-        debug_assert!(self.rollback.is_empty());
-
         let score;
         if let Ok(e) = result {
             score = e;
         } else {
+            // In this case the state of the board will not been reset back to the starting state
             return AlphaBetaResult {
                 search_result: None,
                 end_search: true,
             };
         }
+
+        debug_assert!(self.rollback.is_empty());
 
         let best_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if best_move.is_none() {

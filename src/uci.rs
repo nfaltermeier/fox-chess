@@ -121,8 +121,10 @@ impl UciInterface {
                     search_control,
                 } => {
                     trace!("At start of go. {:#?}", self.board);
-                    if let Some(b) = self.board.as_mut() {
-                        let mut searcher = Searcher::new(b, &mut self.transposition_table, &mut self.history_table);
+                    if let Some(b) = &self.board {
+                        // Search on a board copy to protect against the board state being changed by the search timing out
+                        let mut board_copy = b.clone();
+                        let mut searcher = Searcher::new(&mut board_copy, &mut self.transposition_table, &mut self.history_table);
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
 
