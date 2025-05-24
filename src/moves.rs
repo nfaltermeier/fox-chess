@@ -663,6 +663,8 @@ fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_v
 mod moves_tests {
     use crate::{board::{Board, HASH_VALUES}, magic_bitboard::initialize_magic_bitboards, uci::UciInterface};
 
+    use super::{Move, MoveRollback};
+
     #[test]
     pub fn board_same_for_fen_and_uci_position_moves() {
         initialize_magic_bitboards();
@@ -680,6 +682,7 @@ mod moves_tests {
             let fen = from_uci.to_fen();
             let from_fen = Board::from_fen(&fen).unwrap();
 
+            // For debugging if the test is failing
             // println!("Now comparing fen {fen} which came from move {m}");
 
             if from_fen.hash != from_uci.hash {
@@ -707,5 +710,34 @@ mod moves_tests {
             assert_eq!(from_fen.castling_rights, from_uci.castling_rights);
             assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
         }
+    }
+
+    #[test]
+    pub fn repeated_position_has_same_hash() {
+        let from_fen = Board::from_fen("1r1r4/p1p2pp1/3kp2p/3n4/1b1P4/4PB2/PBbN1PPP/2R1K1R1 b - - 8 24").unwrap();
+        let mut from_repetitions = from_fen.clone();
+        let mut rollback = MoveRollback::default();
+
+        // c2d3
+        from_repetitions.make_move(&Move { data: 1226 }, &mut rollback);
+
+        // c1d1
+        from_repetitions.make_move(&Move { data: 194 }, &mut rollback);
+
+        // d3c2
+        from_repetitions.make_move(&Move { data: 659 }, &mut rollback);
+
+        // d1c1
+        from_repetitions.make_move(&Move { data: 131 }, &mut rollback);
+
+        assert_eq!(from_fen.hash, from_repetitions.hash);
+        assert_eq!(from_fen.piece_bitboards, from_repetitions.piece_bitboards);
+        assert_eq!(from_fen.side_occupancy, from_repetitions.side_occupancy);
+        assert_eq!(from_fen.occupancy, from_repetitions.occupancy);
+        assert_eq!(from_fen.piece_counts, from_repetitions.piece_counts);
+        assert_eq!(from_fen.game_stage, from_repetitions.game_stage);
+        assert_eq!(from_fen.en_passant_target_square_index, from_repetitions.en_passant_target_square_index);
+        assert_eq!(from_fen.castling_rights, from_repetitions.castling_rights);
+        assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
     }
 }
