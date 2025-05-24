@@ -918,10 +918,12 @@ mod check_evasion_tests {
                     initialize_magic_bitboards();
 
                     let mut board = Board::from_fen(input).unwrap();
-                    let moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
-                    let legal_moves = board.filter_to_legal_moves(moves);
+                    let evasion_generator_moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
+                    let legal_evasion_generator_moves = board.filter_to_legal_moves(evasion_generator_moves);
 
-                    assert_eq!(expected, legal_moves.len());
+                    assert_eq!(expected, legal_evasion_generator_moves.len());
+
+                    assert_eq!(expected, board.generate_legal_moves_without_history().len());
                 }
             )*
         }
