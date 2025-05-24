@@ -357,7 +357,21 @@ impl<'a> Searcher<'a> {
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
-            for r#move in moves {
+            for move_index in 0..moves.len() {
+                // Perform one iteration of selection sort every time another move needs to be evaluated
+                let mut best_score = moves[move_index].score;
+                let mut best_index = move_index;
+
+                for sort_index in (move_index + 1)..moves.len() {
+                    if moves[sort_index].score > best_score {
+                        best_score = moves[sort_index].score;
+                        best_index = sort_index;
+                    }
+                }
+
+                moves.swap(move_index, best_index);
+                let r#move = &moves[move_index];
+
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
                 }
@@ -492,10 +506,6 @@ impl<'a> Searcher<'a> {
                         }
                     }
                 }
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
@@ -598,7 +608,21 @@ impl<'a> Searcher<'a> {
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
-            for r#move in moves {
+            for move_index in 0..moves.len() {
+                // Perform one iteration of selection sort every time another move needs to be evaluated
+                let mut best_score = moves[move_index].score;
+                let mut best_index = move_index;
+
+                for sort_index in (move_index + 1)..moves.len() {
+                    if moves[sort_index].score > best_score {
+                        best_score = moves[sort_index].score;
+                        best_index = sort_index;
+                    }
+                }
+
+                moves.swap(move_index, best_index);
+                let r#move = &moves[move_index];
+
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
                 }
@@ -648,10 +672,6 @@ impl<'a> Searcher<'a> {
 
             if round == 0 {
                 moves = self.board.generate_pseudo_legal_capture_moves();
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
