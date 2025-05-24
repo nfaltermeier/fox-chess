@@ -7,7 +7,7 @@ use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
     move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
@@ -681,7 +681,7 @@ impl<'a> Searcher<'a> {
 
         if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
             // avoid underflow
-            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
+            if alpha >= i16::MIN + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 && stand_pat < alpha - (CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100) {
                 self.stats.quiescense_cut_by_hopeless += 1;
                 return alpha;
             }
