@@ -290,7 +290,7 @@ impl<'a> Searcher<'a> {
             return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
         }
 
-        let mut best_value = -i16::MAX;
+        let mut best_score = -i16::MAX;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
@@ -302,7 +302,7 @@ impl<'a> Searcher<'a> {
             .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
-                let eval = tt_data.get_eval(ply);
+                let eval = tt_data.get_score(ply);
 
                 match tt_data.get_move_type() {
                     transposition_table::MoveType::FailHigh => {
@@ -358,18 +358,21 @@ impl<'a> Searcher<'a> {
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
             for move_index in 0..moves.len() {
-                // Perform one iteration of selection sort every time another move needs to be evaluated
-                let mut best_score = moves[move_index].score;
-                let mut best_index = move_index;
+                {
+                    // Perform one iteration of selection sort every time another move needs to be evaluated
+                    let mut best_move_score = moves[move_index].score;
+                    let mut best_move_index = move_index;
 
-                for sort_index in (move_index + 1)..moves.len() {
-                    if moves[sort_index].score > best_score {
-                        best_score = moves[sort_index].score;
-                        best_index = sort_index;
+                    for sort_index in (move_index + 1)..moves.len() {
+                        if moves[sort_index].score > best_move_score {
+                            best_move_score = moves[sort_index].score;
+                            best_move_index = sort_index;
+                        }
                     }
+
+                    moves.swap(move_index, best_move_index);
                 }
 
-                moves.swap(move_index, best_index);
                 let r#move = &moves[move_index];
 
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
@@ -410,15 +413,15 @@ impl<'a> Searcher<'a> {
                     reduction = reduction.clamp(0, draft - 1)
                 }
 
-                let mut eval;
+                let mut score;
                 if searched_moves == 0 {
-                    eval = -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
+                    score = -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
 
-                    if eval > alpha && reduction > 0 {
-                        eval = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
+                    if score > alpha && reduction > 0 {
+                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
                     }
                 } else {
-                    eval = -self.alpha_beta_recurse(
+                    score = -self.alpha_beta_recurse(
                         -alpha - 1,
                         -alpha,
                         draft - reduction - 1,
@@ -426,12 +429,8 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                     )?;
 
-                    // if result > alpha && reduction > 0 {
-                    //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
-                    // }
-
-                    if eval > alpha {
-                        eval = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
+                    if score > alpha {
+                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
                     }
                 }
 
@@ -439,7 +438,7 @@ impl<'a> Searcher<'a> {
                 // Using this to track legal moves too so need to not continue before incrementing if the move is legal
                 searched_moves += 1;
 
-                if eval >= beta {
+                if score >= beta {
                     self.update_killers_and_history(killers, &r#move.m, ply);
 
                     let penalty = -(ply as i16) * (ply as i16);
@@ -452,7 +451,7 @@ impl<'a> Searcher<'a> {
                             self.board.hash,
                             r#move.m,
                             MoveType::FailHigh,
-                            eval,
+                            score,
                             draft,
                             ply,
                             self.starting_halfmove,
@@ -460,14 +459,14 @@ impl<'a> Searcher<'a> {
                         TableType::Main,
                     );
 
-                    return Ok(eval);
+                    return Ok(score);
                 }
 
-                if eval > best_value {
-                    best_value = eval;
+                if score > best_score {
+                    best_score = score;
                     best_move = Some(r#move.m);
-                    if eval > alpha {
-                        alpha = eval;
+                    if score > alpha {
+                        alpha = score;
                     }
                 }
 
@@ -526,7 +525,7 @@ impl<'a> Searcher<'a> {
             self.end_search = true;
         }
 
-        let entry_type = if alpha == best_value {
+        let entry_type = if alpha == best_score {
             MoveType::Best
         } else {
             MoveType::FailLow
@@ -536,7 +535,7 @@ impl<'a> Searcher<'a> {
                 self.board.hash,
                 best_move.unwrap(),
                 entry_type,
-                best_value,
+                best_score,
                 draft,
                 ply,
                 self.starting_halfmove,
@@ -544,7 +543,7 @@ impl<'a> Searcher<'a> {
             TableType::Main,
         );
 
-        Ok(best_value)
+        Ok(best_score)
     }
 
     pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
@@ -559,7 +558,7 @@ impl<'a> Searcher<'a> {
             self.transposition_table
                 .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
-            let tt_eval = tt_data.get_eval(0);
+            let tt_eval = tt_data.get_score(0);
 
             match tt_data.get_move_type() {
                 transposition_table::MoveType::FailHigh => {
@@ -603,24 +602,26 @@ impl<'a> Searcher<'a> {
             alpha = stand_pat;
         }
 
-        let mut best_value = stand_pat;
+        let mut best_score = stand_pat;
         let mut best_move = None;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
             for move_index in 0..moves.len() {
-                // Perform one iteration of selection sort every time another move needs to be evaluated
-                let mut best_score = moves[move_index].score;
-                let mut best_index = move_index;
+                {
+                    // Perform one iteration of selection sort every time another move needs to be evaluated
+                    let mut best_move_score = moves[move_index].score;
+                    let mut best_move_index = move_index;
 
-                for sort_index in (move_index + 1)..moves.len() {
-                    if moves[sort_index].score > best_score {
-                        best_score = moves[sort_index].score;
-                        best_index = sort_index;
+                    for sort_index in (move_index + 1)..moves.len() {
+                        if moves[sort_index].score > best_move_score {
+                            best_move_score = moves[sort_index].score;
+                            best_move_index = sort_index;
+                        }
                     }
-                }
 
-                moves.swap(move_index, best_index);
+                    moves.swap(move_index, best_move_index);
+                }
                 let r#move = &moves[move_index];
 
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
@@ -639,17 +640,17 @@ impl<'a> Searcher<'a> {
                 }
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                let result = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1);
+                let score = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
-                if result >= beta {
+                if score >= beta {
                     self.transposition_table.store_entry(
                         TTEntry::new(
                             self.board.hash,
                             r#move.m,
                             MoveType::FailHigh,
-                            result,
+                            score,
                             draft,
                             0,
                             self.starting_halfmove,
@@ -657,15 +658,15 @@ impl<'a> Searcher<'a> {
                         TableType::Quiescense,
                     );
 
-                    return result;
+                    return score;
                 }
 
-                if best_value < result {
-                    best_value = result;
+                if best_score < score {
+                    best_score = score;
                     best_move = Some(r#move.m);
 
-                    if alpha < result {
-                        alpha = result;
+                    if alpha < score {
+                        alpha = score;
                     }
                 }
             }
@@ -676,7 +677,7 @@ impl<'a> Searcher<'a> {
         }
 
         if let Some(bm) = best_move {
-            let entry_type = if alpha == best_value {
+            let entry_type = if alpha == best_score {
                 MoveType::Best
             } else {
                 MoveType::FailLow
@@ -686,7 +687,7 @@ impl<'a> Searcher<'a> {
                     self.board.hash,
                     bm,
                     entry_type,
-                    best_value,
+                    best_score,
                     0,
                     0,
                     self.starting_halfmove,
@@ -695,7 +696,7 @@ impl<'a> Searcher<'a> {
             );
         }
 
-        best_value
+        best_score
     }
 
     #[inline]

@@ -38,7 +38,7 @@ pub struct TTEntry {
     pub important_move: Move,
     /// Bottom 2 bits: age, top 2 bits: MoveType
     packed: u8,
-    eval: i16,
+    score: i16,
     pub draft: u8,
     pub empty: bool,
 }
@@ -49,16 +49,16 @@ impl TTEntry {
         hash: u64,
         important_move: Move,
         move_type: MoveType,
-        eval: i16,
+        score: i16,
         draft: u8,
         ply: u8,
         search_starting_halfmove: u8,
     ) -> Self {
-        let mut tt_eval = eval;
-        if tt_eval >= MATE_THRESHOLD {
-            tt_eval += 10 * ply as i16;
-        } else if tt_eval <= -MATE_THRESHOLD {
-            tt_eval -= 10 * ply as i16;
+        let mut tt_score = score;
+        if tt_score >= MATE_THRESHOLD {
+            tt_score += 10 * ply as i16;
+        } else if tt_score <= -MATE_THRESHOLD {
+            tt_score -= 10 * ply as i16;
         }
 
         let mut packed = search_starting_halfmove % 4;
@@ -68,23 +68,23 @@ impl TTEntry {
             hash,
             important_move,
             packed,
-            eval: tt_eval,
+            score: tt_score,
             draft,
             empty: false,
         }
     }
 
     #[inline]
-    pub fn get_eval(&self, ply: u8) -> i16 {
-        let mut eval = self.eval;
+    pub fn get_score(&self, ply: u8) -> i16 {
+        let mut score = self.score;
 
-        if eval >= MATE_THRESHOLD {
-            eval -= 10 * ply as i16;
-        } else if eval <= -MATE_THRESHOLD {
-            eval += 10 * ply as i16;
+        if score >= MATE_THRESHOLD {
+            score -= 10 * ply as i16;
+        } else if score <= -MATE_THRESHOLD {
+            score += 10 * ply as i16;
         }
 
-        eval
+        score
     }
 
     #[inline]
@@ -112,7 +112,7 @@ impl Default for TTEntry {
             hash: 0,
             important_move: Move { data: 0 },
             packed: 0xFF,
-            eval: 0,
+            score: 0,
             draft: 0,
             empty: true,
         }
