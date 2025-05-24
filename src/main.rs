@@ -121,13 +121,16 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         } else {
             result = SearchResult {
                 best_move: r#move.m,
-                eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255) * if board.white_to_move { 1 } else { -1 },
+                eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255)
+                    * if board.white_to_move { 1 } else { -1 },
             };
         }
 
         board.unmake_move(&r#move.m, &mut rollback);
 
-        if best.as_ref().is_none_or(|v| v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }) {
+        if best.as_ref().is_none_or(|v| {
+            v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }
+        }) {
             best = Some(result);
         }
     }

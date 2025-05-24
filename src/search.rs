@@ -1,5 +1,8 @@
 use std::{
-    cmp::{Ordering, Reverse}, collections::HashSet, i16, iter, time::{Duration, Instant}
+    cmp::{Ordering, Reverse},
+    collections::HashSet,
+    i16, iter,
+    time::{Duration, Instant},
 };
 
 use log::{debug, error};
@@ -122,11 +125,7 @@ impl<'a> Searcher<'a> {
                         40
                     };
 
-                    let time_left = time_left
-                        .as_ref()
-                        .unwrap()
-                        .to_std()
-                        .unwrap();
+                    let time_left = time_left.as_ref().unwrap().to_std().unwrap();
                     target_dur = Some(time_left.checked_div(divisor).unwrap());
 
                     if let Some(inc) = increment {
@@ -197,14 +196,12 @@ impl<'a> Searcher<'a> {
 
                 if search_control != SearchControl::Infinite
                     && (result.end_search
-                    || search_result.eval.abs() >= MATE_THRESHOLD
-                    || depth >= max_depth
-                    || match search_control {
-                        SearchControl::Time => {
-                            elapsed >= cutoff.unwrap()
-                        }
-                        SearchControl::Depth | SearchControl::Infinite => false,
-                    })
+                        || search_result.eval.abs() >= MATE_THRESHOLD
+                        || depth >= max_depth
+                        || match search_control {
+                            SearchControl::Time => elapsed >= cutoff.unwrap(),
+                            SearchControl::Depth | SearchControl::Infinite => false,
+                        })
                 {
                     return search_result;
                 }
@@ -229,7 +226,9 @@ impl<'a> Searcher<'a> {
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let mut moves;
-        let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        let tt_entry = self
+            .transposition_table
+            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             moves = Vec::from([ScoredMove {
                 m: tt_data.important_move,
@@ -325,8 +324,16 @@ impl<'a> Searcher<'a> {
         }
 
         self.transposition_table.store_entry(
-            TTEntry::new(self.board.hash, best_move.unwrap(), MoveType::Best, best_value, draft, 0, self.starting_halfmove),
-            TableType::Main
+            TTEntry::new(
+                self.board.hash,
+                best_move.unwrap(),
+                MoveType::Best,
+                best_value,
+                draft,
+                0,
+                self.starting_halfmove,
+            ),
+            TableType::Main,
         );
 
         // Make the score not side-to-move relative
@@ -363,7 +370,9 @@ impl<'a> Searcher<'a> {
             self.stats.leaf_nodes += 1;
             self.stats.total_search_leaves += 1;
 
-            if self.stats.total_search_leaves % 16384 == 16383 && self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+            if self.stats.total_search_leaves % 16384 == 16383
+                && self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
+            {
                 return None;
             }
 
@@ -377,7 +386,9 @@ impl<'a> Searcher<'a> {
         let is_pv = alpha + 1 != beta;
 
         let mut moves;
-        let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        let tt_entry = self
+            .transposition_table
+            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
                 let eval = tt_data.get_eval(ply);
@@ -411,10 +422,13 @@ impl<'a> Searcher<'a> {
 
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if beta < i16::MAX &&
-                draft > 4 &&
-                !in_check &&
-                self.board.piece_bitboards[our_side][PIECE_PAWN as usize] | self.board.piece_bitboards[our_side][PIECE_KING as usize] != self.board.side_occupancy[our_side] {
+        if beta < i16::MAX
+            && draft > 4
+            && !in_check
+            && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
+                | self.board.piece_bitboards[our_side][PIECE_KING as usize]
+                != self.board.side_occupancy[our_side]
+        {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
 
@@ -482,7 +496,8 @@ impl<'a> Searcher<'a> {
 
                 let mut eval;
                 if searched_moves == 0 {
-                    let mut result = self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                    let mut result =
+                        self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
 
                     if let Some(e) = result {
                         eval = -e;
@@ -536,7 +551,15 @@ impl<'a> Searcher<'a> {
                     }
 
                     self.transposition_table.store_entry(
-                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, eval, draft, ply, self.starting_halfmove),
+                        TTEntry::new(
+                            self.board.hash,
+                            r#move.m,
+                            MoveType::FailHigh,
+                            eval,
+                            draft,
+                            ply,
+                            self.starting_halfmove,
+                        ),
                         TableType::Main,
                     );
 
@@ -608,7 +631,15 @@ impl<'a> Searcher<'a> {
             MoveType::FailLow
         };
         self.transposition_table.store_entry(
-            TTEntry::new(self.board.hash, best_move.unwrap(), entry_type, best_value, draft, ply, self.starting_halfmove),
+            TTEntry::new(
+                self.board.hash,
+                best_move.unwrap(),
+                entry_type,
+                best_value,
+                draft,
+                ply,
+                self.starting_halfmove,
+            ),
             TableType::Main,
         );
 
@@ -623,9 +654,9 @@ impl<'a> Searcher<'a> {
         }
 
         let mut moves;
-        let tt_entry = self
-            .transposition_table
-            .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
+        let tt_entry =
+            self.transposition_table
+                .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             let tt_eval = tt_data.get_eval(0);
 
@@ -699,7 +730,15 @@ impl<'a> Searcher<'a> {
 
                 if result >= beta {
                     self.transposition_table.store_entry(
-                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, result, draft, 0, self.starting_halfmove),
+                        TTEntry::new(
+                            self.board.hash,
+                            r#move.m,
+                            MoveType::FailHigh,
+                            result,
+                            draft,
+                            0,
+                            self.starting_halfmove,
+                        ),
                         TableType::Quiescense,
                     );
 
@@ -732,7 +771,15 @@ impl<'a> Searcher<'a> {
                 MoveType::FailLow
             };
             self.transposition_table.store_entry(
-                TTEntry::new(self.board.hash, bm, entry_type, best_value, 0, 0, self.starting_halfmove),
+                TTEntry::new(
+                    self.board.hash,
+                    bm,
+                    entry_type,
+                    best_value,
+                    0,
+                    0,
+                    self.starting_halfmove,
+                ),
                 TableType::Quiescense,
             );
         }
@@ -771,10 +818,7 @@ impl<'a> Searcher<'a> {
             (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
     }
 
-    fn gather_pv(
-        &mut self,
-        first_move: &Move,
-    ) {
+    fn gather_pv(&mut self, first_move: &Move) {
         self.stats.pv.clear();
 
         // Prevent cycles from occurring
@@ -783,7 +827,9 @@ impl<'a> Searcher<'a> {
         self.stats.pv.push(*first_move);
         self.board.make_move(first_move, &mut self.rollback);
 
-        let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        let mut next_move =
+            self.transposition_table
+                .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         loop {
             match next_move {
                 None => {
@@ -798,7 +844,9 @@ impl<'a> Searcher<'a> {
                     self.stats.pv.push(e.important_move);
                     // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
                     self.board.make_move(&e.important_move, &mut self.rollback);
-                    next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                    next_move =
+                        self.transposition_table
+                            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
                 }
             }
         }

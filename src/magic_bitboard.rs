@@ -120,7 +120,6 @@ pub fn initialize_magic_bitboards() {
             }
         }
     }
-
 }
 
 const fn generate_rook_attack(square_index: u8) -> u64 {
@@ -246,11 +245,7 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     }
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
     use core::arch::x86_64::_pext_u64;
@@ -258,31 +253,19 @@ unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
     _pext_u64(occupancy, (*entry).mask)
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 unsafe fn get_entry_count(entry: *const MagicEntry) -> usize {
     1 << (*entry).mask.count_ones()
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 fn get_total_entry_count() -> usize {
     107648
 }
 
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-)))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext")))]
 #[inline]
 unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
     let mut attack_index = occupancy & (*entry).mask;
@@ -292,21 +275,13 @@ unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
     attack_index
 }
 
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-)))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext")))]
 #[inline]
 unsafe fn get_entry_count(entry: *const MagicEntry) -> usize {
     1 << (*entry).shift
 }
 
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-)))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext")))]
 #[inline]
 fn get_total_entry_count() -> usize {
     93312

@@ -125,20 +125,20 @@ pub fn bitscan_forward_and_reset(num: &mut u64) -> u32 {
 /// Code copied from https://www.chessprogramming.org/Square_Attacked_By#Pure_Calculation
 /// It is magic I do not understand, but seems to work. Comments are original.
 const fn squares_in_between(sq1: u64, sq2: u64) -> u64 {
-    let m1   = u64::MAX;
+    let m1 = u64::MAX;
     let a2a7 = 0x0001010101010100;
     let b2g7 = 0x0040201008040200;
     let h1b7 = 0x0002040810204080; /* Thanks Dustin, g2b7 did not work for c1-a3 */
- 
-    let btwn  = (m1 << sq1) ^ (m1 << sq2);
-    let file  =   (sq2 & 7).wrapping_sub(sq1   & 7);
-    let rank  =  ((sq2 | 7).wrapping_sub(sq1)) >> 3 ;
-    let mut line  =      (   (file  &  7).wrapping_sub(1)) & a2a7; /* a2a7 if same file */
-    line += 2 * ((   (rank  &  7).wrapping_sub(1)) >> 58); /* b1g1 if same rank */
+
+    let btwn = (m1 << sq1) ^ (m1 << sq2);
+    let file = (sq2 & 7).wrapping_sub(sq1 & 7);
+    let rank = ((sq2 | 7).wrapping_sub(sq1)) >> 3;
+    let mut line = ((file & 7).wrapping_sub(1)) & a2a7; /* a2a7 if same file */
+    line += 2 * (((rank & 7).wrapping_sub(1)) >> 58); /* b1g1 if same rank */
     line += (((rank.wrapping_sub(file)) & 15).wrapping_sub(1)) & b2g7; /* b2g7 if same diagonal */
     line += (((rank.wrapping_add(file)) & 15).wrapping_sub(1)) & h1b7; /* h1b7 if same antidiag */
     line = line.wrapping_mul(btwn & (!btwn).overflowing_add(1).0); /* mul acts like shift by smaller square */
-    return line & btwn;   /* return the bits on that line in-between */
+    return line & btwn; /* return the bits on that line in-between */
 }
 
 pub const fn south_fill(mut b: u64) -> u64 {
@@ -159,7 +159,8 @@ pub const fn north_fill(mut b: u64) -> u64 {
 
 impl Board {
     pub const fn white_passed_pawns(&self) -> u64 {
-        let mut front_span = south_fill(self.piece_bitboards[1][PIECE_PAWN as usize]) & !self.piece_bitboards[1][PIECE_PAWN as usize];
+        let mut front_span =
+            south_fill(self.piece_bitboards[1][PIECE_PAWN as usize]) & !self.piece_bitboards[1][PIECE_PAWN as usize];
         front_span |= east_one(front_span) | west_one(front_span);
 
         let mut blocked_own_pawns = self.piece_bitboards[0][PIECE_PAWN as usize] >> 8;
@@ -169,7 +170,8 @@ impl Board {
     }
 
     pub const fn black_passed_pawns(&self) -> u64 {
-        let mut front_span = north_fill(self.piece_bitboards[0][PIECE_PAWN as usize]) & !self.piece_bitboards[0][PIECE_PAWN as usize];
+        let mut front_span =
+            north_fill(self.piece_bitboards[0][PIECE_PAWN as usize]) & !self.piece_bitboards[0][PIECE_PAWN as usize];
         front_span |= east_one(front_span) | west_one(front_span);
 
         let mut blocked_own_pawns = self.piece_bitboards[1][PIECE_PAWN as usize] << 8;
@@ -181,8 +183,8 @@ impl Board {
 
 #[cfg(test)]
 mod bitboard_tests {
-    use crate::board::Board;
     use super::*;
+    use crate::board::Board;
 
     #[test]
     pub fn basic_passed_pawns() {

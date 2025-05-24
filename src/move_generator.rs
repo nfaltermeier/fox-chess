@@ -4,7 +4,11 @@ use log::{debug, error, info, log_enabled, trace};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one, south_west_one, BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN},
+    bitboard::{
+        bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one,
+        north_one, north_west_one, south_east_one, south_one, south_west_one, BIT_SQUARES, RANK_1, RANK_3, RANK_6,
+        RANK_8, SQUARES_BETWEEN,
+    },
     board::{
         piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
         CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
@@ -408,7 +412,8 @@ impl Board {
 
         let double_check;
         let move_to_mask;
-        let pawns = lookup_pawn_attack(king_pos, self.white_to_move) & self.piece_bitboards[other_side][PIECE_PAWN as usize];
+        let pawns =
+            lookup_pawn_attack(king_pos, self.white_to_move) & self.piece_bitboards[other_side][PIECE_PAWN as usize];
         if pawns != 0 {
             // I'm pretty sure you can't give double check with a pawn
             double_check = false;
@@ -420,7 +425,9 @@ impl Board {
                 checks += 1;
             }
 
-            let rooks = lookup_rook_attack(king_pos, self.occupancy) & (self.piece_bitboards[other_side][PIECE_ROOK as usize] | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
+            let rooks = lookup_rook_attack(king_pos, self.occupancy)
+                & (self.piece_bitboards[other_side][PIECE_ROOK as usize]
+                    | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
             if rooks != 0 {
                 checks += 1;
             }
@@ -429,7 +436,9 @@ impl Board {
                 double_check = true;
                 move_to_mask = 0;
             } else {
-                let bishops = lookup_bishop_attack(king_pos, self.occupancy) & (self.piece_bitboards[other_side][PIECE_BISHOP as usize] | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
+                let bishops = lookup_bishop_attack(king_pos, self.occupancy)
+                    & (self.piece_bitboards[other_side][PIECE_BISHOP as usize]
+                        | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
                 if bishops != 0 {
                     checks += 1;
                 }
@@ -453,53 +462,28 @@ impl Board {
                 }
             }
         }
-        
-        self.add_moves::<true, false, _>(
-            PIECE_KING,
-            self_side,
-            other_side,
-            &mut result,
-            history_table,
-            |sq| lookup_king_attack(sq),
-        );
+
+        self.add_moves::<true, false, _>(PIECE_KING, self_side, other_side, &mut result, history_table, |sq| {
+            lookup_king_attack(sq)
+        });
 
         if !double_check {
-            self.add_moves::<true, false, _>(
-                PIECE_KNIGHT,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| lookup_knight_attack(sq) & move_to_mask,
-            );
-            self.add_moves::<true, false, _>(
-                PIECE_BISHOP,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| lookup_bishop_attack(sq, self.occupancy) & move_to_mask,
-            );
-            self.add_moves::<true, false, _>(
-                PIECE_ROOK,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| lookup_rook_attack(sq, self.occupancy) & move_to_mask,
-            );
-            self.add_moves::<true, false, _>(
-                PIECE_QUEEN,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask,
-            );
+            self.add_moves::<true, false, _>(PIECE_KNIGHT, self_side, other_side, &mut result, history_table, |sq| {
+                lookup_knight_attack(sq) & move_to_mask
+            });
+            self.add_moves::<true, false, _>(PIECE_BISHOP, self_side, other_side, &mut result, history_table, |sq| {
+                lookup_bishop_attack(sq, self.occupancy) & move_to_mask
+            });
+            self.add_moves::<true, false, _>(PIECE_ROOK, self_side, other_side, &mut result, history_table, |sq| {
+                lookup_rook_attack(sq, self.occupancy) & move_to_mask
+            });
+            self.add_moves::<true, false, _>(PIECE_QUEEN, self_side, other_side, &mut result, history_table, |sq| {
+                (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask
+            });
 
             if self.piece_bitboards[self_side][PIECE_PAWN as usize] != 0 {
                 let pawns = self.piece_bitboards[self_side][PIECE_PAWN as usize];
-    
+
                 // Pawn captures
                 for round in 0..2 {
                     let mut moves;
@@ -529,7 +513,7 @@ impl Board {
                             _ => panic!(),
                         }
                     }
-    
+
                     moves &= self.side_occupancy[other_side];
                     moves &= move_to_mask;
                     self.add_pawn_moves::<false, true, false, false>(
@@ -547,7 +531,7 @@ impl Board {
                         history_table,
                     );
                 }
-    
+
                 let mut moves;
                 let mut offset;
                 if self.white_to_move {
@@ -588,22 +572,21 @@ impl Board {
 
                 moves &= !self.occupancy;
                 moves &= move_to_mask;
-                self.add_pawn_moves::<true, false, false, true>(
-                    moves,
-                    offset,
-                    &mut result,
-                    self_side,
-                    history_table,
-                );
+                self.add_pawn_moves::<true, false, false, true>(moves, offset, &mut result, self_side, history_table);
 
                 // En passant
                 if let Some(ep_target_64) = self.en_passant_target_square_index {
-                    if move_to_mask & BIT_SQUARES[ep_target_64.checked_add_signed(if self.white_to_move { -8 } else { 8 }).unwrap() as usize] != 0 {
+                    if move_to_mask
+                        & BIT_SQUARES[ep_target_64
+                            .checked_add_signed(if self.white_to_move { -8 } else { 8 })
+                            .unwrap() as usize]
+                        != 0
+                    {
                         let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
                         let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
                         while takers != 0 {
                             let from = bitscan_forward_and_reset(&mut takers) as u8;
-        
+
                             result.push(ScoredMove {
                                 m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
                                 score: MOVE_SCORE_CAPTURE,

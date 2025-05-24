@@ -192,7 +192,8 @@ impl Board {
             self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_target_piece);
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
-            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -= 1;
+            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -=
+                1;
             // Remove the piece that is being captured from bitboards TODO: fix commented out logic to replace writing a blank piece
             // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
             // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] |= BIT_SQUARES[to];

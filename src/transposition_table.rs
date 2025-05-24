@@ -21,7 +21,7 @@ impl From<u8> for MoveType {
             0 => Self::FailHigh,
             1 => Self::Best,
             2 => Self::FailLow,
-            _ => Self::FailLow
+            _ => Self::FailLow,
         }
     }
 }
@@ -45,7 +45,15 @@ pub struct TTEntry {
 
 impl TTEntry {
     #[inline]
-    pub fn new(hash: u64, important_move: Move, move_type: MoveType, eval: i16, draft: u8, ply: u8, search_starting_halfmove: u8) -> Self {
+    pub fn new(
+        hash: u64,
+        important_move: Move,
+        move_type: MoveType,
+        eval: i16,
+        draft: u8,
+        ply: u8,
+        search_starting_halfmove: u8,
+    ) -> Self {
         let mut tt_eval = eval;
         if tt_eval >= MATE_THRESHOLD {
             tt_eval += 10 * ply as i16;
@@ -53,7 +61,7 @@ impl TTEntry {
             tt_eval -= 10 * ply as i16;
         }
 
-        let mut packed= search_starting_halfmove % 4;
+        let mut packed = search_starting_halfmove % 4;
         packed |= (move_type as u8) << 6;
 
         Self {
@@ -166,7 +174,10 @@ impl TranspositionTable {
         };
 
         if let Some(entry) = table.get_mut(index) {
-            if entry.depth_first.empty || entry.depth_first.get_age() != val.get_age() || entry.depth_first.draft <= val.draft {
+            if entry.depth_first.empty
+                || entry.depth_first.get_age() != val.get_age()
+                || entry.depth_first.draft <= val.draft
+            {
                 entry.depth_first = val;
             } else {
                 entry.always_replace = val;
