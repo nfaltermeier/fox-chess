@@ -679,12 +679,11 @@ impl<'a> Searcher<'a> {
             return stand_pat;
         }
 
-        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
-            // avoid underflow
-            if alpha >= i16::MIN + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 && stand_pat < alpha - (CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100) {
-                self.stats.quiescense_cut_by_hopeless += 1;
-                return alpha;
-            }
+        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+            && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
+        {
+            self.stats.quiescense_cut_by_hopeless += 1;
+            return alpha;
         }
 
         if alpha < stand_pat {
