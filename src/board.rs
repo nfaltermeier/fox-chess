@@ -1,10 +1,10 @@
 use std::{fmt::Debug, sync::LazyLock};
 
 use log::error;
-use rand::{rngs::StdRng, Fill, SeedableRng};
+use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{pretty_print_bitboard, BIT_SQUARES},
+    bitboard::{BIT_SQUARES, pretty_print_bitboard},
     evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
 };

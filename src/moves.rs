@@ -2,14 +2,14 @@ use log::{debug, error};
 use regex::Regex;
 
 use crate::{
+    STARTING_FEN,
     board::{
-        file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
-        HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
+        Board, COLOR_BLACK, CastlingValue, HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
+        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value,
+        index_8x8_to_pos_str, piece_to_name, rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
     move_generator::ScoredMove,
-    STARTING_FEN,
 };
 
 // Assumes flags have been shifted to bits 1-4

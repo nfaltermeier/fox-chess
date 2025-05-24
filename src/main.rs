@@ -11,8 +11,8 @@ use clap::Parser;
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
-use moves::{square_indices_to_moves, Move, MoveRollback};
-use search::{SearchResult, Searcher, DEFAULT_HISTORY_TABLE};
+use moves::{Move, MoveRollback, square_indices_to_moves};
+use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
@@ -227,10 +227,12 @@ fn run_uci() {
 // From https://stackoverflow.com/a/55201400
 fn spawn_stdin_channel() -> Receiver<String> {
     let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer).unwrap();
+    thread::spawn(move || {
+        loop {
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).unwrap();
+            tx.send(buffer).unwrap();
+        }
     });
     rx
 }

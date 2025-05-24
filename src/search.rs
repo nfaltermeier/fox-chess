@@ -11,8 +11,8 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
     evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
-    moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION},
+    move_generator::{MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove},
+    moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, Move, MoveRollback},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,

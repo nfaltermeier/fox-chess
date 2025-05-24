@@ -5,9 +5,9 @@ use num_format::{Locale, ToFormattedString};
 
 use crate::{
     bitboard::{
-        bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one,
-        north_one, north_west_one, south_east_one, south_one, south_west_one, BIT_SQUARES, RANK_1, RANK_3, RANK_6,
-        RANK_8, SQUARES_BETWEEN,
+        BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack,
+        lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
+        south_west_one,
     },
     board::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
@@ -17,10 +17,10 @@ use crate::{
     evaluate::CENTIPAWN_VALUES,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::{
-        Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
-        MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
+        MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP,
+        MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move, MoveRollback,
     },
-    search::{HistoryTable, DEFAULT_HISTORY_TABLE},
+    search::{DEFAULT_HISTORY_TABLE, HistoryTable},
 };
 
 const ENABLE_PERFT_STATS: bool = true;

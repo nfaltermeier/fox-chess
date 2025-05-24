@@ -1,10 +1,10 @@
 use array_macro::array;
 
 use crate::{
-    bitboard::{north_fill, south_fill, LIGHT_SQUARES},
+    bitboard::{LIGHT_SQUARES, north_fill, south_fill},
     board::{
-        file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
-        PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
+        PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
     },
 };
 

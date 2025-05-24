@@ -22,7 +22,10 @@ pub struct RepetitionTracker {
 impl RepetitionTracker {
     pub fn make_move(&mut self, m: Move, hash: u64) {
         if self.move_history_len >= MAX_MOVE_HISTORY {
-            panic!("RepetitionTracker make_move: move_history_len is {} which is greater than MAX_MOVE_HISTORY {MAX_MOVE_HISTORY}", self.move_history_len);
+            panic!(
+                "RepetitionTracker make_move: move_history_len is {} which is greater than MAX_MOVE_HISTORY {MAX_MOVE_HISTORY}",
+                self.move_history_len
+            );
         }
 
         self.move_history[self.move_history_len] = m;
