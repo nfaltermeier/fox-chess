@@ -35,9 +35,9 @@ impl UciInterface {
     }
 
     // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmd: String) {
+    pub fn process_command(&mut self, cmd: &str) {
         debug!("Received UCI cmd string '{cmd}'");
-        let messages = parse_with_unknown(&cmd);
+        let messages = parse_with_unknown(cmd);
         for m in messages {
             match m {
                 UciMessage::Uci => {
@@ -222,5 +222,10 @@ impl UciInterface {
             stats.leaf_nodes,
             stats.quiescense_cut_by_hopeless
         );
+    }
+
+    /// For testing
+    pub fn get_board_copy(&self) -> Option<Board> {
+        self.board.clone()
     }
 }

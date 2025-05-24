@@ -221,7 +221,7 @@ fn run_uci() {
     loop {
         match stdin_channel.try_recv() {
             Ok(val) => {
-                uci.process_command(val);
+                uci.process_command(val.as_str());
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
