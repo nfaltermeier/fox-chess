@@ -9,9 +9,9 @@ use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
+    board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
-    move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
+    move_generator::{ScoredMove, ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
     moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -809,6 +809,11 @@ impl<'a> Searcher<'a> {
     ) {
         self.stats.pv.clear();
 
+        let mut board_copy = None;
+        if ENABLE_UNMAKE_MOVE_TEST {
+            board_copy = Some(self.board.clone());
+        }
+
         // Prevent cycles from occurring
         let mut previous_hashes = HashSet::new();
         previous_hashes.insert(self.board.hash);
@@ -837,6 +842,21 @@ impl<'a> Searcher<'a> {
 
         for m in self.stats.pv.iter().rev() {
             self.board.unmake_move(&m, &mut self.rollback);
+        }
+
+        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self.board {
+            error!("gather_pv did not reset the board state properly");
+
+            let board_copied = board_copy.as_ref().unwrap();
+            if board_copied.hash != self.board.hash {
+                for (i, v) in HASH_VALUES.iter().enumerate() {
+                    if board_copied.hash ^ v == self.board.hash {
+                        debug!("board states differ by value {i} of HASH_VALUES in hash");
+                    }
+                }
+            }
+
+            assert_eq!(board_copy.as_ref().unwrap(), self.board);
         }
     }
 }
