@@ -236,7 +236,9 @@ impl<'a> Searcher<'a> {
 
         debug_assert!(self.rollback.is_empty());
 
-        let best_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        let best_move = self
+            .transposition_table
+            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if best_move.is_none() {
             error!("Did not get a move from transposition table in alpha_beta_init");
             panic!("Did not get a move from transposition table in alpha_beta_init")
@@ -416,7 +418,8 @@ impl<'a> Searcher<'a> {
 
                 let mut score;
                 if searched_moves == 0 {
-                    score = -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
+                    score =
+                        -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
 
                     if score > alpha && reduction > 0 {
                         score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
@@ -458,6 +461,7 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Main,
+                        false,
                     );
 
                     return Ok(score);
@@ -542,6 +546,7 @@ impl<'a> Searcher<'a> {
                 self.starting_halfmove,
             ),
             TableType::Main,
+            ply == 0,
         );
 
         Ok(best_score)
@@ -657,6 +662,7 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Quiescense,
+                        false,
                     );
 
                     return score;
@@ -694,6 +700,7 @@ impl<'a> Searcher<'a> {
                     self.starting_halfmove,
                 ),
                 TableType::Quiescense,
+                false,
             );
         }
 
