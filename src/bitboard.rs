@@ -138,7 +138,7 @@ const fn squares_in_between(sq1: u64, sq2: u64) -> u64 {
     line += (((rank.wrapping_sub(file)) & 15).wrapping_sub(1)) & b2g7; /* b2g7 if same diagonal */
     line += (((rank.wrapping_add(file)) & 15).wrapping_sub(1)) & h1b7; /* h1b7 if same antidiag */
     line = line.wrapping_mul(btwn & (!btwn).overflowing_add(1).0); /* mul acts like shift by smaller square */
-    return line & btwn; /* return the bits on that line in-between */
+    line & btwn /* return the bits on that line in-between */
 }
 
 pub const fn south_fill(mut b: u64) -> u64 {
@@ -183,7 +183,7 @@ impl Board {
 
 #[cfg(test)]
 mod bitboard_tests {
-    use super::*;
+
     use crate::board::Board;
 
     #[test]

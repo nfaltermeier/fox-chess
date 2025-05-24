@@ -2,15 +2,13 @@ use log::{debug, error};
 use regex::Regex;
 
 use crate::{
-    bitboard::BIT_SQUARES,
     board::{
         file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
         HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
         PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
     },
     evaluate::GAME_STAGE_VALUES,
-    move_generator::{ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
-    search::DEFAULT_HISTORY_TABLE,
+    move_generator::ScoredMove,
     STARTING_FEN,
 };
 
@@ -530,9 +528,9 @@ impl Board {
 
 // Not going to be super optimized probably and only support basic PGNs
 pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
-    let mut result = Vec::new();
-    let mut board = Board::from_fen(STARTING_FEN);
-    let mut rollback = MoveRollback::default();
+    let result = Vec::new();
+    let board = Board::from_fen(STARTING_FEN);
+    let rollback = MoveRollback::default();
 
     let parts = pgn.split_ascii_whitespace();
     let turn_pattern = Regex::new(r"[1-9][0-9]*\.").unwrap();
@@ -562,7 +560,6 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
-    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = board.generate_legal_moves_without_history();
@@ -598,7 +595,6 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
 
 pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
     let mut rollback = MoveRollback::default();
-    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = board.generate_pseudo_legal_moves_without_history();

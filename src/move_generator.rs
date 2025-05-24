@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use log::{debug, error, info, log_enabled, trace};
+use log::{debug, error, info};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
@@ -10,9 +10,9 @@ use crate::{
         RANK_8, SQUARES_BETWEEN,
     },
     board::{
-        piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
-        CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
+        HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN,
+        PIECE_ROOK,
     },
     evaluate::CENTIPAWN_VALUES,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
@@ -141,7 +141,7 @@ impl Board {
         while pieces != 0 {
             let from = bitscan_forward_and_reset(&mut pieces) as u8;
             let promo =
-                (self.white_to_move && from >= 48 && from <= 55) || (!self.white_to_move && from >= 8 && from <= 15);
+                (self.white_to_move && (48..=55).contains(&from)) || (!self.white_to_move && (8..=15).contains(&from));
 
             let mut attacks = lookup_pawn_attack(from, self.white_to_move) & self.side_occupancy[other_side];
             while attacks != 0 {
@@ -234,8 +234,8 @@ impl Board {
                     }
 
                     // double move
-                    if (!self.white_to_move && from >= 48 && from <= 55)
-                        || (self.white_to_move && from >= 8 && from <= 15)
+                    if (!self.white_to_move && (48..=55).contains(&from))
+                        || (self.white_to_move && (8..=15).contains(&from))
                     {
                         let doublemove_bitsquare = if self.white_to_move {
                             to_bitsquare << 8
@@ -282,7 +282,7 @@ impl Board {
             other_side,
             &mut result,
             history_table,
-            |sq| lookup_knight_attack(sq),
+            lookup_knight_attack,
         );
         self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
             PIECE_BISHOP,
@@ -314,7 +314,7 @@ impl Board {
             other_side,
             &mut result,
             history_table,
-            |sq| lookup_king_attack(sq),
+            lookup_king_attack,
         );
 
         // Castling
@@ -609,7 +609,7 @@ impl Board {
         history_table: &HistoryTable,
     ) {
         if PROMOS {
-            to_squares &= (RANK_1 | RANK_8);
+            to_squares &= RANK_1 | RANK_8;
         } else {
             to_squares &= !(RANK_1 | RANK_8);
         }

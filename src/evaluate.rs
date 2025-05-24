@@ -1,7 +1,4 @@
-use std::cell::Cell;
-
 use array_macro::array;
-use rand::random;
 
 use crate::{
     bitboard::{north_fill, south_fill, LIGHT_SQUARES},

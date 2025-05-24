@@ -1,7 +1,6 @@
 use array_macro::array;
-use log::debug;
 
-use crate::bitboard::{pretty_print_bitboard, A_FILE, BIT_SQUARES, H_FILE, RANK_1, RANK_8};
+use crate::bitboard::{A_FILE, BIT_SQUARES, H_FILE, RANK_1, RANK_8};
 
 const NORTH: usize = 0;
 const EAST: usize = 1;
@@ -224,8 +223,8 @@ const fn get_occluded_positive_ray(square_index: u8, occupancy: u64, direction: 
 
     if blockers != 0 {
         let blocker_square = blockers.trailing_zeros();
-        let result_ray = ray ^ rays[blocker_square as usize][direction];
-        result_ray
+
+        ray ^ rays[blocker_square as usize][direction]
     } else {
         ray
     }
@@ -238,8 +237,8 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     if blockers != 0 {
         let blocker_square = 63 - blockers.leading_zeros();
         let blocked_ray = rays[blocker_square as usize][direction];
-        let result_ray = ray ^ blocked_ray;
-        result_ray
+
+        ray ^ blocked_ray
     } else {
         ray
     }

@@ -1,19 +1,18 @@
 use std::{
-    cmp::{Ordering, Reverse},
+    cmp::Reverse,
     collections::HashSet,
-    i16, iter,
+    i16,
     time::{Duration, Instant},
 };
 
 use log::{debug, error};
-use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
+    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
-    moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
+    moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
@@ -154,8 +153,8 @@ impl<'a> Searcher<'a> {
                 }
                 UciTimeControl::Infinite => {
                     // Need to copy 'stop' command functionality over from full-pv branch
-                    unimplemented!("uci go infinite");
                     search_control = SearchControl::Infinite;
+                    unimplemented!("uci go infinite");
                 }
             }
         } else if let Some(s) = search {
@@ -826,7 +825,7 @@ impl<'a> Searcher<'a> {
         }
 
         for m in self.stats.pv.iter().rev() {
-            self.board.unmake_move(&m, &mut self.rollback);
+            self.board.unmake_move(m, &mut self.rollback);
         }
     }
 }
