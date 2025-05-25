@@ -330,7 +330,7 @@ impl<'a> Searcher<'a> {
             return AlphaBetaResult {
                 search_result: Some(SearchResult {
                     best_move: best_move.unwrap(),
-                    eval: self.board.evaluate(),
+                    eval: best_value,
                 }),
                 end_search: true,
             };
@@ -341,11 +341,10 @@ impl<'a> Searcher<'a> {
             TableType::Main
         );
 
-        // Make the score not side-to-move relative
         AlphaBetaResult {
             search_result: Some(SearchResult {
                 best_move: best_move.unwrap(),
-                eval: best_value * if self.board.white_to_move { 1 } else { -1 },
+                eval: best_value,
             }),
             end_search: false,
         }
