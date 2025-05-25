@@ -658,7 +658,11 @@ fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_v
 
 #[cfg(test)]
 mod moves_tests {
-    use crate::{board::{Board, HASH_VALUES}, magic_bitboard::initialize_magic_bitboards, uci::UciInterface};
+    use crate::{
+        board::{Board, HASH_VALUES},
+        magic_bitboard::initialize_magic_bitboards,
+        uci::UciInterface,
+    };
 
     use super::{Move, MoveRollback};
 
@@ -668,7 +672,12 @@ mod moves_tests {
 
         let mut uci = UciInterface::new(2);
         let mut uci_command = String::from("position startpos moves");
-        let moves = vec!["d2d4", "d7d5", "g1f3", "c8f5", "c2c4", "e7e6", "d1b3", "b8c6", "c1d2", "d5c4", "b3b7", "g8e7", "b7b5", "a8b8", "b5a4", "b8b2", "b1a3", "b2b8", "a3c4", "h7h6", "h1g1", "f5e4", "d2c3", "h8g8", "a1d1", "d8d7", "f3d2", "e4g6", "c4a5", "c6a5", "a4d7", "e8d7", "c3a5", "e7c6", "a5c3", "f8b4", "c3a1", "d7d6", "e2e3", "g8d8", "f1e2", "c6e7", "a1b2", "e7d5", "e2f3", "g6c2", "d1c1", "c2d3", "c1d1", "d3c2", "d1c1"];
+        let moves = vec![
+            "d2d4", "d7d5", "g1f3", "c8f5", "c2c4", "e7e6", "d1b3", "b8c6", "c1d2", "d5c4", "b3b7", "g8e7", "b7b5",
+            "a8b8", "b5a4", "b8b2", "b1a3", "b2b8", "a3c4", "h7h6", "h1g1", "f5e4", "d2c3", "h8g8", "a1d1", "d8d7",
+            "f3d2", "e4g6", "c4a5", "c6a5", "a4d7", "e8d7", "c3a5", "e7c6", "a5c3", "f8b4", "c3a1", "d7d6", "e2e3",
+            "g8d8", "f1e2", "c6e7", "a1b2", "e7d5", "e2f3", "g6c2", "d1c1", "c2d3", "c1d1", "d3c2", "d1c1",
+        ];
         for m in moves {
             uci_command.push(' ');
             uci_command.push_str(m);
@@ -703,7 +712,10 @@ mod moves_tests {
             assert_eq!(from_fen.occupancy, from_uci.occupancy);
             assert_eq!(from_fen.piece_counts, from_uci.piece_counts);
             assert_eq!(from_fen.game_stage, from_uci.game_stage);
-            assert_eq!(from_fen.en_passant_target_square_index, from_uci.en_passant_target_square_index);
+            assert_eq!(
+                from_fen.en_passant_target_square_index,
+                from_uci.en_passant_target_square_index
+            );
             assert_eq!(from_fen.castling_rights, from_uci.castling_rights);
             assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
         }
@@ -733,7 +745,10 @@ mod moves_tests {
         assert_eq!(from_fen.occupancy, from_repetitions.occupancy);
         assert_eq!(from_fen.piece_counts, from_repetitions.piece_counts);
         assert_eq!(from_fen.game_stage, from_repetitions.game_stage);
-        assert_eq!(from_fen.en_passant_target_square_index, from_repetitions.en_passant_target_square_index);
+        assert_eq!(
+            from_fen.en_passant_target_square_index,
+            from_repetitions.en_passant_target_square_index
+        );
         assert_eq!(from_fen.castling_rights, from_repetitions.castling_rights);
         assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
     }

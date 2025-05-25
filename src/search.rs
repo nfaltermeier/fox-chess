@@ -8,9 +8,11 @@ use log::{debug, error};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
-    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove},
+    board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
+    move_generator::{
+        ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
+    },
     moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, Move, MoveRollback},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -834,10 +836,10 @@ impl<'a> Searcher<'a> {
         self.board.make_move(first_move, &mut self.rollback);
         previous_hashes.insert(self.board.hash);
 
-        if !self.board.halfmove_clock >= 100
-            && !RepetitionTracker::test_threefold_repetition(self.board)
-        {
-            let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        if !self.board.halfmove_clock >= 100 && !RepetitionTracker::test_threefold_repetition(self.board) {
+            let mut next_move =
+                self.transposition_table
+                    .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
             loop {
                 match next_move {
                     None => {
@@ -860,7 +862,11 @@ impl<'a> Searcher<'a> {
 
                         previous_hashes.insert(self.board.hash);
                         self.stats.pv.push(e.important_move);
-                        next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                        next_move = self.transposition_table.get_entry(
+                            self.board.hash,
+                            TableType::Main,
+                            self.starting_halfmove,
+                        );
                     }
                 }
             }
