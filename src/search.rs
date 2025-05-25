@@ -240,7 +240,21 @@ impl<'a> Searcher<'a> {
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
-            for r#move in moves {
+            for move_index in 0..moves.len() {
+                // Perform one iteration of selection sort every time another move needs to be evaluated
+                let mut best_score = moves[move_index].score;
+                let mut best_index = move_index;
+
+                for sort_index in (move_index + 1)..moves.len() {
+                    if moves[sort_index].score > best_score {
+                        best_score = moves[sort_index].score;
+                        best_index = sort_index;
+                    }
+                }
+
+                moves.swap(move_index, best_index);
+                let r#move = &moves[move_index];
+
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
                 }
@@ -295,10 +309,6 @@ impl<'a> Searcher<'a> {
                 } else {
                     moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
                 }
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
@@ -315,7 +325,7 @@ impl<'a> Searcher<'a> {
             return AlphaBetaResult {
                 search_result: Some(SearchResult {
                     best_move: best_move.unwrap(),
-                    eval: self.board.evaluate(),
+                    eval: best_value,
                 }),
                 end_search: true,
             };
@@ -334,11 +344,10 @@ impl<'a> Searcher<'a> {
             TableType::Main,
         );
 
-        // Make the score not side-to-move relative
         AlphaBetaResult {
             search_result: Some(SearchResult {
                 best_move: best_move.unwrap(),
-                eval: best_value * if self.board.white_to_move { 1 } else { -1 },
+                eval: best_value,
             }),
             end_search: false,
         }
@@ -445,7 +454,21 @@ impl<'a> Searcher<'a> {
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
-            for r#move in moves {
+            for move_index in 0..moves.len() {
+                // Perform one iteration of selection sort every time another move needs to be evaluated
+                let mut best_score = moves[move_index].score;
+                let mut best_index = move_index;
+
+                for sort_index in (move_index + 1)..moves.len() {
+                    if moves[sort_index].score > best_score {
+                        best_score = moves[sort_index].score;
+                        best_index = sort_index;
+                    }
+                }
+
+                moves.swap(move_index, best_index);
+                let r#move = &moves[move_index];
+
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
                 }
@@ -581,10 +604,6 @@ impl<'a> Searcher<'a> {
                         }
                     }
                 }
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
@@ -662,12 +681,11 @@ impl<'a> Searcher<'a> {
             return stand_pat;
         }
 
-        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
-            // avoid underflow
-            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
-                self.stats.quiescense_cut_by_hopeless += 1;
-                return alpha;
-            }
+        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+            && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
+        {
+            self.stats.quiescense_cut_by_hopeless += 1;
+            return alpha;
         }
 
         if alpha < stand_pat {
@@ -679,7 +697,21 @@ impl<'a> Searcher<'a> {
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
-            for r#move in moves {
+            for move_index in 0..moves.len() {
+                // Perform one iteration of selection sort every time another move needs to be evaluated
+                let mut best_score = moves[move_index].score;
+                let mut best_index = move_index;
+
+                for sort_index in (move_index + 1)..moves.len() {
+                    if moves[sort_index].score > best_score {
+                        best_score = moves[sort_index].score;
+                        best_index = sort_index;
+                    }
+                }
+
+                moves.swap(move_index, best_index);
+                let r#move = &moves[move_index];
+
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
                 }
@@ -729,10 +761,6 @@ impl<'a> Searcher<'a> {
 
             if round == 0 {
                 moves = self.board.generate_pseudo_legal_capture_moves();
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
@@ -793,38 +821,68 @@ impl<'a> Searcher<'a> {
     fn gather_pv(&mut self, first_move: &Move) {
         self.stats.pv.clear();
 
+        let mut board_copy = None;
+        if ENABLE_UNMAKE_MOVE_TEST {
+            board_copy = Some(self.board.clone());
+        }
+
         // Prevent cycles from occurring
         let mut previous_hashes = HashSet::new();
         previous_hashes.insert(self.board.hash);
+
         self.stats.pv.push(*first_move);
         self.board.make_move(first_move, &mut self.rollback);
+        previous_hashes.insert(self.board.hash);
 
-        let mut next_move =
-            self.transposition_table
-                .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        loop {
-            match next_move {
-                None => {
-                    break;
-                }
-                Some(e) => {
-                    if e.get_move_type() != MoveType::Best || previous_hashes.contains(&self.board.hash) {
+        if !self.board.halfmove_clock >= 100
+            && !RepetitionTracker::test_threefold_repetition(self.board)
+        {
+            let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            loop {
+                match next_move {
+                    None => {
                         break;
                     }
+                    Some(e) => {
+                        if e.get_move_type() != MoveType::Best {
+                            break;
+                        }
 
-                    previous_hashes.insert(self.board.hash);
-                    self.stats.pv.push(e.important_move);
-                    // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
-                    self.board.make_move(&e.important_move, &mut self.rollback);
-                    next_move =
-                        self.transposition_table
-                            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                        self.board.make_move(&e.important_move, &mut self.rollback);
+
+                        if previous_hashes.contains(&self.board.hash)
+                            || self.board.halfmove_clock >= 100
+                            || RepetitionTracker::test_threefold_repetition(self.board)
+                        {
+                            self.board.unmake_move(&e.important_move, &mut self.rollback);
+                            break;
+                        }
+
+                        previous_hashes.insert(self.board.hash);
+                        self.stats.pv.push(e.important_move);
+                        next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                    }
                 }
             }
         }
 
         for m in self.stats.pv.iter().rev() {
             self.board.unmake_move(m, &mut self.rollback);
+        }
+
+        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self.board {
+            error!("gather_pv did not reset the board state properly");
+
+            let board_copied = board_copy.as_ref().unwrap();
+            if board_copied.hash != self.board.hash {
+                for (i, v) in HASH_VALUES.iter().enumerate() {
+                    if board_copied.hash ^ v == self.board.hash {
+                        debug!("board states differ by value {i} of HASH_VALUES in hash");
+                    }
+                }
+            }
+
+            assert_eq!(board_copy.as_ref().unwrap(), self.board);
         }
     }
 }

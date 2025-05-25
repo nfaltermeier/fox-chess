@@ -791,7 +791,7 @@ impl Board {
         }
     }
 
-    pub fn start_perft(&mut self, depth: u8, divide: bool) {
+    pub fn start_perft(&mut self, depth: u8, divide: bool) -> u64 {
         let mut rollback = MoveRollback::default();
         let mut stats = PerftStats::default();
 
@@ -807,6 +807,8 @@ impl Board {
         );
         info!("{:?}", stats);
         assert!(rollback.is_empty());
+
+        stats.nodes
     }
 }
 
