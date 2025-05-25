@@ -817,25 +817,39 @@ impl<'a> Searcher<'a> {
         // Prevent cycles from occurring
         let mut previous_hashes = HashSet::new();
         previous_hashes.insert(self.board.hash);
+
         self.stats.pv.push(*first_move);
         self.board.make_move(first_move, &mut self.rollback);
+        previous_hashes.insert(self.board.hash);
 
-        let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        loop {
-            match next_move {
-                None => {
-                    break;
-                }
-                Some(e) => {
-                    if e.get_move_type() != MoveType::Best || previous_hashes.contains(&self.board.hash) {
+        if !self.board.halfmove_clock >= 100
+            && !RepetitionTracker::test_threefold_repetition(self.board)
+        {
+            let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            loop {
+                match next_move {
+                    None => {
                         break;
                     }
+                    Some(e) => {
+                        if e.get_move_type() != MoveType::Best {
+                            break;
+                        }
 
-                    previous_hashes.insert(self.board.hash);
-                    self.stats.pv.push(e.important_move);
-                    // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
-                    self.board.make_move(&e.important_move, &mut self.rollback);
-                    next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                        self.board.make_move(&e.important_move, &mut self.rollback);
+
+                        if previous_hashes.contains(&self.board.hash)
+                            || self.board.halfmove_clock >= 100
+                            || RepetitionTracker::test_threefold_repetition(self.board)
+                        {
+                            self.board.unmake_move(&e.important_move, &mut self.rollback);
+                            break;
+                        }
+
+                        previous_hashes.insert(self.board.hash);
+                        self.stats.pv.push(e.important_move);
+                        next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                    }
                 }
             }
         }
