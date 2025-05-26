@@ -645,7 +645,7 @@ impl<'a> Searcher<'a> {
             && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
         {
             self.stats.quiescense_cut_by_hopeless += 1;
-            return alpha;
+            return stand_pat;
         }
 
         if alpha < stand_pat {
