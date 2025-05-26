@@ -335,7 +335,7 @@ impl<'a> Searcher<'a> {
             moves = Vec::new();
         }
 
-        // Null move pruning
+        // Null move pruning, cannot happen at root because beta will be i16::MAX
         let our_side = if self.board.white_to_move { 0 } else { 1 };
         if beta < i16::MAX
             && draft > 4
@@ -418,7 +418,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 let mut score;
-                if searched_moves == 0 {
+                if searched_moves == 0 || ply == 0 {
                     score =
                         -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
 
