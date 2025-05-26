@@ -22,6 +22,9 @@ use crate::{
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 
+/// Each value is in addition to the last
+static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
+
 const EMPTY_MOVE: Move = Move { data: 0 };
 
 // pub const TEST_TT_FOR_HASH_COLLISION: bool = true;
@@ -43,6 +46,7 @@ enum SearchControl {
     Infinite,
 }
 
+#[derive(Clone)]
 pub struct SearchResult {
     pub best_move: Move,
     pub eval: i16,
@@ -185,7 +189,7 @@ impl<'a> Searcher<'a> {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth);
+            let result = self.alpha_beta_init(depth, latest_result.clone());
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
@@ -215,7 +219,7 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8) -> AlphaBetaResult {
+    pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
         self.rollback = MoveRollback::default();
         self.stats = SearchStats::default();
         self.stats.depth = draft;
@@ -223,20 +227,55 @@ impl<'a> Searcher<'a> {
 
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
-        let result = self.alpha_beta_recurse(-i16::MAX, i16::MAX, draft, 0, &mut killers);
-
-        let score;
-        if let Ok(e) = result {
-            score = e;
+        let mut alpha;
+        let mut beta;
+        let mut alpha_window_index;
+        let mut beta_window_index;
+        if draft < 5 {
+            alpha = -i16::MAX;
+            beta = i16::MAX;
+            alpha_window_index = ASPIRATION_WINDOW_OFFSETS.len();
+            beta_window_index = ASPIRATION_WINDOW_OFFSETS.len();
         } else {
-            // In this case the state of the board will not been reset back to the starting state
-            return AlphaBetaResult {
-                search_result: None,
-                end_search: true,
-            };
+            let last_score = last_result.unwrap().eval;
+            alpha = last_score - ASPIRATION_WINDOW_OFFSETS[0];
+            beta = last_score + ASPIRATION_WINDOW_OFFSETS[0];
+            alpha_window_index = 1;
+            beta_window_index = 1;
         }
 
-        debug_assert!(self.rollback.is_empty());
+        let score = loop {
+            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers);
+
+            let score;
+            if let Ok(e) = result {
+                score = e;
+            } else {
+                // In this case the state of the board will not been reset back to the starting state
+                return AlphaBetaResult {
+                    search_result: None,
+                    end_search: true,
+                };
+            }
+
+            debug_assert!(self.rollback.is_empty());
+
+            if score <= alpha {
+                while score <= alpha {
+                    alpha = alpha
+                        .saturating_sub(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
+                        .min(-i16::MAX);
+                    alpha_window_index += 1;
+                }
+            } else if score >= beta {
+                while score >= beta {
+                    beta = beta.saturating_add(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
+                    beta_window_index += 1;
+                }
+            } else {
+                break score;
+            }
+        };
 
         let best_move = self
             .transposition_table
@@ -335,9 +374,10 @@ impl<'a> Searcher<'a> {
             moves = Vec::new();
         }
 
-        // Null move pruning, cannot happen at root because beta will be i16::MAX
+        // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if beta < i16::MAX
+        if ply > 0 
+            && beta < i16::MAX
             && draft > 4
             && !in_check
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
@@ -419,13 +459,16 @@ impl<'a> Searcher<'a> {
 
                 let mut score;
                 if searched_moves == 0 || ply == 0 {
+                    // Use reduction
                     score =
                         -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
 
                     if score > alpha && reduction > 0 {
+                        // Do a full search
                         score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
                     }
                 } else {
+                    // Use null window and reduction
                     score = -self.alpha_beta_recurse(
                         -alpha - 1,
                         -alpha,
@@ -435,6 +478,7 @@ impl<'a> Searcher<'a> {
                     )?;
 
                     if score > alpha {
+                        // Do a full search
                         score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
                     }
                 }
