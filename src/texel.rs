@@ -2,7 +2,7 @@ use std::io::Write;
 use std::{
     fs::File,
     io::{BufRead, BufReader},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[allow(internal_features)]
@@ -14,8 +14,6 @@ use crate::{
     STARTING_FEN,
     board::{Board, PIECE_KING},
     moves::MoveRollback,
-    search::{DEFAULT_HISTORY_TABLE, HistoryTable, Searcher},
-    transposition_table::TranspositionTable,
 };
 
 pub struct TexelPosition {
@@ -149,7 +147,7 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
     for line in BufReader::new(file).lines() {
         let line = line.unwrap();
 
-        if line.len() == 0 {
+        if line.is_empty() {
             continue;
         }
 
@@ -166,7 +164,7 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
 
         let c0_index = line.find("c0");
         if c0_index.is_none() {
-            panic!("Could not find c0, possibly a malformed line: {}", line);
+            panic!("Could not find c0, possibly a malformed line: {line}");
         }
         let c0_index = c0_index.unwrap();
 
@@ -185,7 +183,7 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
 
         let c1_index = line.find("c1");
         if c1_index.is_none() {
-            panic!("Could not find c1, possibly a malformed line: {}", line);
+            panic!("Could not find c1, possibly a malformed line: {line}");
         }
         let c1_index = c1_index.unwrap();
 
@@ -269,7 +267,7 @@ fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 
 }
 
 pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
-    let mut params = DEFAULT_PARAMS.clone();
+    let mut params = DEFAULT_PARAMS;
 
     let scaling_constant = 1.06;
     let mut best_error;
@@ -288,11 +286,11 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             // midgame pawns on first row
             if i < 8
                 // midgame pawns on last row
-                || (i >= 56 && i < 64)
+                || (56..64).contains(&i)
                 // endgame pawns on first row
-                || (i >= 6 * 64 && i < 8 + 6 * 64)
+                || (6 * 64..8 + 6 * 64).contains(&i)
                 // endgame pawns on last row
-                || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
+                || (56 + 6 * 64..64 + 6 * 64).contains(&i)
                 // None piece centipawn value
                 || i == EP_PIECE_VALUES_IDX
                 // King centipawn value

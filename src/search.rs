@@ -9,11 +9,11 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
+    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{
         ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
     },
-    moves::{MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, Move, MoveRollback},
+    moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, Move, MoveRollback},
     repetition_tracker::RepetitionTracker,
     texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalParams},
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},

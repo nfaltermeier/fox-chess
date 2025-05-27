@@ -191,8 +191,7 @@ impl Board {
                 }
                 _ => {
                     return Err(format!(
-                        "Encountered unexpected character {} while processing piece placement",
-                        c
+                        "Encountered unexpected character {c} while processing piece placement"
                     ));
                 }
             }
@@ -228,8 +227,7 @@ impl Board {
                     }
                     _ => {
                         return Err(format!(
-                            "Encountered unexpected character {} while processing castling rights",
-                            c
+                            "Encountered unexpected character {c} while processing castling rights"
                         ));
                     }
                 }
@@ -275,7 +273,7 @@ impl Board {
             board.en_passant_target_square_index = Some(ep_square_index);
         }
 
-        if fen_pieces[4] == "" {
+        if fen_pieces[4].is_empty() {
             board.halfmove_clock = 0;
         } else {
             let hmc_result = fen_pieces[4].parse::<u8>();
@@ -324,7 +322,7 @@ impl Board {
             // Reverse so it prints with a1 in the bottom left like viewing the board as white
             .rev()
             // Join the sets of 8 with newlines
-            .reduce(|acc, x| format!("{}\n{}", acc, x))
+            .reduce(|acc, x| format!("{acc}\n{x}"))
             .unwrap()
     }
 
@@ -439,16 +437,16 @@ impl Debug for Board {
         let pretty_squares = self
             .squares
             // Convert everything to hex
-            .map(|v| format!("{:#04x}", v))
+            .map(|v| format!("{v:#04x}"))
             // Make sets of 10 squares joined with commas
             .chunks_exact(10)
             .map(|chunk| chunk.join(", "))
             // Reverse so it prints with a1 in the bottom left like viewing the board as white
             .rev()
             // Join the sets of 10 with newlines
-            .reduce(|acc, x| format!("{}\n{}", acc, x))
+            .reduce(|acc, x| format!("{acc}\n{x}"))
             .unwrap();
-        writeln!(f, "\nsquares:\n{}", pretty_squares).unwrap();
+        writeln!(f, "\nsquares:\n{pretty_squares}").unwrap();
         writeln!(f, "pretty version:\n{}", self.pretty_print()).unwrap();
 
         write!(f, "Piece bitboards:\nWhite:").unwrap();

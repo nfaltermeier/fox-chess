@@ -15,7 +15,7 @@ use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 use moves::{Move, MoveRollback, square_indices_to_moves};
 use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
-use texel::{DEFAULT_PARAMS, find_best_params, find_scaling_constant, load_positions};
+use texel::{find_best_params, load_positions};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
