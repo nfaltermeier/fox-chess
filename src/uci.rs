@@ -3,18 +3,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use build_info::build_info;
 use build_info::VersionControl::Git;
+use build_info::build_info;
 use log::{debug, error, trace};
-use vampirc_uci::{parse_with_unknown, UciMessage, UciPiece};
+use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
+    STARTING_FEN,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    moves::{find_and_run_moves, FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK},
+    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, find_and_run_moves},
     search::{HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
-    STARTING_FEN,
 };
 
 pub struct UciInterface {
@@ -35,9 +35,9 @@ impl UciInterface {
     }
 
     // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmd: String) {
+    pub fn process_command(&mut self, cmd: &str) {
         debug!("Received UCI cmd string '{cmd}'");
-        let messages = parse_with_unknown(&cmd);
+        let messages = parse_with_unknown(cmd);
         for m in messages {
             match m {
                 UciMessage::Uci => {
@@ -123,8 +123,11 @@ impl UciInterface {
                     search_control,
                 } => {
                     trace!("At start of go. {:#?}", self.board);
-                    if let Some(b) = self.board.as_mut() {
-                        let mut searcher = Searcher::new(b, &mut self.transposition_table, &mut self.history_table);
+                    if let Some(b) = &self.board {
+                        // Search on a board copy to protect against the board state being changed by the search timing out
+                        let mut board_copy = b.clone();
+                        let mut searcher =
+                            Searcher::new(&mut board_copy, &mut self.transposition_table, &mut self.history_table);
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
 
@@ -186,6 +189,12 @@ impl UciInterface {
                         } else {
                             error!("Board must be set with position first");
                         }
+                    } else if message.starts_with("fen") {
+                        if let Some(board) = &self.board {
+                            println!("Current fen: {}", board.to_fen())
+                        } else {
+                            error!("Board must be set with position first");
+                        }
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
@@ -198,15 +207,14 @@ impl UciInterface {
     }
 
     pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
-        let score_string;
         let abs_cp = eval.abs();
-        if abs_cp >= MATE_THRESHOLD {
+        let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
             let moves = (diff as f32 / 20.0).ceil();
-            score_string = format!("score mate {}{moves}", if eval < 0 { "-" } else { "" });
+            format!("score mate {}{moves}", if eval < 0 { "-" } else { "" })
         } else {
-            score_string = format!("score cp {eval}");
-        }
+            format!("score cp {eval}")
+        };
 
         let nps = stats.quiescense_nodes as f64 / elapsed.as_secs_f64();
         println!(
@@ -215,9 +223,19 @@ impl UciInterface {
             stats.depth,
             nps,
             elapsed.as_millis(),
-            stats.pv.iter().map(|m| m.simple_long_algebraic_notation()).collect::<Vec<String>>().join(" "),
+            stats
+                .pv
+                .iter()
+                .map(|m| m.simple_long_algebraic_notation())
+                .collect::<Vec<String>>()
+                .join(" "),
             stats.leaf_nodes,
             stats.quiescense_cut_by_hopeless
         );
+    }
+
+    /// For testing
+    pub fn get_board_copy(&self) -> Option<Board> {
+        self.board.clone()
     }
 }

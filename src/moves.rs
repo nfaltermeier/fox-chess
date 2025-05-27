@@ -2,16 +2,14 @@ use log::{debug, error};
 use regex::Regex;
 
 use crate::{
-    bitboard::BIT_SQUARES,
+    STARTING_FEN,
     board::{
-        file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name, rank_8x8, Board, CastlingValue, COLOR_BLACK,
-        HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_KING,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK,
+        Board, COLOR_BLACK, CastlingValue, HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
+        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value,
+        index_8x8_to_pos_str, piece_to_name, rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
-    move_generator::{ScoredMove, ENABLE_UNMAKE_MOVE_TEST},
-    search::DEFAULT_HISTORY_TABLE,
-    STARTING_FEN,
+    move_generator::ScoredMove,
 };
 
 // Assumes flags have been shifted to bits 1-4
@@ -192,7 +190,8 @@ impl Board {
             self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_target_piece);
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
-            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -= 1;
+            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -=
+                1;
             // Remove the piece that is being captured from bitboards TODO: fix commented out logic to replace writing a blank piece
             // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
             // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] |= BIT_SQUARES[to];
@@ -529,9 +528,9 @@ impl Board {
 
 // Not going to be super optimized probably and only support basic PGNs
 pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
-    let mut result = Vec::new();
-    let mut board = Board::from_fen(STARTING_FEN);
-    let mut rollback = MoveRollback::default();
+    let result = Vec::new();
+    let board = Board::from_fen(STARTING_FEN);
+    let rollback = MoveRollback::default();
 
     let parts = pgn.split_ascii_whitespace();
     let turn_pattern = Regex::new(r"[1-9][0-9]*\.").unwrap();
@@ -561,7 +560,6 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
     let mut result = Vec::new();
     let mut board = Board::from_fen(STARTING_FEN).unwrap();
     let mut rollback = MoveRollback::default();
-    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = board.generate_legal_moves_without_history();
@@ -597,7 +595,6 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
 
 pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
     let mut rollback = MoveRollback::default();
-    let mut history_table = [[[0; 64]; 6]; 2];
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = board.generate_pseudo_legal_moves_without_history();
@@ -656,5 +653,103 @@ fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_v
     if board.castling_rights & (1 << castling as u8) != 0 {
         board.castling_rights &= !(1 << castling as u8);
         board.hash ^= hash_values[HASH_VALUES_CASTLE_BASE_IDX + castling as usize];
+    }
+}
+
+#[cfg(test)]
+mod moves_tests {
+    use crate::{
+        board::{Board, HASH_VALUES},
+        magic_bitboard::initialize_magic_bitboards,
+        uci::UciInterface,
+    };
+
+    use super::{Move, MoveRollback};
+
+    #[test]
+    pub fn board_same_for_fen_and_uci_position_moves() {
+        initialize_magic_bitboards();
+
+        let mut uci = UciInterface::new(2);
+        let mut uci_command = String::from("position startpos moves");
+        let moves = vec![
+            "d2d4", "d7d5", "g1f3", "c8f5", "c2c4", "e7e6", "d1b3", "b8c6", "c1d2", "d5c4", "b3b7", "g8e7", "b7b5",
+            "a8b8", "b5a4", "b8b2", "b1a3", "b2b8", "a3c4", "h7h6", "h1g1", "f5e4", "d2c3", "h8g8", "a1d1", "d8d7",
+            "f3d2", "e4g6", "c4a5", "c6a5", "a4d7", "e8d7", "c3a5", "e7c6", "a5c3", "f8b4", "c3a1", "d7d6", "e2e3",
+            "g8d8", "f1e2", "c6e7", "a1b2", "e7d5", "e2f3", "g6c2", "d1c1", "c2d3", "c1d1", "d3c2", "d1c1",
+        ];
+        for m in moves {
+            uci_command.push(' ');
+            uci_command.push_str(m);
+
+            uci.process_command(&uci_command);
+            let from_uci = uci.get_board_copy().unwrap();
+
+            let fen = from_uci.to_fen();
+            let from_fen = Board::from_fen(&fen).unwrap();
+
+            // For debugging if the test is failing
+            // println!("Now comparing fen {fen} which came from move {m}");
+
+            if from_fen.hash != from_uci.hash {
+                let mut diff_found = false;
+                for (i, v) in HASH_VALUES.iter().enumerate() {
+                    if from_fen.hash ^ v == from_uci.hash {
+                        println!("hash differs by value {i} of HASH_VALUES");
+                        diff_found = true;
+                    }
+                }
+
+                if !diff_found {
+                    println!("hash differs by more than one value from HASH_VALUES");
+                }
+            }
+
+            // Can't simply compare the boards because repetition tracker will differ
+            assert_eq!(from_fen.hash, from_uci.hash);
+            assert_eq!(from_fen.piece_bitboards, from_uci.piece_bitboards);
+            assert_eq!(from_fen.side_occupancy, from_uci.side_occupancy);
+            assert_eq!(from_fen.occupancy, from_uci.occupancy);
+            assert_eq!(from_fen.piece_counts, from_uci.piece_counts);
+            assert_eq!(from_fen.game_stage, from_uci.game_stage);
+            assert_eq!(
+                from_fen.en_passant_target_square_index,
+                from_uci.en_passant_target_square_index
+            );
+            assert_eq!(from_fen.castling_rights, from_uci.castling_rights);
+            assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
+        }
+    }
+
+    #[test]
+    pub fn repeated_position_has_same_hash() {
+        let from_fen = Board::from_fen("1r1r4/p1p2pp1/3kp2p/3n4/1b1P4/4PB2/PBbN1PPP/2R1K1R1 b - - 8 24").unwrap();
+        let mut from_repetitions = from_fen.clone();
+        let mut rollback = MoveRollback::default();
+
+        // c2d3
+        from_repetitions.make_move(&Move { data: 1226 }, &mut rollback);
+
+        // c1d1
+        from_repetitions.make_move(&Move { data: 194 }, &mut rollback);
+
+        // d3c2
+        from_repetitions.make_move(&Move { data: 659 }, &mut rollback);
+
+        // d1c1
+        from_repetitions.make_move(&Move { data: 131 }, &mut rollback);
+
+        assert_eq!(from_fen.hash, from_repetitions.hash);
+        assert_eq!(from_fen.piece_bitboards, from_repetitions.piece_bitboards);
+        assert_eq!(from_fen.side_occupancy, from_repetitions.side_occupancy);
+        assert_eq!(from_fen.occupancy, from_repetitions.occupancy);
+        assert_eq!(from_fen.piece_counts, from_repetitions.piece_counts);
+        assert_eq!(from_fen.game_stage, from_repetitions.game_stage);
+        assert_eq!(
+            from_fen.en_passant_target_square_index,
+            from_repetitions.en_passant_target_square_index
+        );
+        assert_eq!(from_fen.castling_rights, from_repetitions.castling_rights);
+        assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
     }
 }

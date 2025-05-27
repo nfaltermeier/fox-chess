@@ -1,22 +1,26 @@
 use std::time::Instant;
 
-use log::{debug, error, info, log_enabled, trace};
+use log::{debug, error, info};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    bitboard::{bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one, south_west_one, BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN},
+    bitboard::{
+        BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack,
+        lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
+        south_west_one,
+    },
     board::{
-        piece_to_name, Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG,
-        CASTLE_WHITE_QUEEN_FLAG, COLOR_BLACK, COLOR_FLAG_MASK, HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
+        HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN,
+        PIECE_ROOK,
     },
     evaluate::CENTIPAWN_VALUES,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::{
-        Move, MoveRollback, MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION,
-        MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
+        MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP,
+        MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move, MoveRollback,
     },
-    search::{HistoryTable, DEFAULT_HISTORY_TABLE},
+    search::{DEFAULT_HISTORY_TABLE, HistoryTable},
 };
 
 const ENABLE_PERFT_STATS: bool = true;
@@ -137,7 +141,7 @@ impl Board {
         while pieces != 0 {
             let from = bitscan_forward_and_reset(&mut pieces) as u8;
             let promo =
-                (self.white_to_move && from >= 48 && from <= 55) || (!self.white_to_move && from >= 8 && from <= 15);
+                (self.white_to_move && (48..=55).contains(&from)) || (!self.white_to_move && (8..=15).contains(&from));
 
             let mut attacks = lookup_pawn_attack(from, self.white_to_move) & self.side_occupancy[other_side];
             while attacks != 0 {
@@ -230,8 +234,8 @@ impl Board {
                     }
 
                     // double move
-                    if (!self.white_to_move && from >= 48 && from <= 55)
-                        || (self.white_to_move && from >= 8 && from <= 15)
+                    if (!self.white_to_move && (48..=55).contains(&from))
+                        || (self.white_to_move && (8..=15).contains(&from))
                     {
                         let doublemove_bitsquare = if self.white_to_move {
                             to_bitsquare << 8
@@ -278,7 +282,7 @@ impl Board {
             other_side,
             &mut result,
             history_table,
-            |sq| lookup_knight_attack(sq),
+            lookup_knight_attack,
         );
         self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
             PIECE_BISHOP,
@@ -310,7 +314,7 @@ impl Board {
             other_side,
             &mut result,
             history_table,
-            |sq| lookup_king_attack(sq),
+            lookup_king_attack,
         );
 
         // Castling
@@ -408,7 +412,8 @@ impl Board {
 
         let double_check;
         let move_to_mask;
-        let pawns = lookup_pawn_attack(king_pos, self.white_to_move) & self.piece_bitboards[other_side][PIECE_PAWN as usize];
+        let pawns =
+            lookup_pawn_attack(king_pos, self.white_to_move) & self.piece_bitboards[other_side][PIECE_PAWN as usize];
         if pawns != 0 {
             // I'm pretty sure you can't give double check with a pawn
             double_check = false;
@@ -420,7 +425,9 @@ impl Board {
                 checks += 1;
             }
 
-            let rooks = lookup_rook_attack(king_pos, self.occupancy) & (self.piece_bitboards[other_side][PIECE_ROOK as usize] | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
+            let rooks = lookup_rook_attack(king_pos, self.occupancy)
+                & (self.piece_bitboards[other_side][PIECE_ROOK as usize]
+                    | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
             if rooks != 0 {
                 checks += 1;
             }
@@ -429,7 +436,9 @@ impl Board {
                 double_check = true;
                 move_to_mask = 0;
             } else {
-                let bishops = lookup_bishop_attack(king_pos, self.occupancy) & (self.piece_bitboards[other_side][PIECE_BISHOP as usize] | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
+                let bishops = lookup_bishop_attack(king_pos, self.occupancy)
+                    & (self.piece_bitboards[other_side][PIECE_BISHOP as usize]
+                        | self.piece_bitboards[other_side][PIECE_QUEEN as usize]);
                 if bishops != 0 {
                     checks += 1;
                 }
@@ -453,53 +462,28 @@ impl Board {
                 }
             }
         }
-        
-        self.add_moves::<true, false, _>(
-            PIECE_KING,
-            self_side,
-            other_side,
-            &mut result,
-            history_table,
-            |sq| lookup_king_attack(sq),
-        );
+
+        self.add_moves::<true, false, _>(PIECE_KING, self_side, other_side, &mut result, history_table, |sq| {
+            lookup_king_attack(sq)
+        });
 
         if !double_check {
-            self.add_moves::<true, false, _>(
-                PIECE_KNIGHT,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| lookup_knight_attack(sq) & move_to_mask,
-            );
-            self.add_moves::<true, false, _>(
-                PIECE_BISHOP,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| lookup_bishop_attack(sq, self.occupancy) & move_to_mask,
-            );
-            self.add_moves::<true, false, _>(
-                PIECE_ROOK,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| lookup_rook_attack(sq, self.occupancy) & move_to_mask,
-            );
-            self.add_moves::<true, false, _>(
-                PIECE_QUEEN,
-                self_side,
-                other_side,
-                &mut result,
-                history_table,
-                |sq| (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask,
-            );
+            self.add_moves::<true, false, _>(PIECE_KNIGHT, self_side, other_side, &mut result, history_table, |sq| {
+                lookup_knight_attack(sq) & move_to_mask
+            });
+            self.add_moves::<true, false, _>(PIECE_BISHOP, self_side, other_side, &mut result, history_table, |sq| {
+                lookup_bishop_attack(sq, self.occupancy) & move_to_mask
+            });
+            self.add_moves::<true, false, _>(PIECE_ROOK, self_side, other_side, &mut result, history_table, |sq| {
+                lookup_rook_attack(sq, self.occupancy) & move_to_mask
+            });
+            self.add_moves::<true, false, _>(PIECE_QUEEN, self_side, other_side, &mut result, history_table, |sq| {
+                (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask
+            });
 
             if self.piece_bitboards[self_side][PIECE_PAWN as usize] != 0 {
                 let pawns = self.piece_bitboards[self_side][PIECE_PAWN as usize];
-    
+
                 // Pawn captures
                 for round in 0..2 {
                     let mut moves;
@@ -529,7 +513,7 @@ impl Board {
                             _ => panic!(),
                         }
                     }
-    
+
                     moves &= self.side_occupancy[other_side];
                     moves &= move_to_mask;
                     self.add_pawn_moves::<false, true, false, false>(
@@ -547,7 +531,7 @@ impl Board {
                         history_table,
                     );
                 }
-    
+
                 let mut moves;
                 let mut offset;
                 if self.white_to_move {
@@ -588,22 +572,21 @@ impl Board {
 
                 moves &= !self.occupancy;
                 moves &= move_to_mask;
-                self.add_pawn_moves::<true, false, false, true>(
-                    moves,
-                    offset,
-                    &mut result,
-                    self_side,
-                    history_table,
-                );
+                self.add_pawn_moves::<true, false, false, true>(moves, offset, &mut result, self_side, history_table);
 
                 // En passant
                 if let Some(ep_target_64) = self.en_passant_target_square_index {
-                    if move_to_mask & BIT_SQUARES[ep_target_64.checked_add_signed(if self.white_to_move { -8 } else { 8 }).unwrap() as usize] != 0 {
+                    if move_to_mask
+                        & BIT_SQUARES[ep_target_64
+                            .checked_add_signed(if self.white_to_move { -8 } else { 8 })
+                            .unwrap() as usize]
+                        != 0
+                    {
                         let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
                         let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
                         while takers != 0 {
                             let from = bitscan_forward_and_reset(&mut takers) as u8;
-        
+
                             result.push(ScoredMove {
                                 m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
                                 score: MOVE_SCORE_CAPTURE,
@@ -626,7 +609,7 @@ impl Board {
         history_table: &HistoryTable,
     ) {
         if PROMOS {
-            to_squares &= (RANK_1 | RANK_8);
+            to_squares &= RANK_1 | RANK_8;
         } else {
             to_squares &= !(RANK_1 | RANK_8);
         }
@@ -808,7 +791,7 @@ impl Board {
         }
     }
 
-    pub fn start_perft(&mut self, depth: u8, divide: bool) {
+    pub fn start_perft(&mut self, depth: u8, divide: bool) -> u64 {
         let mut rollback = MoveRollback::default();
         let mut stats = PerftStats::default();
 
@@ -824,6 +807,8 @@ impl Board {
         );
         info!("{:?}", stats);
         assert!(rollback.is_empty());
+
+        stats.nodes
     }
 }
 
@@ -924,9 +909,6 @@ impl ScoredMove {
 mod check_evasion_tests {
     use super::*;
     use crate::initialize_magic_bitboards;
-    use std::sync::OnceLock;
-
-    static CELL: OnceLock<bool> = OnceLock::new();
 
     macro_rules! check_evasion_tests_legal_moves {
         ($($name:ident: $value:expr,)*) => {
@@ -935,16 +917,15 @@ mod check_evasion_tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    CELL.get_or_init(|| {
-                        initialize_magic_bitboards();
-                        true
-                    });
+                    initialize_magic_bitboards();
 
                     let mut board = Board::from_fen(input).unwrap();
-                    let moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
-                    let legal_moves = board.filter_to_legal_moves(moves);
+                    let evasion_generator_moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
+                    let legal_evasion_generator_moves = board.filter_to_legal_moves(evasion_generator_moves);
 
-                    assert_eq!(expected, legal_moves.len());
+                    assert_eq!(expected, legal_evasion_generator_moves.len());
+
+                    assert_eq!(expected, board.generate_legal_moves_without_history().len());
                 }
             )*
         }

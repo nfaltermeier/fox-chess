@@ -1,14 +1,15 @@
-use std::cell::{Cell, RefCell};
-
 use array_macro::array;
-use rand::random;
 
-use crate::{bitboard::{north_fill, south_fill, LIGHT_SQUARES}, board::{
-    file_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK,
-    PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-}, texel::{EvalParams, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX}};
+use crate::{
+    bitboard::{LIGHT_SQUARES, north_fill, south_fill},
+    board::{
+        Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
+        PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
+    },
+    texel::{EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EvalParams},
+};
 
-// Indexed with piece code, so index 0 is no piece
+/// Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 81, 309, 338, 501, 1021, 20000];
 
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 1, 1, 2, 4, 0];
@@ -194,13 +195,10 @@ static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 12],
 ];
 
-
-
 // thread_local! {
 //     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
 //     pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
 // }
-
 
 #[inline]
 /// for piece_type, pawn is 0
@@ -214,7 +212,6 @@ fn get_piece_square_value(params: &EvalParams, color: usize, piece_type: usize, 
 
 impl Board {
     pub fn evaluate(&self, params: &EvalParams) -> i16 {
-
         let mut material_score = 0;
         let mut position_score_midgame = 0;
         let mut position_score_endgame = 0;
@@ -258,21 +255,23 @@ impl Board {
 
         game_stage = (game_stage * 256 + (MAX_GAME_STAGE / 2)) / MAX_GAME_STAGE;
 
-        let position_score_final = ((position_score_midgame * game_stage)
-            + (position_score_endgame * (256 - game_stage)))
-            / (256);
+        let position_score_final =
+            ((position_score_midgame * game_stage) + (position_score_endgame * (256 - game_stage))) / (256);
 
         let white_passed = self.white_passed_pawns();
-        let white_passed_distance = (south_fill(white_passed) &!white_passed).count_ones() as i16;
-        
+        let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
+
         let black_passed = self.black_passed_pawns();
-        let black_passed_distance = (north_fill(black_passed) &!black_passed).count_ones() as i16;
+        let black_passed_distance = (north_fill(black_passed) & !black_passed).count_ones() as i16;
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
 
         // Add a small variance to try to avoid repetition
         // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
-        material_score + position_score_final + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX] + net_passed_pawns * params[EP_PASSED_PAWN_IDX]
+        material_score
+            + position_score_final
+            + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX]
+            + net_passed_pawns * params[EP_PASSED_PAWN_IDX]
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -310,7 +309,8 @@ impl Board {
                 && self.piece_counts[0][PIECE_BISHOP as usize] == 1
                 && self.piece_counts[1][PIECE_BISHOP as usize] == 1
             {
-                let bishops = self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
+                let bishops =
+                    self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
                 return (bishops & LIGHT_SQUARES).count_ones() != 1;
             }
 
@@ -324,7 +324,7 @@ impl Board {
 
 #[cfg(test)]
 mod eval_tests {
-    use crate::{texel::DEFAULT_PARAMS, STARTING_FEN};
+    use crate::{STARTING_FEN, texel::DEFAULT_PARAMS};
 
     use super::*;
 
@@ -334,7 +334,10 @@ mod eval_tests {
         let b2 = Board::from_fen("4k3/8/8/8/1K6/8/8/8 b - - 0 1").unwrap();
 
         assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
-        assert_eq!(b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS), b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS));
+        assert_eq!(
+            b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS),
+            b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS)
+        );
     }
 
     #[test]
@@ -343,7 +346,10 @@ mod eval_tests {
         let b2 = Board::from_fen("2r1k3/6q1/1pb2n2/2p5/8/8/8/4K3 b - - 0 1").unwrap();
 
         assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
-        assert_eq!(b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS), b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS));
+        assert_eq!(
+            b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS),
+            b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS)
+        );
     }
 
     #[test]

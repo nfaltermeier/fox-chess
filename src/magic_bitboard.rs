@@ -1,7 +1,8 @@
-use array_macro::array;
-use log::debug;
+use std::sync::Once;
 
-use crate::bitboard::{pretty_print_bitboard, A_FILE, BIT_SQUARES, H_FILE, RANK_1, RANK_8};
+use array_macro::array;
+
+use crate::bitboard::{A_FILE, BIT_SQUARES, H_FILE, RANK_1, RANK_8};
 
 const NORTH: usize = 0;
 const EAST: usize = 1;
@@ -13,6 +14,9 @@ const SOUTH_EAST: usize = 1;
 const SOUTH_WEST: usize = 2;
 const NORTH_WEST: usize = 3;
 
+static ATTACKS_INIT: Once = Once::new();
+
+/// This static mut is safe because it is only mutated in initialize_magic_bitboards which is protected by the Once
 static mut ATTACKS: Vec<u64> = Vec::new();
 
 static ROOK_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_rook_rays(i as u8) } else { [0; 4] }; 65];
@@ -57,70 +61,71 @@ fn lookup_attack(square_index: u8, occupancy: u64, lookup_table: *const [MagicEn
 
 /// Should be called once on application startup
 pub fn initialize_magic_bitboards() {
-    let attacks = &raw mut ATTACKS;
+    ATTACKS_INIT.call_once(|| {
+        let attacks = &raw mut ATTACKS;
 
-    unsafe {
-        (*attacks).reserve_exact(get_total_entry_count());
+        unsafe {
+            (*attacks).reserve_exact(get_total_entry_count());
 
-        for i in 0..64 {
-            let entry = &raw mut ROOK_ATTACK_LOOKUP[i];
-            let mask = generate_rook_relevant_occupancy(i as u8);
-            let attacks_offset = (*attacks).len();
+            for i in 0..64 {
+                let entry = &raw mut ROOK_ATTACK_LOOKUP[i];
+                let mask = generate_rook_relevant_occupancy(i as u8);
+                let attacks_offset = (*attacks).len();
 
-            (*entry).mask = mask;
-            (*entry).attacks_offset = attacks_offset as u32;
-            let count = get_entry_count(entry);
-            (*attacks).reserve(count);
-            for _ in 0..(count) {
-                (*attacks).push(0);
+                (*entry).mask = mask;
+                (*entry).attacks_offset = attacks_offset as u32;
+                let count = get_entry_count(entry);
+                (*attacks).reserve(count);
+                for _ in 0..(count) {
+                    (*attacks).push(0);
+                }
+
+                for occupancy_value in 0..(1 << mask.count_ones()) {
+                    let occupancy = map_value_to_mask(occupancy_value, mask);
+
+                    let attack_index = get_index(occupancy, entry);
+
+                    let attack = generate_occluded_rook_attack(i as u8, occupancy);
+                    let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
+                    debug_assert!(*attack_list_entry == 0 || *attack_list_entry == attack);
+                    // if *attack_list_entry != 0 && *attack_list_entry != attack {
+                    //     debug!("root_position_num: {i}");
+                    //     debug!("rook_position: {}", pretty_print_bitboard(BIT_SQUARES[i]));
+                    //     debug!("occupancy: {}", pretty_print_bitboard(occupancy));
+                    //     debug!("attack: {}", pretty_print_bitboard(attack));
+                    //     debug!("*attack_list_entry: {}", pretty_print_bitboard(*attack_list_entry));
+                    //     panic!("attack collision")
+                    // }
+                    *attack_list_entry = attack;
+                }
             }
 
-            for occupancy_value in 0..(1 << mask.count_ones()) {
-                let occupancy = map_value_to_mask(occupancy_value, mask);
+            for i in 0..64 {
+                let entry = &raw mut BISHOP_ATTACK_LOOKUP[i];
+                let mask = generate_bishop_relevant_occupancy(i as u8);
+                let attacks_offset = (*attacks).len();
 
-                let attack_index = get_index(occupancy, entry);
+                (*entry).mask = mask;
+                (*entry).attacks_offset = attacks_offset as u32;
+                let count = get_entry_count(entry);
+                (*attacks).reserve(count);
+                for _ in 0..(count) {
+                    (*attacks).push(0);
+                }
 
-                let attack = generate_occluded_rook_attack(i as u8, occupancy);
-                let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
-                debug_assert!(*attack_list_entry == 0 || *attack_list_entry == attack);
-                // if *attack_list_entry != 0 && *attack_list_entry != attack {
-                //     debug!("root_position_num: {i}");
-                //     debug!("rook_position: {}", pretty_print_bitboard(BIT_SQUARES[i]));
-                //     debug!("occupancy: {}", pretty_print_bitboard(occupancy));
-                //     debug!("attack: {}", pretty_print_bitboard(attack));
-                //     debug!("*attack_list_entry: {}", pretty_print_bitboard(*attack_list_entry));
-                //     panic!("attack collision")
-                // }
-                *attack_list_entry = attack;
+                for occupancy_value in 0..(1 << mask.count_ones()) {
+                    let occupancy = map_value_to_mask(occupancy_value, mask);
+
+                    let attack_index = get_index(occupancy, entry);
+
+                    let attack = generate_occluded_bishop_attack(i as u8, occupancy);
+                    let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
+                    debug_assert!(*attack_list_entry == 0 || *attack_list_entry == attack);
+                    *attack_list_entry = attack;
+                }
             }
         }
-
-        for i in 0..64 {
-            let entry = &raw mut BISHOP_ATTACK_LOOKUP[i];
-            let mask = generate_bishop_relevant_occupancy(i as u8);
-            let attacks_offset = (*attacks).len();
-
-            (*entry).mask = mask;
-            (*entry).attacks_offset = attacks_offset as u32;
-            let count = get_entry_count(entry);
-            (*attacks).reserve(count);
-            for _ in 0..(count) {
-                (*attacks).push(0);
-            }
-
-            for occupancy_value in 0..(1 << mask.count_ones()) {
-                let occupancy = map_value_to_mask(occupancy_value, mask);
-
-                let attack_index = get_index(occupancy, entry);
-
-                let attack = generate_occluded_bishop_attack(i as u8, occupancy);
-                let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
-                debug_assert!(*attack_list_entry == 0 || *attack_list_entry == attack);
-                *attack_list_entry = attack;
-            }
-        }
-    }
-
+    });
 }
 
 const fn generate_rook_attack(square_index: u8) -> u64 {
@@ -225,8 +230,8 @@ const fn get_occluded_positive_ray(square_index: u8, occupancy: u64, direction: 
 
     if blockers != 0 {
         let blocker_square = blockers.trailing_zeros();
-        let result_ray = ray ^ rays[blocker_square as usize][direction];
-        result_ray
+
+        ray ^ rays[blocker_square as usize][direction]
     } else {
         ray
     }
@@ -239,79 +244,60 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     if blockers != 0 {
         let blocker_square = 63 - blockers.leading_zeros();
         let blocked_ray = rays[blocker_square as usize][direction];
-        let result_ray = ray ^ blocked_ray;
-        result_ray
+
+        ray ^ blocked_ray
     } else {
         ray
     }
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
-    use core::arch::x86_64::_pext_u64;
+    unsafe {
+        use core::arch::x86_64::_pext_u64;
 
-    _pext_u64(occupancy, (*entry).mask)
+        _pext_u64(occupancy, (*entry).mask)
+    }
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 unsafe fn get_entry_count(entry: *const MagicEntry) -> usize {
-    1 << (*entry).mask.count_ones()
+    unsafe { 1 << (*entry).mask.count_ones() }
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 fn get_total_entry_count() -> usize {
     107648
 }
 
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-)))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext")))]
 #[inline]
 unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {
-    let mut attack_index = occupancy & (*entry).mask;
-    attack_index = attack_index.wrapping_mul((*entry).magic);
-    attack_index >>= 64 - (*entry).shift;
+    unsafe {
+        let mut attack_index = occupancy & (*entry).mask;
+        attack_index = attack_index.wrapping_mul((*entry).magic);
+        attack_index >>= 64 - (*entry).shift;
 
-    attack_index
+        attack_index
+    }
 }
 
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-)))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext")))]
 #[inline]
 unsafe fn get_entry_count(entry: *const MagicEntry) -> usize {
-    1 << (*entry).shift
+    unsafe { 1 << (*entry).shift }
 }
 
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "bmi2",
-    feature = "use_pext"
-)))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext")))]
 #[inline]
 fn get_total_entry_count() -> usize {
     93312
 }
 
+// This static mut is safe because it is only mutated in initialize_magic_bitboards which is protected by the Once
 // Most values self-generated, some values from https://www.chessprogramming.org/Best_Magics_so_far
 static mut ROOK_ATTACK_LOOKUP: [MagicEntry; 64] = [
     MagicEntry::new(0x80004000976080, 12),
@@ -379,6 +365,7 @@ static mut ROOK_ATTACK_LOOKUP: [MagicEntry; 64] = [
     MagicEntry::new(0x0003ffef27eebe74, 10),
     MagicEntry::new(0x7645fffecbfea79e, 11),
 ];
+// This static mut is safe because it is only mutated in initialize_magic_bitboards which is protected by the Once
 static mut BISHOP_ATTACK_LOOKUP: [MagicEntry; 64] = [
     MagicEntry::new(0x1024b002420160, 6),
     MagicEntry::new(0x1008080140420021, 5),

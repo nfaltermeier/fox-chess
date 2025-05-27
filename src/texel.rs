@@ -1,12 +1,22 @@
-use std::{fs::File, io::{BufRead, BufReader}, time::{Instant, SystemTime, UNIX_EPOCH}};
 use std::io::Write;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 #[allow(internal_features)]
 use std::intrinsics::fadd_algebraic;
 
 use rayon::prelude::*;
 
-use crate::{board::{Board, PIECE_KING}, moves::MoveRollback, search::{HistoryTable, Searcher, DEFAULT_HISTORY_TABLE}, transposition_table::TranspositionTable, STARTING_FEN};
+use crate::{
+    STARTING_FEN,
+    board::{Board, PIECE_KING},
+    moves::MoveRollback,
+    search::{DEFAULT_HISTORY_TABLE, HistoryTable, Searcher},
+    transposition_table::TranspositionTable,
+};
 
 pub struct TexelPosition {
     pub board: Board,
@@ -18,6 +28,8 @@ pub type EvalParams = [i16; 777];
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
 pub const EP_PASSED_PAWN_IDX: usize = 776;
+
+#[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
         0,0,0,0,0,0,0,0,
         138,174,122,87,78,58,13,80,
@@ -184,13 +196,20 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
             "1-0" => 1.0,
             "1/2-1/2" => 0.5,
             "0-1" => 0.0,
-            _ => panic!("Unexpected match result {match_result} on line {line}")
+            _ => panic!("Unexpected match result {match_result} on line {line}"),
         };
 
-        result.push(TexelPosition { board, result: match_result_value });
+        result.push(TexelPosition {
+            board,
+            result: match_result_value,
+        });
     }
 
-    LoadPositionsResult { positions: result, loaded_ratio: load_games, skipped_ratio: skip_games }
+    LoadPositionsResult {
+        positions: result,
+        loaded_ratio: load_games,
+        skipped_ratio: skip_games,
+    }
 }
 
 fn sigmoid(eval: f32, scaling_constant: f32) -> f32 {
@@ -199,9 +218,13 @@ fn sigmoid(eval: f32, scaling_constant: f32) -> f32 {
 }
 
 pub fn find_scaling_constant(mut positions: Vec<TexelPosition>) {
-    let evals = positions.par_iter_mut()
+    let evals = positions
+        .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
-            let eval = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, r).0 as f32;
+            let eval = p
+                .board
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, r)
+                .0 as f32;
             (p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 })
         })
         .collect::<Vec<(f32, f32)>>();
@@ -234,7 +257,8 @@ pub fn find_scaling_constant(mut positions: Vec<TexelPosition>) {
 }
 
 fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 {
-    let errors = evals.par_iter()
+    let errors = evals
+        .par_iter()
         .map(|e| {
             let val_sqrt = e.0 - sigmoid(e.1, scaling_constant);
             val_sqrt * val_sqrt
@@ -285,7 +309,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                 adjustments += 1;
 
                 if adjustments % 1000 == 999 {
-                    println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                    println!(
+                        "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
+                        humantime::format_rfc3339(SystemTime::now())
+                    );
                     save_params(&params);
                 }
 
@@ -299,7 +326,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         adjustments += 1;
 
                         if adjustments % 1000 == 999 {
-                            println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                            println!(
+                                "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
+                                humantime::format_rfc3339(SystemTime::now())
+                            );
                             save_params(&params);
                         }
                     }
@@ -315,7 +345,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     adjustments += 1;
 
                     if adjustments % 1000 == 999 {
-                        println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                        println!(
+                            "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
+                            humantime::format_rfc3339(SystemTime::now())
+                        );
                         save_params(&params);
                     }
 
@@ -329,7 +362,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                             adjustments += 1;
 
                             if adjustments % 1000 == 999 {
-                                println!("Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+                                println!(
+                                    "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
+                                    humantime::format_rfc3339(SystemTime::now())
+                                );
                                 save_params(&params);
                             }
                         }
@@ -343,7 +379,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         }
 
         count += 1;
-        println!("Saving, error: {best_error:.8}, iterations: {count}, adjustments: {adjustments}, time: {}", humantime::format_rfc3339(SystemTime::now()));
+        println!(
+            "Saving, error: {best_error:.8}, iterations: {count}, adjustments: {adjustments}, time: {}",
+            humantime::format_rfc3339(SystemTime::now())
+        );
         save_params(&params);
     }
 
@@ -351,9 +390,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 }
 
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f32) -> f32 {
-    let errors = positions.par_iter_mut()
+    let errors = positions
+        .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
-            let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
+            let result = p
+                .board
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
 
             let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
             let val_sqrt = p.result - sigmoid(eval, scaling_constant);
@@ -365,9 +407,12 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
 }
 
 fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<TexelPosition> {
-    positions.par_iter_mut()
+    positions
+        .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
-            let result = p.board.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
+            let result = p
+                .board
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
             TexelPosition {
                 board: result.1,
                 result: p.result,
@@ -376,8 +421,13 @@ fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams)
         .collect()
 }
 
-fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: &EvalParams, scaling_constant: f32) -> f32 {
-    let errors = quiet_positions.par_iter()
+fn find_error_for_quiet_positions(
+    quiet_positions: &Vec<TexelPosition>,
+    params: &EvalParams,
+    scaling_constant: f32,
+) -> f32 {
+    let errors = quiet_positions
+        .par_iter()
         .map(|p| {
             let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f32, scaling_constant);
             val_sqrt * val_sqrt
@@ -389,7 +439,11 @@ fn find_error_for_quiet_positions(quiet_positions: &Vec<TexelPosition>, params: 
 }
 
 fn save_params(params: &EvalParams) {
-    let mut f = File::create(format!("params/{}.txt", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis())).unwrap();
+    let mut f = File::create(format!(
+        "params/{}.txt",
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+    ))
+    .unwrap();
 
     for (i, v) in params.iter().enumerate() {
         if i % 8 == 7 {

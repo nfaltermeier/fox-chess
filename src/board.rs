@@ -1,10 +1,10 @@
 use std::{fmt::Debug, sync::LazyLock};
 
 use log::error;
-use rand::{rngs::StdRng, Fill, SeedableRng};
+use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{pretty_print_bitboard, BIT_SQUARES},
+    bitboard::{BIT_SQUARES, pretty_print_bitboard},
     evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
 };
@@ -75,13 +75,13 @@ pub struct Board {
 
 impl Board {
     pub fn get_piece_64(&self, square_index: usize) -> u8 {
-        self.squares[square_index as usize]
+        self.squares[square_index]
     }
 
     pub fn write_piece(&mut self, piece: u8, square_index: usize) {
         let bit_square = BIT_SQUARES[square_index];
         if piece == PIECE_NONE {
-            let old_piece = self.squares[square_index as usize];
+            let old_piece = self.squares[square_index];
             if old_piece != PIECE_NONE {
                 let side = if old_piece & COLOR_BLACK != 0 { 1 } else { 0 };
                 self.piece_bitboards[side][(old_piece & PIECE_MASK) as usize] &= !bit_square;
@@ -95,7 +95,7 @@ impl Board {
             self.occupancy |= bit_square;
         }
 
-        self.squares[square_index as usize] = piece;
+        self.squares[square_index] = piece;
     }
 
     pub fn from_fen(fen: &str) -> Result<Board, String> {

@@ -13,9 +13,9 @@ use clap::Parser;
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
-use moves::{square_indices_to_moves, Move, MoveRollback};
-use search::{SearchResult, Searcher, DEFAULT_HISTORY_TABLE};
-use texel::{find_best_params, find_scaling_constant, load_positions, DEFAULT_PARAMS};
+use moves::{Move, MoveRollback, square_indices_to_moves};
+use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
+use texel::{DEFAULT_PARAMS, find_best_params, find_scaling_constant, load_positions};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
@@ -28,9 +28,9 @@ mod move_generator;
 mod moves;
 mod repetition_tracker;
 mod search;
+mod texel;
 mod transposition_table;
 mod uci;
-mod texel;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -61,20 +61,20 @@ fn main() {
 
     println!("Loading positions from file");
     let positions = load_positions("newest_positions.fen");
-    println!("{} Positions loaded, take to skip ratio: {}/{}", positions.positions.len(), positions.loaded_ratio, positions.skipped_ratio);
+    println!(
+        "{} Positions loaded, take to skip ratio: {}/{}",
+        positions.positions.len(),
+        positions.loaded_ratio,
+        positions.skipped_ratio
+    );
     // find_scaling_constant(positions.positions);
     find_best_params(positions.positions);
 
     // run_uci();
 
+    // run_perft_tests();
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
-    // do_perfts_up_to(5, STARTING_FEN);
-    // do_perfts_up_to(4, "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
-    // do_perfts_up_to(6, "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1");
-    // do_perfts_up_to(5, "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
-    // do_perfts_up_to(4, "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8");
-    // do_perfts_up_to(4, "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
     // hash_values_edit_distance();
@@ -85,6 +85,48 @@ fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
     for depth in 1..=up_to_depth {
         board.start_perft(depth, false);
     }
+}
+
+fn perft_test_position(fen: &str, expected_results: Vec<(u8, u64)>) {
+    let mut board = Board::from_fen(fen).unwrap();
+
+    for (depth, nodes) in expected_results {
+        assert_eq!(nodes, board.start_perft(depth, false))
+    }
+}
+
+fn run_perft_tests() {
+    perft_test_position(
+        STARTING_FEN,
+        vec![
+            (1, 20),
+            (2, 400),
+            (3, 8902),
+            (4, 197_281),
+            (5, 4_865_609),
+            (6, 119_060_324),
+        ],
+    );
+    perft_test_position(
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1",
+        vec![(1, 48), (2, 2039), (3, 97_862), (4, 4_085_603), (5, 193_690_690)],
+    );
+    perft_test_position(
+        "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 1 1",
+        vec![(1, 14), (2, 191), (3, 2812), (4, 43_238), (5, 674_624), (6, 11_030_083)],
+    );
+    perft_test_position(
+        "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+        vec![(1, 6), (2, 264), (3, 9467), (4, 422333), (5, 15_833_292)],
+    );
+    perft_test_position(
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+        vec![(1, 44), (2, 1486), (3, 62_379), (4, 2_103_487), (5, 89_941_194)],
+    );
+    perft_test_position(
+        "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+        vec![(1, 46), (2, 2079), (3, 89_890), (4, 3_894_594), (5, 164_075_551)],
+    );
 }
 
 fn print_moves_from_pos(fen: &str) {
@@ -139,7 +181,9 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
 
         board.unmake_move(&r#move.m, &mut rollback);
 
-        if best.as_ref().is_none_or(|v| v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }) {
+        if best.as_ref().is_none_or(|v| {
+            v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }
+        }) {
             best = Some(result);
         }
     }
@@ -221,7 +265,7 @@ fn run_uci() {
     loop {
         match stdin_channel.try_recv() {
             Ok(val) => {
-                uci.process_command(val);
+                uci.process_command(val.as_str());
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
@@ -236,10 +280,12 @@ fn run_uci() {
 // From https://stackoverflow.com/a/55201400
 fn spawn_stdin_channel() -> Receiver<String> {
     let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer).unwrap();
+    thread::spawn(move || {
+        loop {
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).unwrap();
+            tx.send(buffer).unwrap();
+        }
     });
     rx
 }
@@ -253,12 +299,13 @@ fn hash_values_edit_distance() {
 
     for x in 8..hash_values.len() {
         // skip unused pawn values
-        if (x >= 56 && x <= 63) || (x >= 6 * 64 && x <= 6 * 64 + 7) || (x >= 6 * 64 + 56 && x <= 6 * 64 + 63) {
+        if (56..=63).contains(&x) || (6 * 64..=6 * 64 + 7).contains(&x) || (6 * 64 + 56..=6 * 64 + 63).contains(&x) {
             continue;
         }
 
         for y in (x + 1)..hash_values.len() {
-            if (y >= 56 && y <= 63) || (y >= 6 * 64 && y <= 6 * 64 + 7) || (y >= 6 * 64 + 56 && y <= 6 * 64 + 63) {
+            if (56..=63).contains(&y) || (6 * 64..=6 * 64 + 7).contains(&y) || (6 * 64 + 56..=6 * 64 + 63).contains(&y)
+            {
                 continue;
             }
 
@@ -266,7 +313,7 @@ fn hash_values_edit_distance() {
             total_distance += edit_distance;
             total_count += 1;
 
-            if (x <= 63 || (x >= 6 * 64 && x <= 6 * 64 + 63)) && (y <= 63 || (y >= 6 * 64 && y <= 6 * 64 + 63)) {
+            if (x <= 63 || (6 * 64..=6 * 64 + 63).contains(&x)) && (y <= 63 || (6 * 64..=6 * 64 + 63).contains(&y)) {
                 pawn_distance += edit_distance;
                 pawn_count += 1;
             }

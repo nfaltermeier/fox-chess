@@ -1,17 +1,30 @@
 use std::{
-    cmp::{Ordering, Reverse}, collections::HashSet, i16, iter, time::{Duration, Instant}
+    cmp::Reverse,
+    collections::HashSet,
+    time::{Duration, Instant},
 };
 
 use log::{debug, error};
-use rand::random;
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN}, evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE}, move_generator::{ScoredMove, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2}, moves::{Move, MoveRollback, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION}, repetition_tracker::RepetitionTracker, texel::{EvalParams, DEFAULT_PARAMS}, transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable}, uci::UciInterface
+    board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD, MATE_VALUE},
+    move_generator::{
+        ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
+    },
+    moves::{MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, Move, MoveRollback},
+    repetition_tracker::RepetitionTracker,
+    texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalParams},
+    transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
+    uci::UciInterface,
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
+
+/// Each value is in addition to the last
+static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
 const EMPTY_MOVE: Move = Move { data: 0 };
 
@@ -34,6 +47,7 @@ enum SearchControl {
     Infinite,
 }
 
+#[derive(Clone)]
 pub struct SearchResult {
     pub best_move: Move,
     pub eval: i16,
@@ -52,7 +66,7 @@ pub struct Searcher<'a> {
     history_table: &'a mut HistoryTable,
     starting_halfmove: u8,
     cancel_search_at: Option<Instant>,
-    starting_in_check: bool,
+    end_search: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -71,7 +85,7 @@ impl<'a> Searcher<'a> {
             history_table,
             starting_halfmove,
             cancel_search_at: None,
-            starting_in_check: false,
+            end_search: false,
         }
     }
 
@@ -85,8 +99,6 @@ impl<'a> Searcher<'a> {
         let search_control: SearchControl;
         let mut max_depth = 40;
         let use_stricter_cutoff;
-
-        self.starting_in_check = self.board.is_in_check(false);
 
         if let Some(t) = time {
             match t {
@@ -116,11 +128,7 @@ impl<'a> Searcher<'a> {
                         40
                     };
 
-                    let time_left = time_left
-                        .as_ref()
-                        .unwrap()
-                        .to_std()
-                        .unwrap();
+                    let time_left = time_left.as_ref().unwrap().to_std().unwrap();
                     target_dur = Some(time_left.checked_div(divisor).unwrap());
 
                     if let Some(inc) = increment {
@@ -149,8 +157,8 @@ impl<'a> Searcher<'a> {
                 }
                 UciTimeControl::Infinite => {
                     // Need to copy 'stop' command functionality over from full-pv branch
-                    unimplemented!("uci go infinite");
                     search_control = SearchControl::Infinite;
+                    unimplemented!("uci go infinite");
                 }
             }
         } else if let Some(s) = search {
@@ -182,7 +190,7 @@ impl<'a> Searcher<'a> {
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth);
+            let result = self.alpha_beta_init(depth, latest_result.clone());
             if let Some(search_result) = result.search_result {
                 let elapsed = start_time.elapsed();
 
@@ -191,14 +199,12 @@ impl<'a> Searcher<'a> {
 
                 if search_control != SearchControl::Infinite
                     && (result.end_search
-                    || search_result.eval.abs() >= MATE_THRESHOLD
-                    || depth >= max_depth
-                    || match search_control {
-                        SearchControl::Time => {
-                            elapsed >= cutoff.unwrap()
-                        }
-                        SearchControl::Depth | SearchControl::Infinite => false,
-                    })
+                        || search_result.eval.abs() >= MATE_THRESHOLD
+                        || depth >= max_depth
+                        || match search_control {
+                            SearchControl::Time => elapsed >= cutoff.unwrap(),
+                            SearchControl::Depth | SearchControl::Infinite => false,
+                        })
                 {
                     return search_result;
                 }
@@ -214,122 +220,84 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8) -> AlphaBetaResult {
-        let mut alpha = -i16::MAX;
-        let mut best_value = -i16::MAX;
-        let mut best_move = None;
+    pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
         self.rollback = MoveRollback::default();
         self.stats = SearchStats::default();
+        self.stats.depth = draft;
+        self.end_search = false;
+
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
-        let mut moves;
-        let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        if let Some(tt_data) = tt_entry {
-            moves = Vec::from([ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            }]);
+        let mut alpha;
+        let mut beta;
+        let mut alpha_window_index;
+        let mut beta_window_index;
+        if draft < 5 {
+            alpha = -i16::MAX;
+            beta = i16::MAX;
+            alpha_window_index = ASPIRATION_WINDOW_OFFSETS.len();
+            beta_window_index = ASPIRATION_WINDOW_OFFSETS.len();
         } else {
-            moves = Vec::new();
+            let last_score = last_result.unwrap().eval;
+            alpha = last_score - ASPIRATION_WINDOW_OFFSETS[0];
+            beta = last_score + ASPIRATION_WINDOW_OFFSETS[0];
+            alpha_window_index = 1;
+            beta_window_index = 1;
         }
 
-        let mut legal_moves: u16 = 0;
+        let score = loop {
+            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers);
 
-        // Round 0 is the tt move, round 1 is regular move gen
-        for round in 0..2 {
-            for r#move in moves {
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
-                    continue;
-                }
-
-                let (legal, move_made) = self
-                    .board
-                    .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
-                if !legal {
-                    if move_made {
-                        self.board.unmake_move(&r#move.m, &mut self.rollback);
-                    }
-
-                    continue;
-                } else {
-                    legal_moves += 1;
-                }
-
-                // let bonus = (random::<u16>() % 11) as i16 - 5;
-                let bonus = 0;
-                assert!(bonus > -6);
-                assert!(bonus < 6);
-                let result = self.alpha_beta_recurse(-i16::MAX, -alpha, draft - 1, 1, &mut killers);
-                let score;
-                if let Some(e) = result {
-                    score = -e;
-                } else {
-                    return AlphaBetaResult {
-                        search_result: None,
-                        end_search: true,
-                    };
-                }
-                let eval = bonus + score;
-                // debug!(
-                //     "{}: score {score} bonus {bonus} result {result}",
-                //     r#move.m.pretty_print(Some(self.board))
-                // );
-
-                self.board.unmake_move(&r#move.m, &mut self.rollback);
-
-                if eval > best_value {
-                    best_value = eval;
-                    best_move = Some(r#move.m);
-                    if eval > alpha {
-                        alpha = eval;
-                    }
-                }
-            }
-
-            if round == 0 {
-                if !self.starting_in_check {
-                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
-                } else {
-                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
-                }
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
+            let score;
+            if let Ok(e) = result {
+                score = e;
             } else {
-                moves = Vec::new();
+                // In this case the state of the board will not been reset back to the starting state
+                return AlphaBetaResult {
+                    search_result: None,
+                    end_search: true,
+                };
             }
+
+            debug_assert!(self.rollback.is_empty());
+
+            if score <= alpha {
+                while score <= alpha {
+                    alpha = alpha
+                        .saturating_sub(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
+                        .min(-i16::MAX);
+                    alpha_window_index += 1;
+                }
+            } else if score >= beta {
+                while score >= beta {
+                    beta = beta.saturating_add(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
+                    beta_window_index += 1;
+                }
+            } else {
+                break score;
+            }
+        };
+
+        let best_move = self
+            .transposition_table
+            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        if best_move.is_none() {
+            error!("Did not get a move from transposition table in alpha_beta_init");
+            panic!("Did not get a move from transposition table in alpha_beta_init")
         }
 
-        if legal_moves == 0 {
-            error!(
-                "Tried to search on a position but found no moves. Position: {:#?}",
-                self.board
-            );
-            panic!("Tried to search on a position but found no moves");
+        let best_move = best_move.unwrap();
+        if best_move.get_move_type() != MoveType::Best {
+            error!("Got a move from transposition table in alpha_beta_init but it is not a best move");
+            panic!("Got a move from transposition table in alpha_beta_init but it is not a best move")
         }
 
-        self.stats.depth = draft;
-        if legal_moves == 1 {
-            return AlphaBetaResult {
-                search_result: Some(SearchResult {
-                    best_move: best_move.unwrap(),
-                    eval: self.board.evaluate(&DEFAULT_PARAMS),
-                }),
-                end_search: true,
-            };
-        }
-
-        self.transposition_table.store_entry(
-            TTEntry::new(self.board.hash, best_move.unwrap(), MoveType::Best, best_value, draft, 0, self.starting_halfmove),
-            TableType::Main
-        );
-
-        // Make the score not side-to-move relative
         AlphaBetaResult {
             search_result: Some(SearchResult {
-                best_move: best_move.unwrap(),
-                eval: best_value * if self.board.white_to_move { 1 } else { -1 },
+                best_move: best_move.important_move,
+                eval: score,
             }),
-            end_search: false,
+            end_search: self.end_search,
         }
     }
 
@@ -340,12 +308,12 @@ impl<'a> Searcher<'a> {
         mut draft: u8,
         ply: u8,
         killers: &mut [Move; 2],
-    ) -> Option<i16> {
+    ) -> Result<i16, ()> {
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
-            return Some(0);
+            return Ok(0);
         }
 
         let in_check = self.board.is_in_check(false);
@@ -357,39 +325,46 @@ impl<'a> Searcher<'a> {
             self.stats.leaf_nodes += 1;
             self.stats.total_search_leaves += 1;
 
-            if self.stats.total_search_leaves % 16384 == 16383 && self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
-                return None;
+            if self.stats.total_search_leaves % 16384 == 16383
+                && self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
+            {
+                return Err(());
             }
 
-            return Some(self.board.quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback).0);
+            return Ok(self
+                .board
+                .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback)
+                .0);
         }
 
-        let mut best_value = -i16::MAX;
+        let mut best_score = -i16::MAX;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let is_pv = alpha + 1 != beta;
 
         let mut moves;
-        let tt_entry = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+        let tt_entry = self
+            .transposition_table
+            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
-                let eval = tt_data.get_eval(ply);
+                let eval = tt_data.get_score(ply);
 
                 match tt_data.get_move_type() {
                     transposition_table::MoveType::FailHigh => {
                         if eval >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, ply);
 
-                            return Some(eval);
+                            return Ok(eval);
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return Some(eval);
+                        return Ok(eval);
                     }
                     transposition_table::MoveType::FailLow => {
                         if eval < alpha {
-                            return Some(eval);
+                            return Ok(eval);
                         }
                     }
                 }
@@ -405,35 +380,49 @@ impl<'a> Searcher<'a> {
 
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if beta < i16::MAX &&
-                draft > 4 &&
-                !in_check &&
-                self.board.piece_bitboards[our_side][PIECE_PAWN as usize] | self.board.piece_bitboards[our_side][PIECE_KING as usize] != self.board.side_occupancy[our_side] {
+        if ply > 0
+            && beta < i16::MAX
+            && draft > 4
+            && !in_check
+            && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
+                | self.board.piece_bitboards[our_side][PIECE_KING as usize]
+                != self.board.side_occupancy[our_side]
+        {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
 
-            let result = self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers);
-            let eval;
-            if let Some(e) = result {
-                eval = -e;
-            } else {
-                return None;
-            }
+            let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers)?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
             if eval >= beta {
-                return Some(eval);
+                return Ok(eval);
             }
         }
 
         let mut searched_quiet_moves = Vec::new();
-        let mut found_legal_move = false;
         let mut searched_moves = 0;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
-            for r#move in moves {
+            for move_index in 0..moves.len() {
+                {
+                    // Perform one iteration of selection sort every time another move needs to be evaluated
+                    let mut best_move_score = moves[move_index].score;
+                    let mut best_move_index = move_index;
+
+                    for sort_index in (move_index + 1)..moves.len() {
+                        if moves[sort_index].score > best_move_score {
+                            best_move_score = moves[sort_index].score;
+                            best_move_index = sort_index;
+                        }
+                    }
+
+                    moves.swap(move_index, best_move_index);
+                }
+
+                let r#move = &moves[move_index];
+
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
                 }
@@ -447,8 +436,6 @@ impl<'a> Searcher<'a> {
                     }
 
                     continue;
-                } else {
-                    found_legal_move = true;
                 }
 
                 let mut reduction = 0;
@@ -474,54 +461,37 @@ impl<'a> Searcher<'a> {
                     reduction = reduction.clamp(0, draft - 1)
                 }
 
-                let mut eval;
-                if searched_moves == 0 {
-                    let mut result = self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                let mut score;
+                if searched_moves == 0 || ply == 0 {
+                    // Use reduction
+                    score =
+                        -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
 
-                    if let Some(e) = result {
-                        eval = -e;
-                    } else {
-                        return None;
-                    }
-
-                    if eval > alpha && reduction > 0 {
-                        result = self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
-
-                        if let Some(e) = result {
-                            eval = -e;
-                        } else {
-                            return None;
-                        }
+                    if score > alpha && reduction > 0 {
+                        // Do a full search
+                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
                     }
                 } else {
-                    let mut result =
-                        self.alpha_beta_recurse(-alpha - 1, -alpha, draft - reduction - 1, ply + 1, &mut new_killers);
+                    // Use null window and reduction
+                    score = -self.alpha_beta_recurse(
+                        -alpha - 1,
+                        -alpha,
+                        draft - reduction - 1,
+                        ply + 1,
+                        &mut new_killers,
+                    )?;
 
-                    if let Some(e) = result {
-                        eval = -e;
-                    } else {
-                        return None;
-                    }
-
-                    // if result > alpha && reduction > 0 {
-                    //     result = -self.alpha_beta_recurse(-alpha - 1, -alpha, draft - 1, ply + 1, &mut new_killers);
-                    // }
-
-                    if eval > alpha {
-                        result = self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers);
-
-                        if let Some(e) = result {
-                            eval = -e;
-                        } else {
-                            return None;
-                        }
+                    if score > alpha {
+                        // Do a full search
+                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
                     }
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
+                // Using this to track legal moves too so need to not continue before incrementing if the move is legal
                 searched_moves += 1;
 
-                if eval >= beta {
+                if score >= beta {
                     self.update_killers_and_history(killers, &r#move.m, ply);
 
                     let penalty = -(ply as i16) * (ply as i16);
@@ -530,18 +500,27 @@ impl<'a> Searcher<'a> {
                     }
 
                     self.transposition_table.store_entry(
-                        TTEntry::new(self.board.hash, r#move.m, MoveType::FailHigh, eval, draft, ply, self.starting_halfmove),
+                        TTEntry::new(
+                            self.board.hash,
+                            r#move.m,
+                            MoveType::FailHigh,
+                            score,
+                            draft,
+                            ply,
+                            self.starting_halfmove,
+                        ),
                         TableType::Main,
+                        false,
                     );
 
-                    return Some(eval);
+                    return Ok(score);
                 }
 
-                if eval > best_value {
-                    best_value = eval;
+                if score > best_score {
+                    best_score = score;
                     best_move = Some(r#move.m);
-                    if eval > alpha {
-                        alpha = eval;
+                    if score > alpha {
+                        alpha = score;
                     }
                 }
 
@@ -580,39 +559,58 @@ impl<'a> Searcher<'a> {
                         }
                     }
                 }
-
-                moves.sort_unstable_by_key(|m| Reverse(m.score));
-            } else {
-                moves = Vec::new();
             }
         }
 
         // Assuming no bug with move generation...
-        if !found_legal_move {
-            if in_check {
-                return Some(self.board.evaluate_checkmate_side_to_move_relative(ply));
+        if searched_moves == 0 {
+            if ply == 0 {
+                error!(
+                    "Tried to search on a position but found no moves. Position: {:#?}",
+                    self.board
+                );
+                panic!("Found no legal moves from the root of the search")
+            } else if in_check {
+                return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
-                return Some(0);
+                return Ok(0);
             }
+        } else if searched_moves == 1 && ply == 0 {
+            self.end_search = true;
         }
 
-        let entry_type = if alpha == best_value {
+        let entry_type = if alpha == best_score {
             MoveType::Best
         } else {
             MoveType::FailLow
         };
         self.transposition_table.store_entry(
-            TTEntry::new(self.board.hash, best_move.unwrap(), entry_type, best_value, draft, ply, self.starting_halfmove),
+            TTEntry::new(
+                self.board.hash,
+                best_move.unwrap(),
+                entry_type,
+                best_score,
+                draft,
+                ply,
+                self.starting_halfmove,
+            ),
             TableType::Main,
+            ply == 0,
         );
 
-        Some(best_value)
+        Ok(best_score)
     }
-
 }
 
 impl Board {
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8, params: &EvalParams, rollback: &mut MoveRollback) -> (i16, Board) {
+    pub fn quiescense_side_to_move_relative(
+        &mut self,
+        mut alpha: i16,
+        beta: i16,
+        draft: u8,
+        params: &EvalParams,
+        rollback: &mut MoveRollback,
+    ) -> (i16, Board) {
         if self.is_insufficient_material() {
             return (0, self.clone());
         }
@@ -623,11 +621,10 @@ impl Board {
             return (stand_pat, self.clone());
         }
 
-        if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
-            // avoid underflow
-            if alpha >= i16::MIN + 1000 && stand_pat < alpha - 1000 {
-                return (alpha, self.clone());
-            }
+        if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+            && stand_pat + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] + 100 < alpha
+        {
+            return (stand_pat, self.clone());
         }
 
         if alpha < stand_pat {
@@ -642,8 +639,7 @@ impl Board {
         moves.sort_unstable_by_key(|m| Reverse(m.score));
 
         for r#move in moves {
-            let (legal, move_made) = self
-                .test_legality_and_maybe_make_move(r#move.m, rollback);
+            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
             if !legal {
                 if move_made {
                     self.unmake_move(&r#move.m, rollback);
@@ -659,7 +655,6 @@ impl Board {
             self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
-
                 return (result, pos);
             }
 
@@ -673,7 +668,14 @@ impl Board {
             }
         }
 
-        (best_value, if best_position.is_some() { best_position.unwrap() } else { self.clone() })
+        (
+            best_value,
+            if best_position.is_some() {
+                best_position.unwrap()
+            } else {
+                self.clone()
+            },
+        )
     }
 }
 
@@ -709,40 +711,75 @@ impl<'a> Searcher<'a> {
             (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
     }
 
-    fn gather_pv(
-        &mut self,
-        first_move: &Move,
-    ) {
+    fn gather_pv(&mut self, first_move: &Move) {
         self.stats.pv.clear();
+
+        let mut board_copy = None;
+        if ENABLE_UNMAKE_MOVE_TEST {
+            board_copy = Some(self.board.clone());
+        }
 
         // Prevent cycles from occurring
         let mut previous_hashes = HashSet::new();
         previous_hashes.insert(self.board.hash);
+
         self.stats.pv.push(*first_move);
         self.board.make_move(first_move, &mut self.rollback);
+        previous_hashes.insert(self.board.hash);
 
-        let mut next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        loop {
-            match next_move {
-                None => {
-                    break;
-                }
-                Some(e) => {
-                    if e.get_move_type() != MoveType::Best || previous_hashes.contains(&self.board.hash) {
+        if !self.board.halfmove_clock >= 100 && !RepetitionTracker::test_threefold_repetition(self.board) {
+            let mut next_move =
+                self.transposition_table
+                    .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            loop {
+                match next_move {
+                    None => {
                         break;
                     }
+                    Some(e) => {
+                        if e.get_move_type() != MoveType::Best {
+                            break;
+                        }
 
-                    previous_hashes.insert(self.board.hash);
-                    self.stats.pv.push(e.important_move);
-                    // trace!("gather_pv about to make move {}", e.important_move.pretty_print(Some(self)));
-                    self.board.make_move(&e.important_move, &mut self.rollback);
-                    next_move = self.transposition_table.get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                        self.board.make_move(&e.important_move, &mut self.rollback);
+
+                        if previous_hashes.contains(&self.board.hash)
+                            || self.board.halfmove_clock >= 100
+                            || RepetitionTracker::test_threefold_repetition(self.board)
+                        {
+                            self.board.unmake_move(&e.important_move, &mut self.rollback);
+                            break;
+                        }
+
+                        previous_hashes.insert(self.board.hash);
+                        self.stats.pv.push(e.important_move);
+                        next_move = self.transposition_table.get_entry(
+                            self.board.hash,
+                            TableType::Main,
+                            self.starting_halfmove,
+                        );
+                    }
                 }
             }
         }
 
         for m in self.stats.pv.iter().rev() {
-            self.board.unmake_move(&m, &mut self.rollback);
+            self.board.unmake_move(m, &mut self.rollback);
+        }
+
+        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self.board {
+            error!("gather_pv did not reset the board state properly");
+
+            let board_copied = board_copy.as_ref().unwrap();
+            if board_copied.hash != self.board.hash {
+                for (i, v) in HASH_VALUES.iter().enumerate() {
+                    if board_copied.hash ^ v == self.board.hash {
+                        debug!("board states differ by value {i} of HASH_VALUES in hash");
+                    }
+                }
+            }
+
+            assert_eq!(board_copy.as_ref().unwrap(), self.board);
         }
     }
 }
