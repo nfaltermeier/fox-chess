@@ -137,7 +137,7 @@ pub struct LoadPositionsResult {
 
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
-    let load_games = 6;
+    let load_games = 2;
     let skip_games = 2;
     let load_skip_cycle_size = load_games + skip_games;
     let mut considered_to_load = -1;

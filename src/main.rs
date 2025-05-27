@@ -60,7 +60,7 @@ fn main() {
     // rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
 
     println!("Loading positions from file");
-    let positions = load_positions("newest_positions.fen");
+    let positions = load_positions("nodupes_positions.epd");
     println!(
         "{} Positions loaded, take to skip ratio: {}/{}",
         positions.positions.len(),
