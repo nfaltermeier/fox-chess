@@ -13,7 +13,7 @@ use crate::{
     move_generator::{
         ScoredMove, ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
     },
-    moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION},
+    moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL},
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
@@ -443,7 +443,7 @@ impl<'a> Searcher<'a> {
 
                 has_legal_move = true;
                 let gives_check = self.board.is_in_check(false);
-                if futility_prune && searched_moves >= 1 && !gives_check && r#move.m.data & MOVE_FLAG_CAPTURE_FULL == 0 {
+                if futility_prune && searched_moves >= 1 && !gives_check && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0 {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
                     continue;
                 }

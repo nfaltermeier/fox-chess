@@ -31,6 +31,7 @@ pub const MOVE_PROMO_QUEEN: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_QUEEN;
 pub const FLAGS_MASK_PROMO: u16 = 3;
 
 pub const MOVE_FLAG_CAPTURE_FULL: u16 = MOVE_FLAG_CAPTURE << 12;
+pub const MOVE_FLAG_PROMOTION_FULL: u16 = MOVE_FLAG_PROMOTION << 12;
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Move {
