@@ -400,7 +400,7 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        let futility_prune = draft == 1 && ply > 0 && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && self.board.evaluate_side_to_move_relative() + 300 < alpha;
+        let futility_prune = draft == 1 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && self.board.evaluate_side_to_move_relative() + 300 < alpha;
 
         let mut searched_quiet_moves = Vec::new();
         let mut searched_moves = 0;
