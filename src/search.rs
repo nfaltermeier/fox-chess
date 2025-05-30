@@ -11,9 +11,11 @@ use crate::{
     board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{
-        ScoredMove, ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2
+        ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
     },
-    moves::{Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL},
+    moves::{
+        MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
+    },
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
@@ -380,7 +382,7 @@ impl<'a> Searcher<'a> {
 
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if ply > 0 
+        if ply > 0
             && beta < i16::MAX
             && draft > 4
             && !in_check
@@ -391,7 +393,8 @@ impl<'a> Searcher<'a> {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
 
-            let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers, false)?;
+            let eval =
+                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers, false)?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
@@ -400,7 +403,12 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        let futility_prune = draft == 1 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && self.board.evaluate_side_to_move_relative() + 300 < alpha;
+        let futility_prune = draft < 4
+            && !is_pv
+            && !in_check
+            && alpha.abs() < 2000
+            && beta.abs() < 2000
+            && (self.board.evaluate_side_to_move_relative() + 300 + 200 * (draft - 1) as i16) < alpha;
 
         let mut searched_quiet_moves = Vec::new();
         let mut searched_moves = 0;
@@ -443,7 +451,11 @@ impl<'a> Searcher<'a> {
 
                 has_legal_move = true;
                 let gives_check = self.board.is_in_check(false);
-                if futility_prune && searched_moves >= 1 && !gives_check && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0 {
+                if futility_prune
+                    && searched_moves >= 1
+                    && !gives_check
+                    && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+                {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
                     continue;
                 }
@@ -474,12 +486,25 @@ impl<'a> Searcher<'a> {
                 let mut score;
                 if searched_moves == 0 || ply == 0 {
                     // Use reduction
-                    score =
-                        -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers, gives_check)?;
+                    score = -self.alpha_beta_recurse(
+                        -beta,
+                        -alpha,
+                        draft - reduction - 1,
+                        ply + 1,
+                        &mut new_killers,
+                        gives_check,
+                    )?;
 
                     if score > alpha && reduction > 0 {
                         // Do a full search
-                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, gives_check)?;
+                        score = -self.alpha_beta_recurse(
+                            -beta,
+                            -alpha,
+                            draft - 1,
+                            ply + 1,
+                            &mut new_killers,
+                            gives_check,
+                        )?;
                     }
                 } else {
                     // Use null window and reduction
@@ -494,7 +519,14 @@ impl<'a> Searcher<'a> {
 
                     if score > alpha {
                         // Do a full search
-                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers, gives_check)?;
+                        score = -self.alpha_beta_recurse(
+                            -beta,
+                            -alpha,
+                            draft - 1,
+                            ply + 1,
+                            &mut new_killers,
+                            gives_check,
+                        )?;
                     }
                 }
 
