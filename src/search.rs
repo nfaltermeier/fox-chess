@@ -126,11 +126,11 @@ impl<'a> Searcher<'a> {
                     }
 
                     let divisor = if self.board.fullmove_counter < 15 {
-                        35
+                        25
                     } else if self.board.fullmove_counter < 25 {
-                        30
+                        20
                     } else {
-                        40
+                        30
                     };
 
                     let time_left = time_left.as_ref().unwrap().to_std().unwrap();
