@@ -388,6 +388,7 @@ impl<'a> Searcher<'a> {
             && beta < i16::MAX
             && draft > 4
             && !in_check
+            && !is_pv
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
                 != self.board.side_occupancy[our_side]
