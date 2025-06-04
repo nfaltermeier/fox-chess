@@ -384,11 +384,10 @@ impl<'a> Searcher<'a> {
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
         if can_null_move 
-            && ply > 0
+            && !is_pv
             && beta < i16::MAX
             && draft > 4
             && !in_check
-            && !is_pv
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
                 != self.board.side_occupancy[our_side]
@@ -396,8 +395,11 @@ impl<'a> Searcher<'a> {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
 
+            // Need to ensure draft >= 1
+            let reduction = 3 + draft / 6;
+
             let eval =
-                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers, false, false)?;
+                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - reduction, ply + 1, &mut null_move_killers, false, false)?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
