@@ -251,7 +251,7 @@ impl<'a> Searcher<'a> {
         }
 
         let score = loop {
-            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers, self.starting_in_check);
+            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers, self.starting_in_check, true);
 
             let score;
             if let Ok(e) = result {
@@ -314,6 +314,7 @@ impl<'a> Searcher<'a> {
         ply: u8,
         killers: &mut [Move; 2],
         in_check: bool,
+        can_null_move: bool,
     ) -> Result<i16, ()> {
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
@@ -382,7 +383,8 @@ impl<'a> Searcher<'a> {
 
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if ply > 0
+        if can_null_move 
+            && ply > 0
             && beta < i16::MAX
             && draft > 4
             && !in_check
@@ -394,7 +396,7 @@ impl<'a> Searcher<'a> {
             self.board.make_null_move(&mut self.rollback);
 
             let eval =
-                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers, false)?;
+                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers, false, false)?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
@@ -493,6 +495,7 @@ impl<'a> Searcher<'a> {
                         ply + 1,
                         &mut new_killers,
                         gives_check,
+                        can_null_move,
                     )?;
 
                     if score > alpha && reduction > 0 {
@@ -504,6 +507,7 @@ impl<'a> Searcher<'a> {
                             ply + 1,
                             &mut new_killers,
                             gives_check,
+                            can_null_move,
                         )?;
                     }
                 } else {
@@ -515,6 +519,7 @@ impl<'a> Searcher<'a> {
                         ply + 1,
                         &mut new_killers,
                         gives_check,
+                        can_null_move,
                     )?;
 
                     if score > alpha {
@@ -526,6 +531,7 @@ impl<'a> Searcher<'a> {
                             ply + 1,
                             &mut new_killers,
                             gives_check,
+                            can_null_move,
                         )?;
                     }
                 }
