@@ -33,12 +33,11 @@ const EMPTY_MOVE: Move = Move { data: 0 };
 
 #[derive(Default)]
 pub struct SearchStats {
-    pub quiescense_nodes: u64,
     pub depth: u8,
-    pub quiescense_cut_by_hopeless: u64,
-    pub leaf_nodes: u64,
+    pub total_nodes: u64,
     pub total_search_leaves: u64,
     pub pv: Vec<Move>,
+    pub aspiration_researches: u8,
 }
 
 #[derive(PartialEq, Eq)]
@@ -202,6 +201,8 @@ impl<'a> Searcher<'a> {
                 self.gather_pv(&search_result.best_move);
                 UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
 
+                self.stats.aspiration_researches = 0;
+
                 if search_control != SearchControl::Infinite
                     && (result.end_search
                         || search_result.eval.abs() >= MATE_THRESHOLD
@@ -227,7 +228,7 @@ impl<'a> Searcher<'a> {
 
     pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
         self.rollback = MoveRollback::default();
-        self.stats = SearchStats::default();
+        self.stats.pv.clear();
         self.stats.depth = draft;
         self.end_search = false;
 
@@ -316,6 +317,8 @@ impl<'a> Searcher<'a> {
         in_check: bool,
         can_null_move: bool,
     ) -> Result<i16, ()> {
+        self.stats.total_nodes += 1;
+
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
@@ -328,9 +331,7 @@ impl<'a> Searcher<'a> {
         }
 
         if draft == 0 {
-            self.stats.leaf_nodes += 1;
             self.stats.total_search_leaves += 1;
-
             if self.stats.total_search_leaves % 16384 == 16383
                 && self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
             {
@@ -653,7 +654,7 @@ impl<'a> Searcher<'a> {
     }
 
     pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
-        self.stats.quiescense_nodes += 1;
+        self.stats.total_nodes += 1;
 
         if self.board.is_insufficient_material() {
             return 0;
@@ -699,7 +700,6 @@ impl<'a> Searcher<'a> {
         if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
             && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
         {
-            self.stats.quiescense_cut_by_hopeless += 1;
             return stand_pat;
         }
 
