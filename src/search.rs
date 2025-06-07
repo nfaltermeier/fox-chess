@@ -3,6 +3,7 @@ use std::{
     collections::HashSet,
     sync::mpsc::Receiver,
     time::{Duration, Instant},
+    u64,
 };
 
 use log::{debug, error};
@@ -43,9 +44,11 @@ pub struct SearchStats {
 
 #[derive(PartialEq, Eq)]
 enum SearchControl {
+    Unknown,
     Time,
     Depth,
     Infinite,
+    Nodes,
 }
 
 #[derive(Clone)]
@@ -71,6 +74,7 @@ pub struct Searcher<'a> {
     starting_in_check: bool,
     stop_rx: &'a Receiver<()>,
     stop_received: bool,
+    max_nodes: u64,
 }
 
 impl<'a> Searcher<'a> {
@@ -96,6 +100,7 @@ impl<'a> Searcher<'a> {
             starting_in_check,
             stop_rx,
             stop_received: false,
+            max_nodes: u64::MAX,
         }
     }
 
@@ -106,9 +111,9 @@ impl<'a> Searcher<'a> {
     ) -> SearchResult {
         let start_time = Instant::now();
         let mut target_dur = None;
-        let search_control: SearchControl;
+        let mut search_control: SearchControl;
         let mut max_depth = 40;
-        let use_stricter_cutoff;
+        let use_stricter_time_cutoff;
 
         if let Some(t) = time {
             match t {
@@ -147,12 +152,12 @@ impl<'a> Searcher<'a> {
                         if time_left > inc.saturating_mul(2) {
                             target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
 
-                            use_stricter_cutoff = time_left < Duration::from_secs(1);
+                            use_stricter_time_cutoff = time_left < Duration::from_secs(1);
                         } else {
-                            use_stricter_cutoff = true;
+                            use_stricter_time_cutoff = true;
                         }
                     } else {
-                        use_stricter_cutoff = time_left < Duration::from_secs(5);
+                        use_stricter_time_cutoff = time_left < Duration::from_secs(5);
                     }
 
                     search_control = SearchControl::Time;
@@ -160,37 +165,47 @@ impl<'a> Searcher<'a> {
                 UciTimeControl::MoveTime(time_delta) => {
                     target_dur = Some(time_delta.to_std().unwrap());
                     search_control = SearchControl::Time;
-                    use_stricter_cutoff = true;
+                    use_stricter_time_cutoff = true;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
                     search_control = SearchControl::Infinite;
-                    use_stricter_cutoff = false;
+                    use_stricter_time_cutoff = false;
                 }
             }
-        } else if let Some(s) = search {
-            if s.depth.is_some() {
-                search_control = SearchControl::Depth;
-                max_depth = s.depth.unwrap();
-            } else {
-                error!("Unsupported search option passed to go, use depth.");
-                unimplemented!("Unsupported search option passed to go, use depth.");
-            }
-            use_stricter_cutoff = false;
         } else {
-            error!("One of search or time is required to be passed to go.");
-            panic!("One of search or time is required to be passed to go.");
+            search_control = SearchControl::Unknown;
+            use_stricter_time_cutoff = false;
+        }
+
+        if let Some(s) = search {
+            if s.depth.is_some() {
+                if search_control == SearchControl::Unknown {
+                    search_control = SearchControl::Depth;
+                }
+                max_depth = s.depth.unwrap();
+            } else if s.nodes.is_some() {
+                if search_control == SearchControl::Unknown {
+                    search_control = SearchControl::Nodes;
+                }
+                self.max_nodes = s.nodes.unwrap();
+            }
+        }
+
+        if search_control == SearchControl::Unknown {
+            error!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
+            panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
         }
 
         let cutoff;
         match target_dur {
             Some(d) => {
-                cutoff = Some(d.mul_f32(if use_stricter_cutoff { 0.3 } else { 0.5 }));
+                cutoff = Some(d.mul_f32(if use_stricter_time_cutoff { 0.3 } else { 0.5 }));
                 self.cancel_search_at = Some(
                     start_time
-                        .checked_add(d.mul_f32(if use_stricter_cutoff { 1.1 } else { 2.0 }))
+                        .checked_add(d.mul_f32(if use_stricter_time_cutoff { 1.1 } else { 2.0 }))
                         .unwrap(),
                 );
             }
@@ -217,10 +232,7 @@ impl<'a> Searcher<'a> {
                         && (result.end_search
                             || search_result.eval.abs() >= MATE_THRESHOLD
                             || depth >= max_depth
-                            || match search_control {
-                                SearchControl::Time => elapsed >= cutoff.unwrap(),
-                                SearchControl::Depth | SearchControl::Infinite => false,
-                            }))
+                            || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
                 {
                     return search_result;
                 }
@@ -228,7 +240,7 @@ impl<'a> Searcher<'a> {
                 latest_result = Some(search_result);
             } else {
                 if !self.stop_received {
-                    debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                    debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
                 }
 
                 return latest_result
@@ -331,6 +343,10 @@ impl<'a> Searcher<'a> {
         can_null_move: bool,
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
+
+        if self.stats.total_nodes >= self.max_nodes {
+            return Err(());
+        }
 
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
