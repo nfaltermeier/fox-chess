@@ -659,6 +659,10 @@ fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_v
 
 #[cfg(test)]
 mod moves_tests {
+    use std::sync::mpsc;
+
+    use vampirc_uci::parse_with_unknown;
+
     use crate::{
         board::{Board, HASH_VALUES},
         magic_bitboard::initialize_magic_bitboards,
@@ -671,7 +675,8 @@ mod moves_tests {
     pub fn board_same_for_fen_and_uci_position_moves() {
         initialize_magic_bitboards();
 
-        let mut uci = UciInterface::new(2);
+        let (_, stop_rx) = mpsc::channel::<()>();
+        let mut uci = UciInterface::new(2, stop_rx);
         let mut uci_command = String::from("position startpos moves");
         let moves = vec![
             "d2d4", "d7d5", "g1f3", "c8f5", "c2c4", "e7e6", "d1b3", "b8c6", "c1d2", "d5c4", "b3b7", "g8e7", "b7b5",
@@ -683,7 +688,8 @@ mod moves_tests {
             uci_command.push(' ');
             uci_command.push_str(m);
 
-            uci.process_command(&uci_command);
+            let messages = parse_with_unknown(&uci_command);
+            uci.process_command((uci_command.clone(), messages));
             let from_uci = uci.get_board_copy().unwrap();
 
             let fen = from_uci.to_fen();

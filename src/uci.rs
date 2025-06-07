@@ -1,5 +1,8 @@
 use std::{
+    io,
     process::exit,
+    sync::mpsc::{self, Receiver},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -21,24 +24,25 @@ pub struct UciInterface {
     board: Option<Board>,
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
+    stop_rx: Receiver<()>,
 }
 
 build_info!(fn get_build_info);
 
 impl UciInterface {
-    pub fn new(tt_size_log_2: u8) -> UciInterface {
+    pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
         UciInterface {
             board: None,
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
+            stop_rx,
         }
     }
 
     // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmd: &str) {
-        debug!("Received UCI cmd string '{cmd}'");
-        let messages = parse_with_unknown(cmd);
-        for m in messages {
+    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
+        debug!("Received UCI cmd string '{}'", cmds.0);
+        for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
                     let build_info = get_build_info();
@@ -124,8 +128,12 @@ impl UciInterface {
                     if let Some(b) = &self.board {
                         // Search on a board copy to protect against the board state being changed by the search timing out
                         let mut board_copy = b.clone();
-                        let mut searcher =
-                            Searcher::new(&mut board_copy, &mut self.transposition_table, &mut self.history_table);
+                        let mut searcher = Searcher::new(
+                            &mut board_copy,
+                            &mut self.transposition_table,
+                            &mut self.history_table,
+                            &self.stop_rx,
+                        );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
 
@@ -198,7 +206,7 @@ impl UciInterface {
                     }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in '{cmd}'");
+                    error!("Unhandled UCI cmd in '{}'", cmds.0);
                 }
             }
         }
@@ -235,5 +243,32 @@ impl UciInterface {
     /// For testing
     pub fn get_board_copy(&self) -> Option<Board> {
         self.board.clone()
+    }
+
+    // Based off of https://stackoverflow.com/a/55201400
+    pub fn process_stdin_uci() -> (Receiver<(String, Vec<UciMessage>)>, Receiver<()>) {
+        let (message_tx, message_rx) = mpsc::channel::<(String, Vec<UciMessage>)>();
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        thread::spawn(move || {
+            loop {
+                let mut buffer = String::new();
+                io::stdin().read_line(&mut buffer).unwrap();
+                let messages = parse_with_unknown(&buffer);
+
+                for m in &messages {
+                    match m {
+                        UciMessage::Stop | UciMessage::Quit => {
+                            stop_tx.send(()).expect("sending stop command failed");
+                        }
+                        _ => {}
+                    }
+                }
+
+                message_tx
+                    .send((buffer, messages))
+                    .expect("sending uci commands failed");
+            }
+        });
+        (message_rx, stop_rx)
     }
 }

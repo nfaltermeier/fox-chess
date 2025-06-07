@@ -1,6 +1,7 @@
 use std::{
     cmp::Reverse,
     collections::HashSet,
+    sync::mpsc::Receiver,
     time::{Duration, Instant},
 };
 
@@ -69,6 +70,8 @@ pub struct Searcher<'a> {
     cancel_search_at: Option<Instant>,
     end_search: bool,
     starting_in_check: bool,
+    stop_rx: &'a Receiver<()>,
+    stop_received: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -76,6 +79,7 @@ impl<'a> Searcher<'a> {
         board: &'a mut Board,
         transposition_table: &'a mut TranspositionTable,
         history_table: &'a mut HistoryTable,
+        stop_rx: &'a Receiver<()>,
     ) -> Self {
         let starting_halfmove = board.halfmove_clock;
 
@@ -91,6 +95,8 @@ impl<'a> Searcher<'a> {
             cancel_search_at: None,
             end_search: false,
             starting_in_check,
+            stop_rx,
+            stop_received: false,
         }
     }
 
@@ -161,9 +167,8 @@ impl<'a> Searcher<'a> {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
-                    // Need to copy 'stop' command functionality over from full-pv branch
                     search_control = SearchControl::Infinite;
-                    unimplemented!("uci go infinite");
+                    use_stricter_cutoff = false;
                 }
             }
         } else if let Some(s) = search {
@@ -184,7 +189,11 @@ impl<'a> Searcher<'a> {
         match target_dur {
             Some(d) => {
                 cutoff = Some(d.mul_f32(if use_stricter_cutoff { 0.3 } else { 0.5 }));
-                self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(if use_stricter_cutoff { 1.1 } else { 2.0 })).unwrap());
+                self.cancel_search_at = Some(
+                    start_time
+                        .checked_add(d.mul_f32(if use_stricter_cutoff { 1.1 } else { 2.0 }))
+                        .unwrap(),
+                );
             }
             None => {
                 cutoff = None;
@@ -202,21 +211,25 @@ impl<'a> Searcher<'a> {
                 self.gather_pv(&search_result.best_move);
                 UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
 
-                if search_control != SearchControl::Infinite
-                    && (result.end_search
-                        || search_result.eval.abs() >= MATE_THRESHOLD
-                        || depth >= max_depth
-                        || match search_control {
-                            SearchControl::Time => elapsed >= cutoff.unwrap(),
-                            SearchControl::Depth | SearchControl::Infinite => false,
-                        })
+                if self.stop_received
+                    || (search_control != SearchControl::Infinite
+                        && (result.end_search
+                            || search_result.eval.abs() >= MATE_THRESHOLD
+                            || depth >= max_depth
+                            || match search_control {
+                                SearchControl::Time => elapsed >= cutoff.unwrap(),
+                                SearchControl::Depth | SearchControl::Infinite => false,
+                            }))
                 {
                     return search_result;
                 }
 
                 latest_result = Some(search_result);
             } else {
-                debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                if !self.stop_received {
+                    debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                }
+
                 return latest_result
                     .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
             }
@@ -331,10 +344,15 @@ impl<'a> Searcher<'a> {
             self.stats.leaf_nodes += 1;
             self.stats.total_search_leaves += 1;
 
-            if self.stats.total_search_leaves % 16384 == 16383
-                && self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
-            {
-                return Err(());
+            if self.stats.total_search_leaves % 16384 == 16383 {
+                let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
+                if stop_received || self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+                    if stop_received {
+                        self.stop_received = stop_received;
+                    }
+
+                    return Err(());
+                }
             }
 
             return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
@@ -383,7 +401,7 @@ impl<'a> Searcher<'a> {
 
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if can_null_move 
+        if can_null_move
             && !is_pv
             && beta < i16::MAX
             && draft > 4
@@ -398,8 +416,15 @@ impl<'a> Searcher<'a> {
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
 
-            let eval =
-                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - reduction, ply + 1, &mut null_move_killers, false, false)?;
+            let eval = -self.alpha_beta_recurse(
+                -beta,
+                -(beta - 1),
+                draft - reduction,
+                ply + 1,
+                &mut null_move_killers,
+                false,
+                false,
+            )?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
