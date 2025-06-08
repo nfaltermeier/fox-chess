@@ -299,6 +299,8 @@ impl<'a> Searcher<'a> {
             debug_assert!(self.rollback.is_empty());
 
             if score <= alpha {
+                self.stats.aspiration_researches += 1;
+
                 while score <= alpha {
                     alpha = alpha
                         .saturating_sub(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
@@ -306,6 +308,8 @@ impl<'a> Searcher<'a> {
                     alpha_window_index += 1;
                 }
             } else if score >= beta {
+                self.stats.aspiration_researches += 1;
+
                 while score >= beta {
                     beta = beta.saturating_add(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
                     beta_window_index += 1;
