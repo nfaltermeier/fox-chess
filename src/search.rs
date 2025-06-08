@@ -829,7 +829,9 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
-                moves = self.board.generate_pseudo_legal_capture_moves();
+                moves = self
+                    .board
+                    .generate_pseudo_legal_captures_and_queen_promos(self.history_table);
             }
         }
 
