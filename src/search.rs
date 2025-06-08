@@ -749,7 +749,16 @@ impl<'a> Searcher<'a> {
         }
 
         if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-            && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
+            && stand_pat
+                + CENTIPAWN_VALUES[PIECE_QUEEN as usize]
+                + 100
+                // maybe this shouldn't include quiet promotions because those would already be covered under the standard margin
+                + if self.board.can_probably_promote() {
+                    CENTIPAWN_VALUES[PIECE_QUEEN as usize] - 100
+                } else {
+                    0
+                }
+                < alpha
         {
             return stand_pat;
         }
