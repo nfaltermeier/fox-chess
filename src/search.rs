@@ -220,6 +220,12 @@ impl<'a> Searcher<'a> {
         loop {
             let result = self.alpha_beta_init(depth, latest_result.clone());
             if let Some(search_result) = result.search_result {
+                // Max nodes are infrequently checked in the search so do an additional check here
+                if self.stats.total_nodes >= self.max_nodes {
+                    return latest_result
+                        .expect("iterative_deepening_search exceeded max nodes before completing any searches");
+                }
+
                 let elapsed = start_time.elapsed();
 
                 self.gather_pv(&search_result.best_move);
@@ -244,7 +250,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 return latest_result
-                    .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
+                    .expect("iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches");
             }
 
             depth += 1;
@@ -344,10 +350,6 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
 
-        if self.stats.total_nodes >= self.max_nodes {
-            return Err(());
-        }
-
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
@@ -364,7 +366,10 @@ impl<'a> Searcher<'a> {
 
             if self.stats.total_search_leaves % 16384 == 16383 {
                 let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
-                if stop_received || self.cancel_search_at.is_some_and(|t| Instant::now() >= t) {
+                if stop_received
+                    || self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
+                    || self.stats.total_nodes >= self.max_nodes
+                {
                     if stop_received {
                         self.stop_received = stop_received;
                     }
