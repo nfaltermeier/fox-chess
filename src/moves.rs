@@ -725,6 +725,8 @@ mod moves_tests {
             );
             assert_eq!(from_fen.castling_rights, from_uci.castling_rights);
             assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
+            assert_eq!(from_fen.piecesquare_midgame, from_uci.piecesquare_midgame);
+            assert_eq!(from_fen.piecesquare_endgame, from_uci.piecesquare_endgame);
         }
     }
 
@@ -758,5 +760,7 @@ mod moves_tests {
         );
         assert_eq!(from_fen.castling_rights, from_repetitions.castling_rights);
         assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
+        assert_eq!(from_fen.piecesquare_midgame, from_repetitions.piecesquare_midgame);
+        assert_eq!(from_fen.piecesquare_endgame, from_repetitions.piecesquare_endgame);
     }
 }
