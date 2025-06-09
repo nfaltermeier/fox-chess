@@ -229,61 +229,6 @@ impl Board {
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
 
-        let inc_eval = material_score + position_score_final + doubled_pawns * 14 + net_passed_pawns * 9;
-        let old_eval = self.evaluate_not_incremental();
-        if inc_eval != old_eval {
-            error!("{self:#?}");
-            assert_eq!(inc_eval, old_eval);
-        }
-
-        inc_eval
-    }
-
-    pub fn evaluate_not_incremental(&self) -> i16 {
-        let mut material_score = 0;
-        let mut position_score_midgame = 0;
-        let mut position_score_endgame = 0;
-        let mut game_stage = self.game_stage;
-
-        // white then black
-        let mut piece_counts = [[0i8; 7]; 2];
-        for i in 0..64 {
-            let piece = self.get_piece_64(i);
-            if piece != PIECE_NONE {
-                let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
-                let piece_type = (piece & PIECE_MASK) as usize;
-                piece_counts[color][piece_type] += 1;
-
-                position_score_midgame += PIECE_SQUARE_TABLES[color][piece_type - 1][i];
-                position_score_endgame += PIECE_SQUARE_TABLES[color][piece_type - 1 + 6][i];
-            }
-        }
-
-        for i in 1..7 {
-            material_score += CENTIPAWN_VALUES[i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
-        }
-
-
-        let doubled_pawns = self.count_doubled_pawns();
-
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
-        }
-
-        let position_score_final = ((position_score_midgame * game_stage)
-            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
-            / (MIN_GAME_STAGE_FULLY_MIDGAME);
-
-        let white_passed = self.white_passed_pawns();
-        let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
-
-        let black_passed = self.black_passed_pawns();
-        let black_passed_distance = (north_fill(black_passed) & !black_passed).count_ones() as i16;
-
-        let net_passed_pawns = white_passed_distance - black_passed_distance;
-
-        // Add a small variance to try to avoid repetition
-        // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
         material_score + position_score_final + doubled_pawns * 14 + net_passed_pawns * 9
     }
 
