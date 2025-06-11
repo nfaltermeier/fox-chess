@@ -139,9 +139,9 @@ pub struct LoadPositionsResult {
 
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
-    let load_games = 2;
-    let skip_games = 0;
-    let load_skip_cycle_size = load_games + skip_games;
+    let load_positions = 2;
+    let skip_positions = 4;
+    let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
     let file = File::open(filename).unwrap();
@@ -179,7 +179,7 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
         let board = Board::from_fen(fen).unwrap();
 
         considered_to_load += 1;
-        if considered_to_load % load_skip_cycle_size >= load_games {
+        if considered_to_load % load_skip_cycle_size >= load_positions {
             continue;
         }
 
@@ -207,8 +207,8 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
 
     LoadPositionsResult {
         positions: result,
-        loaded_ratio: load_games,
-        skipped_ratio: skip_games,
+        loaded_ratio: load_positions,
+        skipped_ratio: skip_positions,
     }
 }
 
