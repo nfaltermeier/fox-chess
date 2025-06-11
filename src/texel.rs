@@ -307,6 +307,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                 i = EP_DOUBLED_PAWNS_IDX;
             } else if i >= 48 {
                 i += 8 + 6 * 64 - 48;
+            } else {
+                i += 8;
             }
 
             params[i] += 1;
