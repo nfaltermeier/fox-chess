@@ -31,24 +31,24 @@ pub const MATE_VALUE: i16 = 25000;
 #[rustfmt::skip]
 const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
- 138, 174, 122,  87,  78,  58,  13,  80,
-  32,  58,  40,  46,  57,  59,  95,  10,
- -10,   4,   0,  13,  17,  15,   4,  -3,
- -14,   7,  -7,   5,  -4,   4,   0, -15,
- -23,   8,   0,  -5,  -1,   5,  23,  -2,
- -29,  -4, -17, -10,  -9,   7,  26, -18,
+ 173, 147, 135, 128,  90,  41,   2,  46,
+  39,  54,  43,  43,  50,  58,  82,  20,
+   3,  11,  -2,  11,  19,  13,  12,  -7,
+ -14,   5,  -5,   3,  -1,   8,   4, -16,
+ -13,   0,  -8,  -8,   2,   2,  21,  -4,
+ -20,  -6, -18, -16, -12,  17,  27, -15,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
 #[rustfmt::skip]
 const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
- 221, 237, 255, 153, 153, 236, 237, 225,
- 100, 132, 119,  88,  68,  32,  66,  69,
-  64,  63,  52,  -6, -14,   1,  40,  12,
-  26,  26,  14, -25,  -5,  12,  21,   7,
-  29,  34,  12,  21,  10,  13,   3,  -1,
-  40,  41,  23,  93,   4,  18,  -5,   4,
+  78, 116, 115,  70, 103, 136, 184, 132,
+ 108, 104,  81,  63,  57,  53,  64,  69,
+  68,  52,  49,  10,  12,  21,  37,  29,
+  46,  47,  24,   2,  12,  26,  37,  28,
+  48,  35,  27,  27,  19,  28,  26,  19,
+  62,  53,  40,   9,  42,  29,  28,  33,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
@@ -232,7 +232,7 @@ impl Board {
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
-        material_score + position_score_final + doubled_pawns * 14 + net_passed_pawns * 9 + (w_open - b_open) * 18 + (w_half_open - b_half_open) * 17
+        material_score + position_score_final + doubled_pawns * 22 + net_passed_pawns * 10 + (w_open - b_open) * 18 + (w_half_open - b_half_open) * 17
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
