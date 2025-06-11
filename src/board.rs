@@ -5,7 +5,7 @@ use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
     bitboard::{BIT_SQUARES, pretty_print_bitboard},
-    evaluate::GAME_STAGE_VALUES,
+    evaluate::{GAME_STAGE_VALUES, PIECE_SQUARE_TABLES},
     repetition_tracker::RepetitionTracker,
 };
 
@@ -71,6 +71,8 @@ pub struct Board {
     pub piece_bitboards: [[u64; 7]; 2],
     pub side_occupancy: [u64; 2],
     pub occupancy: u64,
+    pub piecesquare_midgame: i16,
+    pub piecesquare_endgame: i16,
 }
 
 impl Board {
@@ -84,15 +86,21 @@ impl Board {
             let old_piece = self.squares[square_index];
             if old_piece != PIECE_NONE {
                 let side = if old_piece & COLOR_BLACK != 0 { 1 } else { 0 };
-                self.piece_bitboards[side][(old_piece & PIECE_MASK) as usize] &= !bit_square;
+                let piece_type = (old_piece & PIECE_MASK) as usize;
+                self.piece_bitboards[side][piece_type] &= !bit_square;
                 self.side_occupancy[side] &= !bit_square;
                 self.occupancy &= !bit_square;
+                self.piecesquare_midgame -= PIECE_SQUARE_TABLES[side][piece_type - 1][square_index];
+                self.piecesquare_endgame -= PIECE_SQUARE_TABLES[side][piece_type - 1 + 6][square_index];
             }
         } else {
             let side = if piece & COLOR_BLACK != 0 { 1 } else { 0 };
-            self.piece_bitboards[side][(piece & PIECE_MASK) as usize] |= bit_square;
+            let piece_type = (piece & PIECE_MASK) as usize;
+            self.piece_bitboards[side][piece_type] |= bit_square;
             self.side_occupancy[side] |= bit_square;
             self.occupancy |= bit_square;
+            self.piecesquare_midgame += PIECE_SQUARE_TABLES[side][piece_type - 1][square_index];
+            self.piecesquare_endgame += PIECE_SQUARE_TABLES[side][piece_type - 1 + 6][square_index];
         }
 
         self.squares[square_index] = piece;
@@ -125,6 +133,8 @@ impl Board {
             piece_bitboards: [[0; 7]; 2],
             side_occupancy: [0; 2],
             occupancy: 0,
+            piecesquare_midgame: 0,
+            piecesquare_endgame: 0,
         };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;

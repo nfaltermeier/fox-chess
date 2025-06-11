@@ -1,6 +1,6 @@
 use array_macro::array;
 
-use crate::board::{Board, PIECE_PAWN};
+use crate::board::{Board, PIECE_PAWN, PIECE_ROOK};
 
 // Little endian rank file mapping
 pub const A_FILE: u64 = 0x0101010101010101;
@@ -178,6 +178,29 @@ impl Board {
         blocked_own_pawns = north_fill(blocked_own_pawns);
 
         self.piece_bitboards[1][PIECE_PAWN as usize] & !front_span & !blocked_own_pawns
+    }
+
+    /// Return value is (open files, half open files)
+    pub fn rooks_on_open_files(&self, white: bool) -> (i16, i16) {
+        let (side, other_side) = if white { (0, 1) } else { (1, 0) };
+        let mut open = 0;
+        let mut half_open = 0;
+
+        let mut rooks = self.piece_bitboards[side][PIECE_ROOK as usize];
+        while rooks != 0 {
+            let rook = BIT_SQUARES[bitscan_forward_and_reset(&mut rooks) as usize];
+            let file = north_fill(rook) | south_fill(rook);
+
+            if file & self.piece_bitboards[side][PIECE_PAWN as usize] == 0 {
+                if file & self.piece_bitboards[other_side][PIECE_PAWN as usize] == 0 {
+                    open += 1;
+                } else {
+                    half_open += 1;
+                }
+            }
+        }
+
+        (open, half_open)
     }
 }
 

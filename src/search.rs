@@ -1,7 +1,9 @@
 use std::{
     cmp::Reverse,
     collections::HashSet,
+    sync::mpsc::Receiver,
     time::{Duration, Instant},
+    u64,
 };
 
 use log::{debug, error};
@@ -13,7 +15,9 @@ use crate::{
     move_generator::{
         ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
     },
-    moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, Move, MoveRollback},
+    moves::{
+        MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
+    },
     repetition_tracker::RepetitionTracker,
     texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalParams},
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -32,19 +36,20 @@ const EMPTY_MOVE: Move = Move { data: 0 };
 
 #[derive(Default)]
 pub struct SearchStats {
-    pub quiescense_nodes: u64,
     pub depth: u8,
-    pub quiescense_cut_by_hopeless: u64,
-    pub leaf_nodes: u64,
+    pub total_nodes: u64,
     pub total_search_leaves: u64,
     pub pv: Vec<Move>,
+    pub aspiration_researches: u8,
 }
 
 #[derive(PartialEq, Eq)]
 enum SearchControl {
+    Unknown,
     Time,
     Depth,
     Infinite,
+    Nodes,
 }
 
 #[derive(Clone)]
@@ -67,6 +72,10 @@ pub struct Searcher<'a> {
     starting_halfmove: u8,
     cancel_search_at: Option<Instant>,
     end_search: bool,
+    starting_in_check: bool,
+    stop_rx: &'a Receiver<()>,
+    stop_received: bool,
+    max_nodes: u64,
 }
 
 impl<'a> Searcher<'a> {
@@ -74,8 +83,11 @@ impl<'a> Searcher<'a> {
         board: &'a mut Board,
         transposition_table: &'a mut TranspositionTable,
         history_table: &'a mut HistoryTable,
+        stop_rx: &'a Receiver<()>,
     ) -> Self {
         let starting_halfmove = board.halfmove_clock;
+
+        let starting_in_check = board.is_in_check(false);
 
         Self {
             board,
@@ -86,6 +98,10 @@ impl<'a> Searcher<'a> {
             starting_halfmove,
             cancel_search_at: None,
             end_search: false,
+            starting_in_check,
+            stop_rx,
+            stop_received: false,
+            max_nodes: u64::MAX,
         }
     }
 
@@ -96,9 +112,9 @@ impl<'a> Searcher<'a> {
     ) -> SearchResult {
         let start_time = Instant::now();
         let mut target_dur = None;
-        let search_control: SearchControl;
+        let mut search_control: SearchControl;
         let mut max_depth = 40;
-        let use_stricter_cutoff;
+        let use_stricter_time_cutoff;
 
         if let Some(t) = time {
             match t {
@@ -121,11 +137,11 @@ impl<'a> Searcher<'a> {
                     }
 
                     let divisor = if self.board.fullmove_counter < 15 {
-                        35
+                        25
                     } else if self.board.fullmove_counter < 25 {
-                        30
+                        20
                     } else {
-                        40
+                        30
                     };
 
                     let time_left = time_left.as_ref().unwrap().to_std().unwrap();
@@ -137,12 +153,12 @@ impl<'a> Searcher<'a> {
                         if time_left > inc.saturating_mul(2) {
                             target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
 
-                            use_stricter_cutoff = time_left < Duration::from_secs(1);
+                            use_stricter_time_cutoff = time_left < Duration::from_secs(1);
                         } else {
-                            use_stricter_cutoff = true;
+                            use_stricter_time_cutoff = true;
                         }
                     } else {
-                        use_stricter_cutoff = time_left < Duration::from_secs(5);
+                        use_stricter_time_cutoff = time_left < Duration::from_secs(5);
                     }
 
                     search_control = SearchControl::Time;
@@ -150,36 +166,49 @@ impl<'a> Searcher<'a> {
                 UciTimeControl::MoveTime(time_delta) => {
                     target_dur = Some(time_delta.to_std().unwrap());
                     search_control = SearchControl::Time;
-                    use_stricter_cutoff = true;
+                    use_stricter_time_cutoff = true;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
-                    // Need to copy 'stop' command functionality over from full-pv branch
                     search_control = SearchControl::Infinite;
-                    unimplemented!("uci go infinite");
+                    use_stricter_time_cutoff = false;
                 }
             }
-        } else if let Some(s) = search {
-            if s.depth.is_some() {
-                search_control = SearchControl::Depth;
-                max_depth = s.depth.unwrap();
-            } else {
-                error!("Unsupported search option passed to go, use depth.");
-                unimplemented!("Unsupported search option passed to go, use depth.");
-            }
-            use_stricter_cutoff = false;
         } else {
-            error!("One of search or time is required to be passed to go.");
-            panic!("One of search or time is required to be passed to go.");
+            search_control = SearchControl::Unknown;
+            use_stricter_time_cutoff = false;
+        }
+
+        if let Some(s) = search {
+            if s.depth.is_some() {
+                if search_control == SearchControl::Unknown {
+                    search_control = SearchControl::Depth;
+                }
+                max_depth = s.depth.unwrap();
+            } else if s.nodes.is_some() {
+                if search_control == SearchControl::Unknown {
+                    search_control = SearchControl::Nodes;
+                }
+                self.max_nodes = s.nodes.unwrap();
+            }
+        }
+
+        if search_control == SearchControl::Unknown {
+            error!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
+            panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
         }
 
         let cutoff;
         match target_dur {
             Some(d) => {
-                cutoff = Some(d.mul_f32(if use_stricter_cutoff { 0.3 } else { 0.5 }));
-                self.cancel_search_at = Some(start_time.checked_add(d.mul_f32(1.1)).unwrap());
+                cutoff = Some(d.mul_f32(if use_stricter_time_cutoff { 0.3 } else { 0.5 }));
+                self.cancel_search_at = Some(
+                    start_time
+                        .checked_add(d.mul_f32(if use_stricter_time_cutoff { 1.1 } else { 2.0 }))
+                        .unwrap(),
+                );
             }
             None => {
                 cutoff = None;
@@ -192,28 +221,37 @@ impl<'a> Searcher<'a> {
         loop {
             let result = self.alpha_beta_init(depth, latest_result.clone());
             if let Some(search_result) = result.search_result {
+                // Max nodes are infrequently checked in the search so do an additional check here
+                if self.stats.total_nodes >= self.max_nodes {
+                    return latest_result
+                        .expect("iterative_deepening_search exceeded max nodes before completing any searches");
+                }
+
                 let elapsed = start_time.elapsed();
 
                 self.gather_pv(&search_result.best_move);
                 UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
 
-                if search_control != SearchControl::Infinite
-                    && (result.end_search
-                        || search_result.eval.abs() >= MATE_THRESHOLD
-                        || depth >= max_depth
-                        || match search_control {
-                            SearchControl::Time => elapsed >= cutoff.unwrap(),
-                            SearchControl::Depth | SearchControl::Infinite => false,
-                        })
+                self.stats.aspiration_researches = 0;
+
+                if self.stop_received
+                    || (search_control != SearchControl::Infinite
+                        && (result.end_search
+                            || search_result.eval.abs() >= MATE_THRESHOLD
+                            || depth >= max_depth
+                            || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
                 {
                     return search_result;
                 }
 
                 latest_result = Some(search_result);
             } else {
-                debug!("Cancelled search of depth {depth} due to exceeding time budget");
+                if !self.stop_received {
+                    debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
+                }
+
                 return latest_result
-                    .expect("iterative_deepening_search exceeded cancel_search_time before completing any searches");
+                    .expect("iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches");
             }
 
             depth += 1;
@@ -222,7 +260,7 @@ impl<'a> Searcher<'a> {
 
     pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
         self.rollback = MoveRollback::default();
-        self.stats = SearchStats::default();
+        self.stats.pv.clear();
         self.stats.depth = draft;
         self.end_search = false;
 
@@ -246,7 +284,7 @@ impl<'a> Searcher<'a> {
         }
 
         let score = loop {
-            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers);
+            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers, self.starting_in_check, true);
 
             let score;
             if let Ok(e) = result {
@@ -262,6 +300,8 @@ impl<'a> Searcher<'a> {
             debug_assert!(self.rollback.is_empty());
 
             if score <= alpha {
+                self.stats.aspiration_researches += 1;
+
                 while score <= alpha {
                     alpha = alpha
                         .saturating_sub(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
@@ -269,6 +309,8 @@ impl<'a> Searcher<'a> {
                     alpha_window_index += 1;
                 }
             } else if score >= beta {
+                self.stats.aspiration_researches += 1;
+
                 while score >= beta {
                     beta = beta.saturating_add(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
                     beta_window_index += 1;
@@ -308,7 +350,11 @@ impl<'a> Searcher<'a> {
         mut draft: u8,
         ply: u8,
         killers: &mut [Move; 2],
+        in_check: bool,
+        can_null_move: bool,
     ) -> Result<i16, ()> {
+        self.stats.total_nodes += 1;
+
         if self.board.halfmove_clock >= 100
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
@@ -316,19 +362,25 @@ impl<'a> Searcher<'a> {
             return Ok(0);
         }
 
-        let in_check = self.board.is_in_check(false);
         if in_check {
             draft += 1;
         }
 
         if draft == 0 {
-            self.stats.leaf_nodes += 1;
             self.stats.total_search_leaves += 1;
 
-            if self.stats.total_search_leaves % 16384 == 16383
-                && self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
-            {
-                return Err(());
+            if self.stats.total_search_leaves % 16384 == 16383 {
+                let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
+                if stop_received
+                    || self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
+                    || self.stats.total_nodes >= self.max_nodes
+                {
+                    if stop_received {
+                        self.stop_received = stop_received;
+                    }
+
+                    return Err(());
+                }
             }
 
             return Ok(self
@@ -380,7 +432,8 @@ impl<'a> Searcher<'a> {
 
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
-        if ply > 0
+        if can_null_move
+            && !is_pv
             && beta < i16::MAX
             && draft > 4
             && !in_check
@@ -391,7 +444,18 @@ impl<'a> Searcher<'a> {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
 
-            let eval = -self.alpha_beta_recurse(-beta, -(beta - 1), draft - 3, ply + 1, &mut null_move_killers)?;
+            // Need to ensure draft >= 1
+            let reduction = 3 + draft / 6;
+
+            let eval = -self.alpha_beta_recurse(
+                -beta,
+                -(beta - 1),
+                draft - reduction,
+                ply + 1,
+                &mut null_move_killers,
+                false,
+                false,
+            )?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
@@ -400,8 +464,16 @@ impl<'a> Searcher<'a> {
             }
         }
 
+        let futility_prune = draft < 4
+            && !is_pv
+            && !in_check
+            && alpha.abs() < 2000
+            && beta.abs() < 2000
+            && (self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS) + 300 + 200 * (draft - 1) as i16) < alpha;
+
         let mut searched_quiet_moves = Vec::new();
         let mut searched_moves = 0;
+        let mut has_legal_move = false;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -438,6 +510,17 @@ impl<'a> Searcher<'a> {
                     continue;
                 }
 
+                has_legal_move = true;
+                let gives_check = self.board.is_in_check(false);
+                if futility_prune
+                    && searched_moves >= 1
+                    && !gives_check
+                    && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+                {
+                    self.board.unmake_move(&r#move.m, &mut self.rollback);
+                    continue;
+                }
+
                 let mut reduction = 0;
                 // Late move reduction
                 if draft > 2 && searched_moves > 3 {
@@ -464,12 +547,27 @@ impl<'a> Searcher<'a> {
                 let mut score;
                 if searched_moves == 0 || ply == 0 {
                     // Use reduction
-                    score =
-                        -self.alpha_beta_recurse(-beta, -alpha, draft - reduction - 1, ply + 1, &mut new_killers)?;
+                    score = -self.alpha_beta_recurse(
+                        -beta,
+                        -alpha,
+                        draft - reduction - 1,
+                        ply + 1,
+                        &mut new_killers,
+                        gives_check,
+                        can_null_move,
+                    )?;
 
                     if score > alpha && reduction > 0 {
                         // Do a full search
-                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
+                        score = -self.alpha_beta_recurse(
+                            -beta,
+                            -alpha,
+                            draft - 1,
+                            ply + 1,
+                            &mut new_killers,
+                            gives_check,
+                            can_null_move,
+                        )?;
                     }
                 } else {
                     // Use null window and reduction
@@ -479,16 +577,25 @@ impl<'a> Searcher<'a> {
                         draft - reduction - 1,
                         ply + 1,
                         &mut new_killers,
+                        gives_check,
+                        can_null_move,
                     )?;
 
                     if score > alpha {
                         // Do a full search
-                        score = -self.alpha_beta_recurse(-beta, -alpha, draft - 1, ply + 1, &mut new_killers)?;
+                        score = -self.alpha_beta_recurse(
+                            -beta,
+                            -alpha,
+                            draft - 1,
+                            ply + 1,
+                            &mut new_killers,
+                            gives_check,
+                            can_null_move,
+                        )?;
                     }
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
-                // Using this to track legal moves too so need to not continue before incrementing if the move is legal
                 searched_moves += 1;
 
                 if score >= beta {
@@ -563,7 +670,7 @@ impl<'a> Searcher<'a> {
         }
 
         // Assuming no bug with move generation...
-        if searched_moves == 0 {
+        if !has_legal_move {
             if ply == 0 {
                 error!(
                     "Tried to search on a position but found no moves. Position: {:#?}",

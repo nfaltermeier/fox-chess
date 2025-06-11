@@ -163,7 +163,8 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         info!("{}:", r#move.m.pretty_print(Some(&board)));
         board.make_move(&r#move.m, &mut rollback);
 
-        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history);
+        let (_, stop_rx) = mpsc::channel::<()>();
+        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history, &stop_rx);
 
         let mut result;
         if depth != 1 {
@@ -260,12 +261,12 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
 
 fn run_uci() {
     // 2^23 entries -> 128MiB
-    let mut uci = UciInterface::new(23);
-    let stdin_channel = spawn_stdin_channel();
+    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
+    let mut uci = UciInterface::new(23, stop_rx);
     loop {
-        match stdin_channel.try_recv() {
+        match message_rx.try_recv() {
             Ok(val) => {
-                uci.process_command(val.as_str());
+                uci.process_command(val);
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
@@ -275,19 +276,6 @@ fn run_uci() {
         }
         sleep(Duration::from_millis(50));
     }
-}
-
-// From https://stackoverflow.com/a/55201400
-fn spawn_stdin_channel() -> Receiver<String> {
-    let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || {
-        loop {
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer).unwrap();
-            tx.send(buffer).unwrap();
-        }
-    });
-    rx
 }
 
 fn hash_values_edit_distance() {

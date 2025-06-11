@@ -1,4 +1,5 @@
 use array_macro::array;
+use log::error;
 
 use crate::{
     bitboard::{LIGHT_SQUARES, north_fill, south_fill},
@@ -6,7 +7,10 @@ use crate::{
         Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
         PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
     },
-    texel::{EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EvalParams},
+    texel::{
+        EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX,
+        EP_ROOK_OPEN_FILE_IDX, EvalParams,
+    },
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -188,12 +192,14 @@ const ALL_PIECE_SQUARE_TABLES: [[i16; 64]; 12] = [
     KING_ENDGAME_SQUARE_TABLE,
 ];
 
-static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
+pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
     // vertically flip each table for white
     array![x => array![y => ALL_PIECE_SQUARE_TABLES[x][y ^ 0b00111000]; 64]; 12],
     // Evaluate from white's perspective so negate each score for black
     array![x => array![y => -ALL_PIECE_SQUARE_TABLES[x][y]; 64]; 12],
 ];
+
+static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
 // thread_local! {
 //     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
@@ -213,50 +219,33 @@ fn get_piece_square_value(params: &EvalParams, color: usize, piece_type: usize, 
 impl Board {
     pub fn evaluate(&self, params: &EvalParams) -> i16 {
         let mut material_score = 0;
-        let mut position_score_midgame = 0;
-        let mut position_score_endgame = 0;
         let mut game_stage = self.game_stage;
 
-        // Has an added file on each side to avoid bounds checks
-        let mut pawn_count = [[0_u8; 10]; 2];
-
-        // white then black
-        let mut piece_counts = [[0i8; 7]; 2];
+        let mut position_score_midgame = 0;
+        let mut position_score_endgame = 0;
         for i in 0..64 {
             let piece = self.get_piece_64(i);
             if piece != PIECE_NONE {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
                 let piece_type = (piece & PIECE_MASK) as usize;
-                piece_counts[color][piece_type] += 1;
 
                 position_score_midgame += get_piece_square_value(params, color, piece_type - 1, i);
                 position_score_endgame += get_piece_square_value(params, color, piece_type - 1 + 6, i);
-
-                if piece_type == PIECE_PAWN as usize {
-                    let file = file_8x8(i as u8) as usize;
-                    pawn_count[color][file + 1] += 1;
-                }
             }
         }
 
         for i in 1..7 {
-            material_score += params[EP_PIECE_VALUES_IDX + i] * (piece_counts[0][i] - piece_counts[1][i]) as i16;
+            material_score +=
+                params[EP_PIECE_VALUES_IDX + i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
         }
 
-        // positive value: black has more isolated pawns than white
-        let mut isolated_pawns = 0;
-        let mut doubled_pawns = 0;
-        for i in 1..9 {
-            isolated_pawns -= (pawn_count[0][i - 1] == 0 && pawn_count[0][i] != 0 && pawn_count[0][i + 1] == 0) as i16;
-            isolated_pawns += (pawn_count[1][i - 1] == 0 && pawn_count[1][i] != 0 && pawn_count[1][i + 1] == 0) as i16;
-            doubled_pawns -= (pawn_count[0][i] > 1) as i16;
-            doubled_pawns += (pawn_count[1][i] > 1) as i16;
-        }
+        let doubled_pawns = self.count_doubled_pawns();
 
         game_stage = (game_stage * 256 + (MAX_GAME_STAGE / 2)) / MAX_GAME_STAGE;
 
-        let position_score_final =
-            ((position_score_midgame * game_stage) + (position_score_endgame * (256 - game_stage))) / (256);
+        let position_score_final = ((position_score_midgame * game_stage)
+            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
+            / MIN_GAME_STAGE_FULLY_MIDGAME;
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
@@ -266,12 +255,15 @@ impl Board {
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
 
-        // Add a small variance to try to avoid repetition
-        // isolated_pawns * ISOLATED_PAWN_PENALTY.get()
+        let (w_open, w_half_open) = self.rooks_on_open_files(true);
+        let (b_open, b_half_open) = self.rooks_on_open_files(false);
+
         material_score
             + position_score_final
             + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX]
             + net_passed_pawns * params[EP_PASSED_PAWN_IDX]
+            + (w_open - b_open) * params[EP_ROOK_OPEN_FILE_IDX]
+            + (w_half_open - b_half_open) * params[EP_ROOK_HALF_OPEN_FILE_IDX]
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -320,6 +312,21 @@ impl Board {
         }
         false
     }
+
+    /// positive value: black has more doubled pawns than white
+    fn count_doubled_pawns(&self) -> i16 {
+        let mut pawn_occupied_files = [0, 0];
+        for color in 0..2 {
+            for file in FILES {
+                if self.piece_bitboards[color][PIECE_PAWN as usize] & file > 0 {
+                    pawn_occupied_files[color] += 1;
+                }
+            }
+        }
+
+        (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1])
+            - (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +334,22 @@ mod eval_tests {
     use crate::{STARTING_FEN, texel::DEFAULT_PARAMS};
 
     use super::*;
+
+    macro_rules! doubled_pawns_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    let board = Board::from_fen(input).unwrap();
+                    let doubled_pawns = board.count_doubled_pawns();
+
+                    assert_eq!(expected, doubled_pawns);
+                }
+            )*
+        }
+    }
 
     #[test]
     pub fn simplest_kings_mirrorred() {
@@ -357,5 +380,19 @@ mod eval_tests {
         let b = Board::from_fen(STARTING_FEN).unwrap();
 
         assert_eq!(0, b.evaluate(&DEFAULT_PARAMS));
+    }
+
+    doubled_pawns_test! {
+        starting_position: (STARTING_FEN, 0),
+        white_two_doubled: ("rnbqkbnr/pppppppp/8/8/8/1P4P1/PP1PP1PP/RNBQKBNR w KQkq - 0 1", -2),
+        black_two_doubled: ("rnbqkbnr/1ppp1ppp/1p5p/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
+        white_tripled: ("rnbqkbnr/pppppppp/8/8/3P4/3P4/PP1P1PPP/RNBQKBNR w KQkq - 0 1", -2),
+        black_tripled: ("rnbqkbnr/1ppp1ppp/1p6/1p6/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
+        white_only_single_pawn: ("1k6/8/8/8/8/8/4P3/4K3 w - - 0 1", 0),
+        white_only_doubled_pawn: ("1k6/8/8/8/8/4P3/4P3/4K3 w - - 0 1", -1),
+        black_only_single_pawn: ("1k6/1p6/8/8/8/8/8/4K3 w - - 0 1", 0),
+        black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
+        unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
+        unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
     }
 }

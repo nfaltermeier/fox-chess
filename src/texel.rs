@@ -21,11 +21,13 @@ pub struct TexelPosition {
     pub result: f32,
 }
 
-pub type EvalParams = [i16; 777];
+pub type EvalParams = [i16; 779];
 
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
 pub const EP_PASSED_PAWN_IDX: usize = 776;
+pub const EP_ROOK_OPEN_FILE_IDX: usize = 777;
+pub const EP_ROOK_HALF_OPEN_FILE_IDX: usize = 778;
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
@@ -126,7 +128,7 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -46,-9,0,20,10,13,-6,-23,
         -29,-62,-26,-27,-70,-8,-54,-68,
         0,81,309,338,501,1021,20000,14,
-        9,
+        9,12,6
     ];
 
 pub struct LoadPositionsResult {
