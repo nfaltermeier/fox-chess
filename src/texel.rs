@@ -10,7 +10,6 @@ use std::intrinsics::fadd_algebraic;
 
 use rayon::prelude::*;
 
-use crate::board::PIECE_ROOK;
 use crate::{
     STARTING_FEN,
     board::{Board, PIECE_KING},
@@ -285,31 +284,21 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         best_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
         println!("Starting new loop, new best error is {best_error:.8}");
 
-        for param_index in 0..=129 {
-            // // midgame pawns on first row
-            // if i < 8
-            //     // midgame pawns on last row
-            //     || (56..64).contains(&i)
-            //     // endgame pawns on first row
-            //     || (6 * 64..8 + 6 * 64).contains(&i)
-            //     // endgame pawns on last row
-            //     || (56 + 6 * 64..64 + 6 * 64).contains(&i)
-            //     // None piece centipawn value
-            //     || i == EP_PIECE_VALUES_IDX
-            //     // King centipawn value
-            //     || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
-            // {
-            //     continue;
-            // }
-            let i;
-            if param_index < 64 {
-                i = (PIECE_ROOK as usize - 1) * 64 + param_index;
-            } else if param_index < 128 {
-                i = (PIECE_ROOK as usize - 1 + 6) * 64 + param_index - 64;
-            } else if param_index == 128 {
-                i = EP_ROOK_OPEN_FILE_IDX;
-            } else {
-                i = EP_ROOK_HALF_OPEN_FILE_IDX;
+        for i in 0..params.len() {
+            // midgame pawns on first row
+            if i < 8
+                // midgame pawns on last row
+                || (56..64).contains(&i)
+                // endgame pawns on first row
+                || (6 * 64..8 + 6 * 64).contains(&i)
+                // endgame pawns on last row
+                || (56 + 6 * 64..64 + 6 * 64).contains(&i)
+                // None piece centipawn value
+                || i == EP_PIECE_VALUES_IDX
+                // King centipawn value
+                || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
+            {
+                continue;
             }
 
             params[i] += 1;
