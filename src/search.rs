@@ -729,7 +729,16 @@ impl Board {
         }
 
         if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-            && stand_pat + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] + 100 < alpha
+            && stand_pat
+                + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize]
+                + 100
+                // maybe this shouldn't include quiet promotions because those would already be covered under the standard margin
+                + if self.can_probably_promote() {
+                    params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] - 100
+                } else {
+                    0
+                }
+                < alpha
         {
             return (stand_pat, self.clone());
         }
@@ -741,7 +750,7 @@ impl Board {
         let mut best_value = stand_pat;
         let mut best_position = None;
 
-        let mut moves = self.generate_pseudo_legal_capture_moves();
+        let mut moves = self.generate_pseudo_legal_captures_and_queen_promos(&DEFAULT_HISTORY_TABLE);
 
         moves.sort_unstable_by_key(|m| Reverse(m.score));
 

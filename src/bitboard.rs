@@ -202,12 +202,34 @@ impl Board {
 
         (open, half_open)
     }
+
+    pub fn can_probably_promote(&self) -> bool {
+        if self.white_to_move {
+            let ready_pawns = self.piece_bitboards[0][PIECE_PAWN as usize] & RANK_7;
+
+            if ready_pawns == 0 {
+                return false;
+            }
+
+            north_one(ready_pawns) & !self.occupancy != 0
+                || (north_east_one(ready_pawns) | north_west_one(ready_pawns)) & self.side_occupancy[1] != 0
+        } else {
+            let ready_pawns = self.piece_bitboards[1][PIECE_PAWN as usize] & RANK_2;
+
+            if ready_pawns == 0 {
+                return false;
+            }
+
+            south_one(ready_pawns) & !self.occupancy != 0
+                || (south_east_one(ready_pawns) | south_west_one(ready_pawns)) & self.side_occupancy[0] != 0
+        }
+    }
 }
 
 #[cfg(test)]
 mod bitboard_tests {
 
-    use crate::board::Board;
+    use crate::{STARTING_FEN, board::Board};
 
     #[test]
     pub fn basic_passed_pawns() {
@@ -223,5 +245,34 @@ mod bitboard_tests {
 
         assert_eq!(1, board.white_passed_pawns().count_ones());
         assert_eq!(1, board.black_passed_pawns().count_ones());
+    }
+
+    macro_rules! probably_promote_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    let board = Board::from_fen(input).unwrap();
+
+                    assert_eq!(expected, board.can_probably_promote());
+                }
+            )*
+        }
+    }
+
+    probably_promote_test! {
+        starting_position: (STARTING_FEN, false),
+        white_open: ("k7/4P3/K7/8/8/8/8/8 w - - 0 1", true),
+        black_open: ("k7/8/K7/8/8/8/4p3/8 b - - 0 1", true),
+        black_sw: ("k7/8/K7/8/8/8/4p3/3R4 b - - 0 1", true),
+        black_se: ("k7/8/K7/8/8/8/4p3/5R2 b - - 0 1", true),
+        white_sw: ("k2r4/4P3/K7/8/8/8/8/8 w - - 0 1", true),
+        white_se: ("k4r2/4P3/K7/8/8/8/8/8 w - - 0 1", true),
+        white_self_blocked: ("k3B3/4P3/K7/8/8/8/8/8 w - - 0 1", false),
+        white_opponent_blocked: ("4k3/4P3/3K4/8/8/8/8/8 w - - 0 1", false),
+        black_self_blocked: ("8/8/K5k1/8/8/8/4p3/4r3 w - - 0 1", false),
+        black_opponent_blocked: ("8/8/8/8/8/3k4/4p3/4K3 b - - 0 1", false),
     }
 }
