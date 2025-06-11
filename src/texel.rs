@@ -284,21 +284,29 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         best_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
         println!("Starting new loop, new best error is {best_error:.8}");
 
-        for i in 0..params.len() {
-            // midgame pawns on first row
-            if i < 8
-                // midgame pawns on last row
-                || (56..64).contains(&i)
-                // endgame pawns on first row
-                || (6 * 64..8 + 6 * 64).contains(&i)
-                // endgame pawns on last row
-                || (56 + 6 * 64..64 + 6 * 64).contains(&i)
-                // None piece centipawn value
-                || i == EP_PIECE_VALUES_IDX
-                // King centipawn value
-                || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
-            {
-                continue;
+        for mut i in 0..=98 {
+            // // midgame pawns on first row
+            // if i < 8
+            //     // midgame pawns on last row
+            //     || (i >= 56 && i < 64)
+            //     // endgame pawns on first row
+            //     || (i >= 6 * 64 && i < 8 + 6 * 64)
+            //     // endgame pawns on last row
+            //     || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
+            //     // None piece centipawn value
+            //     || i == EP_PIECE_VALUES_IDX
+            //     // King centipawn value
+            //     || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
+            // {
+            //     continue;
+            // }
+
+            if i == 98 {
+                i = EP_PASSED_PAWN_IDX;
+            } else if i == 97 {
+                i = EP_DOUBLED_PAWNS_IDX;
+            } else if i >= 48 {
+                i += 8 + 6 * 64 - 48;
             }
 
             params[i] += 1;
