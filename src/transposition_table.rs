@@ -1,4 +1,5 @@
 use log::error;
+use serde::{Deserialize, Serialize};
 
 use crate::{evaluate::MATE_THRESHOLD, moves::Move};
 
@@ -26,13 +27,13 @@ impl From<u8> for MoveType {
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize)]
 pub struct TwoTierEntry {
     pub always_replace: TTEntry,
     pub depth_first: TTEntry,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
@@ -119,6 +120,7 @@ impl Default for TTEntry {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct TranspositionTable {
     main_table: Vec<TwoTierEntry>,
     quiescense_table: Vec<TwoTierEntry>,
