@@ -2,10 +2,9 @@ use array_macro::array;
 use log::error;
 
 use crate::{
-    bitboard::{LIGHT_SQUARES, north_fill, south_fill},
+    bitboard::{north_fill, south_fill, LIGHT_SQUARES},
     board::{
-        Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
-        PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
+        file_8x8, rank_8x8, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
     },
 };
 
@@ -314,9 +313,8 @@ impl Board {
         let white_target_square_idx = file_8x8(white_pawn_idx) + 56;
         let black_target_square_idx = file_8x8(black_pawn_idx);
 
-        // TODO: idk the actual distance calculation
-        let mut white_dist = white_pawn_idx - white_target_square_idx;
-        let mut black_dist = black_pawn_idx - black_target_square_idx;
+        let mut white_dist = 8 - rank_8x8(white_pawn_idx);
+        let mut black_dist = rank_8x8(black_pawn_idx) - 1;
 
         // TODO: Check will it be a problem if the tempo bonus is given here and in the rule of the square?
         if self.white_to_move {
