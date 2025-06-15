@@ -1,3 +1,4 @@
+use core::assert_ne;
 use std::{
     cmp::Reverse,
     io,
@@ -16,6 +17,11 @@ use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
+
+use crate::{
+    board::{PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    evaluate::GAME_STAGE_VALUES,
+};
 
 mod bitboard;
 mod board;
@@ -52,6 +58,14 @@ fn main() {
     if ENABLE_UNMAKE_MOVE_TEST {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
+
+    // Some logic depends on pawns and kings not contributing to game stage
+    assert_eq!(0, GAME_STAGE_VALUES[PIECE_PAWN as usize]);
+    assert_ne!(0, GAME_STAGE_VALUES[PIECE_KNIGHT as usize]);
+    assert_ne!(0, GAME_STAGE_VALUES[PIECE_BISHOP as usize]);
+    assert_ne!(0, GAME_STAGE_VALUES[PIECE_ROOK as usize]);
+    assert_ne!(0, GAME_STAGE_VALUES[PIECE_QUEEN as usize]);
+    assert_eq!(0, GAME_STAGE_VALUES[PIECE_KING as usize]);
 
     run_uci();
 

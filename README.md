@@ -46,8 +46,8 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
     - [ ] [Pawn chains](https://www.chessprogramming.org/Connected_Pawns)
     - [ ] [Passed pawns](https://www.chessprogramming.org/Passed_Pawn)
       - [x] In general
-      - [ ] Pawn Race
-      - [ ] Rule of the Square
+      - [x] Pawn Race
+      - [x] Rule of the Square
       - [ ] Connected Passed Pawns
 - [x] [Use bitboards to improve move generation](https://www.chessprogramming.org/Bitboards)
   - [x] Use pext when available instead of magic numbers for rook and bishop attacks

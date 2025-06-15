@@ -232,7 +232,16 @@ impl Board {
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
-        material_score + position_score_final + doubled_pawns * 22 + net_passed_pawns * 10 + (w_open - b_open) * 18 + (w_half_open - b_half_open) * 17
+        // This should mean only pawns and kings are left
+        let pawn_race_bonus = if self.game_stage == 0 { self.pawn_race() } else { 0 };
+
+        material_score
+            + position_score_final
+            + doubled_pawns * 22
+            + net_passed_pawns * 10
+            + (w_open - b_open) * 18
+            + (w_half_open - b_half_open) * 17
+            + pawn_race_bonus
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -296,6 +305,56 @@ impl Board {
         (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1])
             - (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
     }
+
+    pub fn pawn_race(&self) -> i16 {
+        // TODO: value will be 64 if no pawn. This probably need to be updated to check only passed pawns.
+        let white_pawn_idx = self.piece_bitboards[0][PIECE_PAWN as usize].leading_zeros() as u8;
+        let black_pawn_idx = self.piece_bitboards[1][PIECE_PAWN as usize].trailing_zeros() as u8;
+
+        let white_target_square_idx = file_8x8(white_pawn_idx) + 56;
+        let black_target_square_idx = file_8x8(black_pawn_idx);
+
+        // TODO: idk the actual distance calculation
+        let mut white_dist = white_pawn_idx - white_target_square_idx;
+        let mut black_dist = black_pawn_idx - black_target_square_idx;
+
+        // TODO: Check will it be a problem if the tempo bonus is given here and in the rule of the square?
+        if self.white_to_move {
+            white_dist -= 1;
+        } else {
+            black_dist -= 1;
+        }
+
+        let white_rule_of_square = self.rule_of_the_square(white_target_square_idx, white_dist, 1);
+        let black_rule_of_square = self.rule_of_the_square(black_target_square_idx, black_dist, 0);
+
+        if !white_rule_of_square && !black_rule_of_square {
+            return 0;
+        } else if white_rule_of_square && black_rule_of_square {
+            return (black_dist as i16 - white_dist as i16).signum() * 300;
+        } else if white_rule_of_square {
+            return 300;
+        } else {
+            return -300;
+        }
+    }
+
+    pub fn rule_of_the_square(&self, target_square_idx: u8, mut pawn_dist: u8, other_color: usize) -> bool {
+        let king_idx = self.piece_bitboards[other_color][PIECE_KING as usize].trailing_zeros();
+
+        // TODO: idk the actual distance calculation
+        let mut king_dist = king_idx as u8 - target_square_idx;
+
+        // Assume the current move is used to advance the piece
+        if self.white_to_move && other_color == 1 {
+            pawn_dist -= 1;
+        } else {
+            king_dist -= 1;
+        }
+
+        // TODO: if this is exactly right either
+        pawn_dist < king_dist
+    }
 }
 
 #[cfg(test)]
@@ -318,6 +377,32 @@ mod eval_tests {
                 }
             )*
         }
+    }
+
+    macro_rules! pawn_race_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    let board = Board::from_fen(input).unwrap();
+                    let pawn_race_bonus = board.pawn_race();
+
+                    assert_eq!(i16::signum(expected), pawn_race_bonus.signum());
+                }
+            )*
+        }
+    }
+
+    #[test]
+    pub fn game_stage_values() {
+        assert_eq!(0, GAME_STAGE_VALUES[PIECE_PAWN as usize]);
+        assert_ne!(0, GAME_STAGE_VALUES[PIECE_KNIGHT as usize]);
+        assert_ne!(0, GAME_STAGE_VALUES[PIECE_BISHOP as usize]);
+        assert_ne!(0, GAME_STAGE_VALUES[PIECE_ROOK as usize]);
+        assert_ne!(0, GAME_STAGE_VALUES[PIECE_QUEEN as usize]);
+        assert_eq!(0, GAME_STAGE_VALUES[PIECE_KING as usize]);
     }
 
     #[test]
@@ -357,5 +442,11 @@ mod eval_tests {
         black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
         unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
         unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
+    }
+
+    pawn_race_test! {
+        no_pawns: ("1k6/8/8/8/8/8/8/4K3 w - - 0 1", 0),
+        white_only_unblocked: ("1k6/7P/8/8/8/8/8/4K3 w - - 0 1", 1),
+        black_only_unblocked: ("1k6/8/8/8/8/8/p7/4K3 w - - 0 1", -1),
     }
 }
