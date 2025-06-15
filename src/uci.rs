@@ -224,7 +224,7 @@ impl UciInterface {
                     } else if message == "load-state" {
                         if let Some(b) = &self.board {
                             let fen = b.to_fen().replace("/", "_");
-                            debug!("{}", fen);
+                            debug!("Loading state for fen {}... May take a couple of minutes.", fen);
                             let tt_file = File::open(format!("save-states/{fen}-tt.mp")).unwrap();
                             let history_file = File::open(format!("save-states/{fen}-history.mp")).unwrap();
 
