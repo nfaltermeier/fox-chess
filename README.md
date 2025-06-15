@@ -53,8 +53,8 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
   - [x] Use pext when available instead of magic numbers for rook and bishop attacks
 - [ ] Opening book
 - [ ] Endgame tablebase
-- [ ] [Contempt factor](https://www.chessprogramming.org/Contempt_Factor)
-  - [ ] Judge the opponent's moves based on our PV and how they change the eval like described in [this thread](https://www.talkchess.com/forum/viewtopic.php?p=531133#p531133)
+- [X] [Contempt factor](https://www.chessprogramming.org/Contempt_Factor)
+  - [X] Judge the opponent's moves based on our PV and how they change the eval like described in [this thread](https://www.talkchess.com/forum/viewtopic.php?p=531133#p531133)
 - [x] Redo mate scoring so at mate it returns the full 20000cp and then lower it as it walks up the tree. That way each node in tt will have the proper score.
 - [x] Redo something about evaluation so it reports 0 as the eval for forced draws
 - [x] Stop search if it is taking way too long - needs threading?

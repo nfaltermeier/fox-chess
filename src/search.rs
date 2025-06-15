@@ -55,6 +55,7 @@ enum SearchControl {
 pub struct SearchResult {
     pub best_move: Move,
     pub eval: i16,
+    pub depth: u8,
 }
 
 pub struct AlphaBetaResult {
@@ -75,6 +76,7 @@ pub struct Searcher<'a> {
     stop_rx: &'a Receiver<()>,
     stop_received: bool,
     max_nodes: u64,
+    contempt: i16,
 }
 
 impl<'a> Searcher<'a> {
@@ -83,6 +85,7 @@ impl<'a> Searcher<'a> {
         transposition_table: &'a mut TranspositionTable,
         history_table: &'a mut HistoryTable,
         stop_rx: &'a Receiver<()>,
+        contempt: i16,
     ) -> Self {
         let starting_halfmove = board.halfmove_clock;
 
@@ -101,6 +104,7 @@ impl<'a> Searcher<'a> {
             stop_rx,
             stop_received: false,
             max_nodes: u64::MAX,
+            contempt,
         }
     }
 
@@ -337,6 +341,7 @@ impl<'a> Searcher<'a> {
             search_result: Some(SearchResult {
                 best_move: best_move.important_move,
                 eval: score,
+                depth: draft,
             }),
             end_search: self.end_search,
         }
@@ -358,7 +363,7 @@ impl<'a> Searcher<'a> {
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
-            return Ok(0);
+            return Ok(self.contempt);
         }
 
         if in_check {
@@ -676,7 +681,7 @@ impl<'a> Searcher<'a> {
             } else if in_check {
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
-                return Ok(0);
+                return Ok(self.contempt);
             }
         } else if searched_moves == 1 && ply == 0 {
             self.end_search = true;
@@ -708,7 +713,7 @@ impl<'a> Searcher<'a> {
         self.stats.total_nodes += 1;
 
         if self.board.is_insufficient_material() {
-            return 0;
+            return self.contempt;
         }
 
         let mut moves;

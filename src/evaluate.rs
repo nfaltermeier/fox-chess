@@ -232,7 +232,12 @@ impl Board {
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
-        material_score + position_score_final + doubled_pawns * 22 + net_passed_pawns * 10 + (w_open - b_open) * 18 + (w_half_open - b_half_open) * 17
+        material_score
+            + position_score_final
+            + doubled_pawns * 22
+            + net_passed_pawns * 10
+            + (w_open - b_open) * 18
+            + (w_half_open - b_half_open) * 17
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {

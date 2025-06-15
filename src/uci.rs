@@ -1,3 +1,4 @@
+use core::{cmp::Ord, option::Option::None};
 use std::{
     io,
     process::exit,
@@ -15,8 +16,8 @@ use crate::{
     STARTING_FEN,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, find_and_run_moves},
-    search::{HistoryTable, SearchStats, Searcher},
+    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
+    search::{HistoryTable, SearchResult, SearchStats, Searcher},
     transposition_table::TranspositionTable,
 };
 
@@ -25,6 +26,9 @@ pub struct UciInterface {
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
+    second_last_move: Option<Move>,
+    last_result: Option<SearchResult>,
+    contempt: i16,
 }
 
 build_info!(fn get_build_info);
@@ -36,6 +40,9 @@ impl UciInterface {
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
+            second_last_move: None,
+            last_result: None,
+            contempt: 0,
         }
     }
 
@@ -113,7 +120,7 @@ impl UciInterface {
                             (from, to, promo)
                         });
 
-                        find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
+                        self.second_last_move = find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect());
                     }
                     let duration = start.elapsed();
                     debug!("Position with {} moves took {duration:#?} to calculate", moves.len());
@@ -133,6 +140,7 @@ impl UciInterface {
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
+                            self.contempt,
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -144,6 +152,19 @@ impl UciInterface {
                             self.transposition_table.index_collisions
                         );
                         self.transposition_table.index_collisions = 0;
+
+                        if search_result.depth != 1 {
+                            if let Some(last_eval) = &self.last_result {
+                                if let Some(second_last_move) = self.second_last_move {
+                                    if last_eval.depth != 1 && last_eval.best_move == second_last_move {
+                                        self.contempt -= (search_result.eval - last_eval.eval) / 10;
+                                        self.contempt = self.contempt.clamp(-100, 100);
+                                    }
+                                }
+                            }
+                        }
+
+                        self.last_result = Some(search_result);
                     } else {
                         error!("Board must be set with position first");
                     }

@@ -594,8 +594,10 @@ pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<Score
     result
 }
 
-pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
+/// Returns the second to last move applied
+pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) -> Option<Move> {
     let mut rollback = MoveRollback::default();
+    let mut second_last_move = None;
 
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = board.generate_pseudo_legal_moves_without_history();
@@ -646,7 +648,13 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             error!("{:#?}", board);
             panic!("Requested move is pseudo legal but not legal");
         }
+
+        if indices.len() > 1 && i == indices.len() - 2 {
+            second_last_move = Some(gen_move.m);
+        }
     }
+
+    second_last_move
 }
 
 #[inline]

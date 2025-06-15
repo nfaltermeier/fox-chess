@@ -147,7 +147,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         board.make_move(&r#move.m, &mut rollback);
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history, &stop_rx);
+        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history, &stop_rx, 0);
 
         let mut result;
         if depth != 1 {
@@ -161,6 +161,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
                 best_move: r#move.m,
                 eval: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255)
                     * if board.white_to_move { 1 } else { -1 },
+                depth,
             };
         }
 
