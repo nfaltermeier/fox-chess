@@ -1,4 +1,4 @@
-use core::{cmp::Ord, option::Option::None};
+use core::{cmp::Ord, num, option::Option::None};
 use std::{
     io,
     process::exit,
@@ -145,7 +145,11 @@ impl UciInterface {
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
 
-                        println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
+                        println!(
+                            "bestmove {} contempt {}",
+                            search_result.best_move.simple_long_algebraic_notation(),
+                            self.contempt
+                        );
 
                         debug!(
                             "transposition_table index collisions {}",
@@ -157,7 +161,14 @@ impl UciInterface {
                             if let Some(last_eval) = &self.last_result {
                                 if let Some(second_last_move) = self.second_last_move {
                                     if last_eval.depth != 1 && last_eval.best_move == second_last_move {
-                                        self.contempt -= (search_result.eval - last_eval.eval) / 10;
+                                        let delta = search_result.eval - last_eval.eval;
+                                        let numerator =
+                                            if self.contempt == 0 || delta.signum() == self.contempt.signum() {
+                                                10
+                                            } else {
+                                                9
+                                            };
+                                        self.contempt -= delta.clamp(-3000, 3000) * numerator / 100;
                                         self.contempt = self.contempt.clamp(-100, 100);
                                     }
                                 }
