@@ -62,7 +62,7 @@ To build a portable executable, specify an appropriate target cpu with `-Ctarget
   - Need to be careful around draws. I think I need to not apply randomness in range of a draw.
 - [x] Delay move legality check until move is searched. Move ordering will take longer but will remove a make + unmake for every move
 - [ ] Adjust move history immediately after searching it instead of storing a list to wait for a fail high
-- [ ] Reserve space for moves during move generation
+- [x] Avoid allocating memory during move generation
 - [x] Try unstable sorting moves
 - [x] Maybe done? Check for threefold repetition before using best move from tt at root
 - [x] Skip rechecking the hash move in quiescense search

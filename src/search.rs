@@ -7,13 +7,15 @@ use std::{
 };
 
 use log::{debug, error};
+use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{
-        ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
+        ENABLE_UNMAKE_MOVE_TEST, MOVE_ARRAY_SIZE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
+        ScoredMove,
     },
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
@@ -391,7 +393,7 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
 
-        let mut moves;
+        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
             .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
@@ -418,12 +420,12 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves = Vec::from([ScoredMove {
+            moves = tiny_vec!(ScoredMove {
                 m: tt_data.important_move,
                 score: 1,
-            }]);
+            });
         } else {
-            moves = Vec::new();
+            moves = tiny_vec!();
         }
 
         // Null move pruning
@@ -711,7 +713,7 @@ impl<'a> Searcher<'a> {
             return 0;
         }
 
-        let mut moves;
+        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry =
             self.transposition_table
                 .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
@@ -734,12 +736,12 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves = Vec::from([ScoredMove {
+            moves = tiny_vec!(ScoredMove {
                 m: tt_data.important_move,
                 score: 1,
-            }]);
+            });
         } else {
-            moves = Vec::new();
+            moves = tiny_vec!();
         }
 
         let stand_pat = self.board.evaluate_side_to_move_relative();
