@@ -225,7 +225,7 @@ impl UciInterface {
 
         let nps = stats.total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} str aspiration_researches {} old_pv {}",
+            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} str aspiration_researches {}",
             stats.total_nodes,
             stats.depth,
             nps,
@@ -236,12 +236,6 @@ impl UciInterface {
                 .collect::<Vec<String>>()
                 .join(" "),
             stats.aspiration_researches,
-            stats
-                .pv
-                .iter()
-                .map(|m| m.simple_long_algebraic_notation())
-                .collect::<Vec<String>>()
-                .join(" "),
         );
     }
 
