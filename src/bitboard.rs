@@ -1,6 +1,9 @@
 use array_macro::array;
 
-use crate::board::{Board, PIECE_PAWN, PIECE_ROOK};
+use crate::{
+    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+};
 
 // Little endian rank file mapping
 pub const A_FILE: u64 = 0x0101010101010101;
@@ -201,6 +204,38 @@ impl Board {
         }
 
         (open, half_open)
+    }
+
+    /// Assumes the color opposite of self.white_to_move is the one taking the pawn en passant
+    pub fn can_en_passant(&self, ep_index: u8, pawn_being_taken_idx: usize) -> bool {
+        let color_taking_pawn = if self.white_to_move { 1 } else { 0 };
+        let color_pawn_being_taken = if self.white_to_move { 0 } else { 1 };
+
+        let mut potential_pawns = lookup_pawn_attack(ep_index, self.white_to_move)
+            & self.piece_bitboards[color_taking_pawn][PIECE_PAWN as usize];
+        if potential_pawns == 0 {
+            return false;
+        }
+
+        let king_idx = self.piece_bitboards[color_taking_pawn][PIECE_KING as usize].trailing_zeros() as u8;
+        let half_updated_occ = (self.occupancy & !BIT_SQUARES[pawn_being_taken_idx]) | BIT_SQUARES[ep_index as usize];
+        let rook_like = self.piece_bitboards[color_pawn_being_taken][PIECE_QUEEN as usize]
+            | self.piece_bitboards[color_pawn_being_taken][PIECE_ROOK as usize];
+        let bishop_like = self.piece_bitboards[color_pawn_being_taken][PIECE_QUEEN as usize]
+            | self.piece_bitboards[color_pawn_being_taken][PIECE_BISHOP as usize];
+
+        while potential_pawns != 0 {
+            let pawn_idx = bitscan_forward_and_reset(&mut potential_pawns);
+            let updated_occ = half_updated_occ & !BIT_SQUARES[pawn_idx as usize];
+
+            if lookup_rook_attack(king_idx, updated_occ) & rook_like == 0
+                && lookup_bishop_attack(king_idx, updated_occ) & bishop_like == 0
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 
