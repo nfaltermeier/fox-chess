@@ -3,6 +3,7 @@ use regex::Regex;
 
 use crate::{
     STARTING_FEN,
+    bitboard::lookup_pawn_attack,
     board::{
         Board, COLOR_BLACK, CastlingValue, HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
         HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value,
@@ -266,6 +267,7 @@ impl Board {
         if self.en_passant_target_square_index.is_some() {
             let file = file_8x8(self.en_passant_target_square_index.unwrap());
             self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+            self.en_passant_target_square_index = None;
         }
 
         let double_pawn_push = flags == MOVE_DOUBLE_PAWN;
@@ -273,11 +275,13 @@ impl Board {
             let ep_index = from
                 .checked_add_signed(if self.white_to_move { 8 } else { -8 })
                 .unwrap() as u8;
-            let file = file_8x8(ep_index);
-            self.en_passant_target_square_index = Some(ep_index);
-            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
-        } else {
-            self.en_passant_target_square_index = None;
+
+            // Check if en passant will be a pseudolegal move before setting the ep square and changing the zobrist hash
+            if self.can_en_passant(ep_index, to) {
+                let file = file_8x8(ep_index);
+                self.en_passant_target_square_index = Some(ep_index);
+                self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+            }
         }
 
         if self.castling_rights != 0 {
