@@ -365,6 +365,7 @@ impl<'a> Searcher<'a> {
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
+            parent_pv.clear();
             return Ok(0);
         }
 
@@ -694,8 +695,10 @@ impl<'a> Searcher<'a> {
                 );
                 panic!("Found no legal moves from the root of the search")
             } else if in_check {
+                parent_pv.clear();
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
+                parent_pv.clear();
                 return Ok(0);
             }
         } else if searched_moves == 1 && ply == 0 {
