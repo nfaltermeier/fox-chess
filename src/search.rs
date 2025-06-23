@@ -389,6 +389,8 @@ impl<'a> Searcher<'a> {
                 }
             }
 
+            parent_pv.clear();
+
             return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
         }
 
