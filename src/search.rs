@@ -7,7 +7,7 @@ use std::{
 };
 
 use log::{debug, error};
-use tinyvec::{TinyVec, tiny_vec};
+use tinyvec::{ArrayVec, TinyVec, array_vec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
@@ -62,6 +62,7 @@ pub struct SearchResult {
 pub struct AlphaBetaResult {
     pub search_result: Option<SearchResult>,
     pub end_search: bool,
+    pub pv: TinyVec<[Move; 32]>,
 }
 
 pub struct Searcher<'a> {
@@ -231,7 +232,7 @@ impl<'a> Searcher<'a> {
                 let elapsed = start_time.elapsed();
 
                 self.gather_pv(&search_result.best_move);
-                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
+                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed, &result.pv);
 
                 self.stats.aspiration_researches = 0;
 
@@ -284,8 +285,19 @@ impl<'a> Searcher<'a> {
             beta_window_index = 1;
         }
 
+        let mut pv = tiny_vec!();
+
         let score = loop {
-            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers, self.starting_in_check, true);
+            let result = self.alpha_beta_recurse(
+                alpha,
+                beta,
+                draft,
+                0,
+                &mut killers,
+                self.starting_in_check,
+                true,
+                &mut pv,
+            );
 
             let score;
             if let Ok(e) = result {
@@ -295,6 +307,7 @@ impl<'a> Searcher<'a> {
                 return AlphaBetaResult {
                     search_result: None,
                     end_search: true,
+                    pv,
                 };
             }
 
@@ -341,6 +354,7 @@ impl<'a> Searcher<'a> {
                 eval: score,
             }),
             end_search: self.end_search,
+            pv,
         }
     }
 
@@ -353,6 +367,7 @@ impl<'a> Searcher<'a> {
         killers: &mut [Move; 2],
         in_check: bool,
         can_null_move: bool,
+        parent_pv: &mut TinyVec<[Move; 32]>,
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
 
@@ -428,6 +443,8 @@ impl<'a> Searcher<'a> {
             moves = tiny_vec!();
         }
 
+        let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
+
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
         if can_null_move
@@ -453,6 +470,7 @@ impl<'a> Searcher<'a> {
                 &mut null_move_killers,
                 false,
                 false,
+                &mut pv,
             )?;
 
             self.board.unmake_null_move(&mut self.rollback);
@@ -553,6 +571,7 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                         gives_check,
                         can_null_move,
+                        &mut pv,
                     )?;
 
                     if score > alpha && reduction > 0 {
@@ -565,6 +584,7 @@ impl<'a> Searcher<'a> {
                             &mut new_killers,
                             gives_check,
                             can_null_move,
+                            &mut pv,
                         )?;
                     }
                 } else {
@@ -577,6 +597,7 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                         gives_check,
                         can_null_move,
+                        &mut pv,
                     )?;
 
                     if score > alpha {
@@ -589,6 +610,7 @@ impl<'a> Searcher<'a> {
                             &mut new_killers,
                             gives_check,
                             can_null_move,
+                            &mut pv,
                         )?;
                     }
                 }
@@ -626,6 +648,11 @@ impl<'a> Searcher<'a> {
                     best_move = Some(r#move.m);
                     if score > alpha {
                         alpha = score;
+
+                        if is_pv {
+                            *parent_pv = pv.clone();
+                            parent_pv.push(r#move.m);
+                        }
                     }
                 }
 
