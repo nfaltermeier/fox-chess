@@ -9,13 +9,14 @@ use std::{
 use build_info::VersionControl::Git;
 use build_info::build_info;
 use log::{debug, error, trace};
+use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
     STARTING_FEN,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, find_and_run_moves},
+    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
 };
@@ -212,7 +213,7 @@ impl UciInterface {
         }
     }
 
-    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
+    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &TinyVec<[Move; 32]>) {
         let abs_cp = eval.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
@@ -229,9 +230,8 @@ impl UciInterface {
             stats.depth,
             nps,
             elapsed.as_millis(),
-            stats
-                .pv
-                .iter()
+            pv.iter()
+                .rev()
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),

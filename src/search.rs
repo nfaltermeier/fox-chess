@@ -7,7 +7,7 @@ use std::{
 };
 
 use log::{debug, error};
-use tinyvec::{TinyVec, tiny_vec};
+use tinyvec::{ArrayVec, TinyVec, array_vec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
@@ -40,7 +40,6 @@ pub struct SearchStats {
     pub depth: u8,
     pub total_nodes: u64,
     pub total_search_leaves: u64,
-    pub pv: Vec<Move>,
     pub aspiration_researches: u8,
 }
 
@@ -62,6 +61,7 @@ pub struct SearchResult {
 pub struct AlphaBetaResult {
     pub search_result: Option<SearchResult>,
     pub end_search: bool,
+    pub pv: TinyVec<[Move; 32]>,
 }
 
 pub struct Searcher<'a> {
@@ -230,8 +230,7 @@ impl<'a> Searcher<'a> {
 
                 let elapsed = start_time.elapsed();
 
-                self.gather_pv(&search_result.best_move);
-                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
+                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed, &result.pv);
 
                 self.stats.aspiration_researches = 0;
 
@@ -261,7 +260,6 @@ impl<'a> Searcher<'a> {
 
     pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
         self.rollback = MoveRollback::default();
-        self.stats.pv.clear();
         self.stats.depth = draft;
         self.end_search = false;
 
@@ -284,8 +282,19 @@ impl<'a> Searcher<'a> {
             beta_window_index = 1;
         }
 
+        let mut pv = tiny_vec!();
+
         let score = loop {
-            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers, self.starting_in_check, true);
+            let result = self.alpha_beta_recurse(
+                alpha,
+                beta,
+                draft,
+                0,
+                &mut killers,
+                self.starting_in_check,
+                true,
+                &mut pv,
+            );
 
             let score;
             if let Ok(e) = result {
@@ -295,6 +304,7 @@ impl<'a> Searcher<'a> {
                 return AlphaBetaResult {
                     search_result: None,
                     end_search: true,
+                    pv,
                 };
             }
 
@@ -321,26 +331,20 @@ impl<'a> Searcher<'a> {
             }
         };
 
-        let best_move = self
-            .transposition_table
-            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        if best_move.is_none() {
-            error!("Did not get a move from transposition table in alpha_beta_init");
-            panic!("Did not get a move from transposition table in alpha_beta_init")
+        if pv.is_empty() {
+            error!("PV is empty in alpha_beta_init");
+            panic!("PV is empty in alpha_beta_init")
         }
 
-        let best_move = best_move.unwrap();
-        if best_move.get_move_type() != MoveType::Best {
-            error!("Got a move from transposition table in alpha_beta_init but it is not a best move");
-            panic!("Got a move from transposition table in alpha_beta_init but it is not a best move")
-        }
+        let best_move = pv.last().unwrap();
 
         AlphaBetaResult {
             search_result: Some(SearchResult {
-                best_move: best_move.important_move,
+                best_move: best_move.clone(),
                 eval: score,
             }),
             end_search: self.end_search,
+            pv,
         }
     }
 
@@ -353,6 +357,7 @@ impl<'a> Searcher<'a> {
         killers: &mut [Move; 2],
         in_check: bool,
         can_null_move: bool,
+        parent_pv: &mut TinyVec<[Move; 32]>,
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
 
@@ -360,6 +365,7 @@ impl<'a> Searcher<'a> {
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
+            parent_pv.clear();
             return Ok(0);
         }
 
@@ -383,6 +389,8 @@ impl<'a> Searcher<'a> {
                     return Err(());
                 }
             }
+
+            parent_pv.clear();
 
             return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
         }
@@ -428,6 +436,8 @@ impl<'a> Searcher<'a> {
             moves = tiny_vec!();
         }
 
+        let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
+
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
         if can_null_move
@@ -453,6 +463,7 @@ impl<'a> Searcher<'a> {
                 &mut null_move_killers,
                 false,
                 false,
+                &mut pv,
             )?;
 
             self.board.unmake_null_move(&mut self.rollback);
@@ -553,6 +564,7 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                         gives_check,
                         can_null_move,
+                        &mut pv,
                     )?;
 
                     if score > alpha && reduction > 0 {
@@ -565,6 +577,7 @@ impl<'a> Searcher<'a> {
                             &mut new_killers,
                             gives_check,
                             can_null_move,
+                            &mut pv,
                         )?;
                     }
                 } else {
@@ -577,6 +590,7 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                         gives_check,
                         can_null_move,
+                        &mut pv,
                     )?;
 
                     if score > alpha {
@@ -589,6 +603,7 @@ impl<'a> Searcher<'a> {
                             &mut new_killers,
                             gives_check,
                             can_null_move,
+                            &mut pv,
                         )?;
                     }
                 }
@@ -615,7 +630,6 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Main,
-                        false,
                     );
 
                     return Ok(score);
@@ -626,6 +640,11 @@ impl<'a> Searcher<'a> {
                     best_move = Some(r#move.m);
                     if score > alpha {
                         alpha = score;
+
+                        if is_pv {
+                            *parent_pv = pv.clone();
+                            parent_pv.push(r#move.m);
+                        }
                     }
                 }
 
@@ -676,8 +695,10 @@ impl<'a> Searcher<'a> {
                 );
                 panic!("Found no legal moves from the root of the search")
             } else if in_check {
+                parent_pv.clear();
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
+                parent_pv.clear();
                 return Ok(0);
             }
         } else if searched_moves == 1 && ply == 0 {
@@ -700,7 +721,6 @@ impl<'a> Searcher<'a> {
                 self.starting_halfmove,
             ),
             TableType::Main,
-            ply == 0,
         );
 
         Ok(best_score)
@@ -814,7 +834,6 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Quiescense,
-                        false,
                     );
 
                     return score;
@@ -852,7 +871,6 @@ impl<'a> Searcher<'a> {
                     self.starting_halfmove,
                 ),
                 TableType::Quiescense,
-                false,
             );
         }
 
@@ -888,77 +906,5 @@ impl<'a> Searcher<'a> {
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
         *current_value +=
             (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
-    }
-
-    fn gather_pv(&mut self, first_move: &Move) {
-        self.stats.pv.clear();
-
-        let mut board_copy = None;
-        if ENABLE_UNMAKE_MOVE_TEST {
-            board_copy = Some(self.board.clone());
-        }
-
-        // Prevent cycles from occurring
-        let mut previous_hashes = HashSet::new();
-        previous_hashes.insert(self.board.hash);
-
-        self.stats.pv.push(*first_move);
-        self.board.make_move(first_move, &mut self.rollback);
-        previous_hashes.insert(self.board.hash);
-
-        if !self.board.halfmove_clock >= 100 && !RepetitionTracker::test_threefold_repetition(self.board) {
-            let mut next_move =
-                self.transposition_table
-                    .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-            loop {
-                match next_move {
-                    None => {
-                        break;
-                    }
-                    Some(e) => {
-                        if e.get_move_type() != MoveType::Best {
-                            break;
-                        }
-
-                        self.board.make_move(&e.important_move, &mut self.rollback);
-
-                        if previous_hashes.contains(&self.board.hash)
-                            || self.board.halfmove_clock >= 100
-                            || RepetitionTracker::test_threefold_repetition(self.board)
-                        {
-                            self.board.unmake_move(&e.important_move, &mut self.rollback);
-                            break;
-                        }
-
-                        previous_hashes.insert(self.board.hash);
-                        self.stats.pv.push(e.important_move);
-                        next_move = self.transposition_table.get_entry(
-                            self.board.hash,
-                            TableType::Main,
-                            self.starting_halfmove,
-                        );
-                    }
-                }
-            }
-        }
-
-        for m in self.stats.pv.iter().rev() {
-            self.board.unmake_move(m, &mut self.rollback);
-        }
-
-        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self.board {
-            error!("gather_pv did not reset the board state properly");
-
-            let board_copied = board_copy.as_ref().unwrap();
-            if board_copied.hash != self.board.hash {
-                for (i, v) in HASH_VALUES.iter().enumerate() {
-                    if board_copied.hash ^ v == self.board.hash {
-                        debug!("board states differ by value {i} of HASH_VALUES in hash");
-                    }
-                }
-            }
-
-            assert_eq!(board_copy.as_ref().unwrap(), self.board);
-        }
     }
 }
