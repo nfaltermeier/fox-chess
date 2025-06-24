@@ -166,7 +166,7 @@ impl TranspositionTable {
         None
     }
 
-    pub fn store_entry(&mut self, val: TTEntry, table: TableType) {
+    pub fn store_entry(&mut self, val: TTEntry, table: TableType, force_overwrite: bool) {
         let index = val.hash as usize & self.key_mask;
         let table = match table {
             TableType::Main => &mut self.main_table,
@@ -174,7 +174,8 @@ impl TranspositionTable {
         };
 
         if let Some(entry) = table.get_mut(index) {
-            if entry.depth_first.empty
+            if force_overwrite
+                || entry.depth_first.empty
                 || entry.depth_first.get_age() != val.get_age()
                 || entry.depth_first.draft <= val.draft
             {

@@ -630,6 +630,7 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Main,
+                        false,
                     );
 
                     return Ok(score);
@@ -721,6 +722,7 @@ impl<'a> Searcher<'a> {
                 self.starting_halfmove,
             ),
             TableType::Main,
+            ply == 0,
         );
 
         Ok(best_score)
@@ -834,6 +836,7 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Quiescense,
+                        false,
                     );
 
                     return score;
@@ -871,6 +874,7 @@ impl<'a> Searcher<'a> {
                     self.starting_halfmove,
                 ),
                 TableType::Quiescense,
+                false,
             );
         }
 
