@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use log::error;
 use serde::{Deserialize, Serialize};
 
@@ -27,21 +28,24 @@ impl From<u8> for MoveType {
     }
 }
 
-#[derive(Copy, Clone, Default, Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Pod, Zeroable)]
 pub struct TwoTierEntry {
     pub always_replace: TTEntry,
     pub depth_first: TTEntry,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Copy, Clone, Serialize, Deserialize, Pod, Zeroable)]
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
-    /// Bottom 2 bits: age, top 2 bits: MoveType
-    packed: u8,
     score: i16,
     pub draft: u8,
-    pub empty: bool,
+    pub empty: u8,
+    /// Bottom 2 bits: age, top 2 bits: MoveType
+    packed: u8,
+    padding: u8,
 }
 
 impl TTEntry {
@@ -71,7 +75,8 @@ impl TTEntry {
             packed,
             score: tt_score,
             draft,
-            empty: false,
+            empty: 0,
+            padding: 0,
         }
     }
 
@@ -115,15 +120,25 @@ impl Default for TTEntry {
             packed: 0xFF,
             score: 0,
             draft: 0,
-            empty: true,
+            empty: 1,
+            padding: 0,
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
+#[repr(C)]
 pub struct TranspositionTable {
     main_table: Vec<TwoTierEntry>,
     quiescense_table: Vec<TwoTierEntry>,
+    key_mask: usize,
+    pub index_collisions: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BinaryTranspositionTable {
+    main_table: Vec<u8>,
+    quiescense_table: Vec<u8>,
     key_mask: usize,
     pub index_collisions: u64,
 }
@@ -152,12 +167,12 @@ impl TranspositionTable {
 
         if let Some(entry) = table.get_mut(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
-            if !entry.depth_first.empty && entry.depth_first.hash == key {
+            if !entry.depth_first.empty != 0 && entry.depth_first.hash == key {
                 entry.depth_first.set_age(search_starting_halfmove % 4);
                 return Some(entry.depth_first);
             }
 
-            if !entry.always_replace.empty && entry.always_replace.hash == key {
+            if !entry.always_replace.empty != 0 && entry.always_replace.hash == key {
                 return Some(entry.always_replace);
             }
 
@@ -177,7 +192,7 @@ impl TranspositionTable {
 
         if let Some(entry) = table.get_mut(index) {
             if force_overwrite
-                || entry.depth_first.empty
+                || entry.depth_first.empty != 0
                 || entry.depth_first.get_age() != val.get_age()
                 || entry.depth_first.draft <= val.draft
             {
