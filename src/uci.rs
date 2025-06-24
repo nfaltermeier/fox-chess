@@ -1,5 +1,7 @@
 use std::{
-    io,
+    fs::{self, File},
+    io::{self, Write},
+    mem::transmute,
     process::exit,
     sync::mpsc::{self, Receiver},
     thread,
@@ -9,6 +11,7 @@ use std::{
 use build_info::VersionControl::Git;
 use build_info::build_info;
 use log::{debug, error, trace};
+use serde_bytes::ByteArray;
 use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
@@ -201,6 +204,49 @@ impl UciInterface {
                             println!("Current fen: {}", board.to_fen())
                         } else {
                             error!("Board must be set with position first");
+                        }
+                    } else if message == "save-state" {
+                        if let Some(b) = &self.board {
+                            let fen = b.to_fen().replace("/", "_");
+
+                            if !fs::exists("save-states").unwrap() {
+                                fs::create_dir("save-states").unwrap();
+                            }
+
+                            let mut tt_file = File::create(format!("save-states/{fen}-tt.mp")).unwrap();
+                            let mut history_file = File::create(format!("save-states/{fen}-history.mp")).unwrap();
+
+                            tt_file
+                                .write_all(&rmp_serde::to_vec(&self.transposition_table).unwrap())
+                                .unwrap();
+
+                            unsafe {
+                                let converted = transmute::<HistoryTable, [u8; 1536]>(self.history_table);
+                                let sadfasd = ByteArray::new(converted);
+                                history_file.write_all(&rmp_serde::to_vec(&sadfasd).unwrap()).unwrap();
+                            }
+
+                            println!("Saved to save-states/{fen}")
+                        } else {
+                            error!("Set a position first");
+                        }
+                    } else if message == "load-state" {
+                        if let Some(b) = &self.board {
+                            let fen = b.to_fen().replace("/", "_");
+                            debug!("Loading state for fen {}... May take a couple of minutes.", fen);
+                            let tt_file = File::open(format!("save-states/{fen}-tt.mp")).unwrap();
+                            let history_file = File::open(format!("save-states/{fen}-history.mp")).unwrap();
+
+                            self.transposition_table = rmp_serde::from_read(tt_file).unwrap();
+
+                            unsafe {
+                                let sadfasd: ByteArray<1536> = rmp_serde::from_read(history_file).unwrap();
+                                self.history_table = transmute::<[u8; 1536], HistoryTable>(sadfasd.into_array());
+                            }
+
+                            println!("Loaded from save-states/{fen}")
+                        } else {
+                            error!("Set a position first");
                         }
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
