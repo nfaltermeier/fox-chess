@@ -38,7 +38,7 @@ pub struct TwoTierEntry {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Serialize, Deserialize, Pod, Zeroable)]
+#[derive(Copy, Clone, Serialize, Deserialize, Pod, Zeroable, Debug)]
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,

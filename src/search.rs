@@ -1,9 +1,5 @@
 use std::{
-    cmp::Reverse,
-    collections::HashSet,
-    sync::mpsc::Receiver,
-    time::{Duration, Instant},
-    u64,
+    cmp::Reverse, collections::HashSet, io::{self, Write}, sync::mpsc::Receiver, time::{Duration, Instant}, u64
 };
 
 use log::{debug, error};
@@ -401,9 +397,13 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
         let fen = self.board.to_fen();
-        let the_point = fen.as_str() == "8/5pk1/5b1p/1R2p1pP/3pP1P1/3P4/5r2/3B1K2 w - - 56 80" && is_pv;
+        const POSITION_TO_FIND: &'static str = "6k1/5p2/5b1p/1R2p1pP/3pP1P1/3P4/5K2/3B4 w";
+        const REQUIRE_IS_PV: bool = false;
+        let the_point = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
         if the_point {
-            debug!("at the interesting point on ply {ply} and draft {draft}, alpha {alpha} beta {beta}");
+            // let real = if fen.ends_with(" - - 56 80") { "real" } else { "fake" };
+            debug!("at {POSITION_TO_FIND} on ply {ply} and draft {draft}, alpha {alpha} beta {beta}");
+            io::stderr().flush().unwrap();
         }
 
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
@@ -411,6 +411,10 @@ impl<'a> Searcher<'a> {
             .transposition_table
             .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
+            // if the_point {
+            //     debug!("tt entry: {tt_entry:?}");
+            // }
+
             if !is_pv && tt_data.draft >= draft {
                 let eval = tt_data.get_score(ply);
 
@@ -474,6 +478,10 @@ impl<'a> Searcher<'a> {
             self.board.unmake_null_move(&mut self.rollback);
 
             if eval >= beta {
+                if the_point {
+                    debug!("Null move pruned with score {eval}");
+                }
+
                 return Ok(eval);
             }
         }
@@ -488,6 +496,7 @@ impl<'a> Searcher<'a> {
         let mut searched_quiet_moves = Vec::new();
         let mut searched_moves = 0;
         let mut has_legal_move = false;
+        let mut improved_alpha = false;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -566,7 +575,8 @@ impl<'a> Searcher<'a> {
                             .map(|m| m.simple_long_algebraic_notation())
                             .collect::<Vec<String>>()
                             .join(" ");
-                        debug!("{searched_moves:2} r  Move {move_string} score {score:3} pv {str_pv}");
+                        let r_str = if reduction > 0 { "r" } else { " " };
+                        debug!("{searched_moves:2} {r_str}  Move {move_string} score {score:4} pv {str_pv}");
                     }
 
                     if score > alpha && reduction > 0 {
@@ -588,7 +598,7 @@ impl<'a> Searcher<'a> {
                                 .map(|m| m.simple_long_algebraic_notation())
                                 .collect::<Vec<String>>()
                                 .join(" ");
-                            debug!("{searched_moves:2}    Move {move_string} score {score:3} pv {str_pv}");
+                            debug!("{searched_moves:2}    Move {move_string} score {score:4} pv {str_pv}");
                         }
                     }
                 } else {
@@ -610,7 +620,8 @@ impl<'a> Searcher<'a> {
                             .map(|m| m.simple_long_algebraic_notation())
                             .collect::<Vec<String>>()
                             .join(" ");
-                        debug!("{searched_moves:2} rz Move {move_string} score {score:3} pv {str_pv}");
+                        let r_str = if reduction > 0 { "r" } else { " " };
+                        debug!("{searched_moves:2} {r_str}z Move {move_string} score {score:4} pv {str_pv}");
                     }
 
                     if score > alpha {
@@ -632,7 +643,7 @@ impl<'a> Searcher<'a> {
                                 .map(|m| m.simple_long_algebraic_notation())
                                 .collect::<Vec<String>>()
                                 .join(" ");
-                            debug!("{searched_moves:2}    Move {move_string} score {score:3} pv {str_pv}");
+                            debug!("{searched_moves:2}    Move {move_string} score {score:4} pv {str_pv}");
                         }
                     }
                 }
@@ -662,6 +673,10 @@ impl<'a> Searcher<'a> {
                         false,
                     );
 
+                    if the_point {
+                        debug!("Failed high with score {score}");
+                    }
+
                     return Ok(score);
                 }
 
@@ -670,6 +685,7 @@ impl<'a> Searcher<'a> {
                     best_move = Some(r#move.m);
                     if score > alpha {
                         alpha = score;
+                        improved_alpha = true;
 
                         if is_pv {
                             *parent_pv = pv.clone();
@@ -735,11 +751,17 @@ impl<'a> Searcher<'a> {
             self.end_search = true;
         }
 
-        let entry_type = if alpha == best_score {
-            MoveType::Best
+        // I thought this change might fix it, but it did not immediately do that.
+        let (entry_type, entry_type_desc) = if improved_alpha {
+            (MoveType::Best, "best move")
         } else {
-            MoveType::FailLow
+            (MoveType::FailLow, "failed low")
         };
+
+        if the_point {
+            debug!("Result is {entry_type_desc} with score {best_score}");
+        }
+
         self.transposition_table.store_entry(
             TTEntry::new(
                 self.board.hash,
