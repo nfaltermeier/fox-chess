@@ -483,6 +483,7 @@ impl<'a> Searcher<'a> {
         let mut searched_quiet_moves = Vec::new();
         let mut searched_moves = 0;
         let mut has_legal_move = false;
+        let mut improved_alpha = false;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -640,6 +641,7 @@ impl<'a> Searcher<'a> {
                     best_move = Some(r#move.m);
                     if score > alpha {
                         alpha = score;
+                        improved_alpha = true;
 
                         if is_pv {
                             *parent_pv = pv.clone();
@@ -705,7 +707,7 @@ impl<'a> Searcher<'a> {
             self.end_search = true;
         }
 
-        let entry_type = if alpha == best_score {
+        let entry_type = if improved_alpha {
             MoveType::Best
         } else {
             MoveType::FailLow
@@ -782,6 +784,7 @@ impl<'a> Searcher<'a> {
 
         let mut best_score = stand_pat;
         let mut best_move = None;
+        let mut improved_alpha = false;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -845,6 +848,7 @@ impl<'a> Searcher<'a> {
 
                     if alpha < score {
                         alpha = score;
+                        improved_alpha = true;
                     }
                 }
             }
@@ -855,7 +859,7 @@ impl<'a> Searcher<'a> {
         }
 
         if let Some(bm) = best_move {
-            let entry_type = if alpha == best_score {
+            let entry_type = if improved_alpha {
                 MoveType::Best
             } else {
                 MoveType::FailLow
