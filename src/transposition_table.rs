@@ -1,4 +1,6 @@
-use bytemuck::{Pod, Zeroable};
+use std::{fs::File, io::{BufReader, BufWriter, Read, Write}};
+
+use bytemuck::{cast_slice, Pod, Zeroable};
 use log::error;
 use serde::{Deserialize, Serialize};
 
@@ -211,5 +213,61 @@ impl TranspositionTable {
         }
 
         self.index_collisions = 0;
+    }
+
+    // From chat gpt
+    pub fn save_fast(&self, path: &str) {
+        let mut file = BufWriter::new(File::create(path).unwrap());
+
+        let main_bytes = cast_slice(&self.main_table);
+        let quies_bytes = cast_slice(&self.quiescense_table);
+
+        // Write header: lengths and metadata
+        file.write_all(&(self.main_table.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&(self.quiescense_table.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&(self.key_mask as u64).to_le_bytes()).unwrap();
+        file.write_all(&self.index_collisions.to_le_bytes()).unwrap();
+
+        // Write raw bytes
+        file.write_all(main_bytes).unwrap();
+        file.write_all(quies_bytes).unwrap();
+    }
+
+    // From chat gpt
+    pub fn load_fast(path: &str) -> Self {
+        let mut file = BufReader::new(File::open(path).unwrap());
+
+        let mut buf = [0u8; 8];
+
+        // Read metadata
+        file.read_exact(&mut buf).unwrap();
+        let main_len = u64::from_le_bytes(buf) as usize;
+
+        file.read_exact(&mut buf).unwrap();
+        let quies_len = u64::from_le_bytes(buf) as usize;
+
+        file.read_exact(&mut buf).unwrap();
+        let key_mask = u64::from_le_bytes(buf) as usize;
+
+        file.read_exact(&mut buf).unwrap();
+        let index_collisions = u64::from_le_bytes(buf);
+
+        // Allocate vectors
+        let mut main_table = vec![TwoTierEntry::zeroed(); main_len];
+        let mut quiescense_table = vec![TwoTierEntry::zeroed(); quies_len];
+
+        // Read raw bytes directly into them
+        let main_bytes = bytemuck::cast_slice_mut(&mut main_table);
+        file.read_exact(main_bytes).unwrap();
+
+        let quies_bytes = bytemuck::cast_slice_mut(&mut quiescense_table);
+        file.read_exact(quies_bytes).unwrap();
+
+        Self {
+            main_table,
+            quiescense_table,
+            key_mask,
+            index_collisions,
+        }
     }
 }
