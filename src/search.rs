@@ -400,6 +400,11 @@ impl<'a> Searcher<'a> {
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let is_pv = alpha + 1 != beta;
+        let fen = self.board.to_fen();
+        let the_point = fen.as_str() == "8/5pk1/5b1p/1R2p1pP/3pP1P1/3P4/5r2/3B1K2 w - - 56 80" && is_pv;
+        if the_point {
+            debug!("at the interesting point on ply {ply} and draft {draft}, alpha {alpha} beta {beta}");
+        }
 
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
@@ -487,22 +492,10 @@ impl<'a> Searcher<'a> {
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
             for move_index in 0..moves.len() {
-                {
-                    // Perform one iteration of selection sort every time another move needs to be evaluated
-                    let mut best_move_score = moves[move_index].score;
-                    let mut best_move_index = move_index;
-
-                    for sort_index in (move_index + 1)..moves.len() {
-                        if moves[sort_index].score > best_move_score {
-                            best_move_score = moves[sort_index].score;
-                            best_move_index = sort_index;
-                        }
-                    }
-
-                    moves.swap(move_index, best_move_index);
-                }
-
+                Self::select_best(move_index, &mut moves);
                 let r#move = &moves[move_index];
+
+                let move_string = r#move.m.pretty_print(Some(&self.board));
 
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
                     continue;
@@ -567,6 +560,15 @@ impl<'a> Searcher<'a> {
                         &mut pv,
                     )?;
 
+                    if the_point {
+                        let str_pv = pv.iter()
+                            .rev()
+                            .map(|m| m.simple_long_algebraic_notation())
+                            .collect::<Vec<String>>()
+                            .join(" ");
+                        debug!("{searched_moves:2} r  Move {move_string} score {score:3} pv {str_pv}");
+                    }
+
                     if score > alpha && reduction > 0 {
                         // Do a full search
                         score = -self.alpha_beta_recurse(
@@ -579,6 +581,15 @@ impl<'a> Searcher<'a> {
                             can_null_move,
                             &mut pv,
                         )?;
+
+                        if the_point {
+                            let str_pv = pv.iter()
+                                .rev()
+                                .map(|m| m.simple_long_algebraic_notation())
+                                .collect::<Vec<String>>()
+                                .join(" ");
+                            debug!("{searched_moves:2}    Move {move_string} score {score:3} pv {str_pv}");
+                        }
                     }
                 } else {
                     // Use null window and reduction
@@ -593,6 +604,15 @@ impl<'a> Searcher<'a> {
                         &mut pv,
                     )?;
 
+                    if the_point {
+                        let str_pv = pv.iter()
+                            .rev()
+                            .map(|m| m.simple_long_algebraic_notation())
+                            .collect::<Vec<String>>()
+                            .join(" ");
+                        debug!("{searched_moves:2} rz Move {move_string} score {score:3} pv {str_pv}");
+                    }
+
                     if score > alpha {
                         // Do a full search
                         score = -self.alpha_beta_recurse(
@@ -605,6 +625,15 @@ impl<'a> Searcher<'a> {
                             can_null_move,
                             &mut pv,
                         )?;
+
+                        if the_point {
+                            let str_pv = pv.iter()
+                                .rev()
+                                .map(|m| m.simple_long_algebraic_notation())
+                                .collect::<Vec<String>>()
+                                .join(" ");
+                            debug!("{searched_moves:2}    Move {move_string} score {score:3} pv {str_pv}");
+                        }
                     }
                 }
 
@@ -910,5 +939,20 @@ impl<'a> Searcher<'a> {
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
         *current_value +=
             (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
+    }
+
+    fn select_best(move_index: usize, moves: &mut TinyVec<[ScoredMove; 64]>) {
+        // Perform one iteration of selection sort every time another move needs to be evaluated
+        let mut best_move_score = moves[move_index].score;
+        let mut best_move_index = move_index;
+
+        for sort_index in (move_index + 1)..moves.len() {
+            if moves[sort_index].score > best_move_score {
+                best_move_score = moves[sort_index].score;
+                best_move_index = sort_index;
+            }
+        }
+
+        moves.swap(move_index, best_move_index);
     }
 }
