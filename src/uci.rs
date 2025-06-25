@@ -213,12 +213,9 @@ impl UciInterface {
                                 fs::create_dir("save-states").unwrap();
                             }
 
-                            let mut tt_file = File::create(format!("save-states/{fen}-tt.mp")).unwrap();
                             let mut history_file = File::create(format!("save-states/{fen}-history.mp")).unwrap();
 
-                            tt_file
-                                .write_all(&rmp_serde::to_vec(&self.transposition_table).unwrap())
-                                .unwrap();
+                            self.transposition_table.save_fast(format!("save-states/{fen}-ttbin.mp").as_str());
 
                             unsafe {
                                 let converted = transmute::<HistoryTable, [u8; 1536]>(self.history_table);
@@ -233,11 +230,10 @@ impl UciInterface {
                     } else if message == "load-state" {
                         if let Some(b) = &self.board {
                             let fen = b.to_fen().replace("/", "_");
-                            debug!("Loading state for fen {}... May take a couple of minutes.", fen);
-                            let tt_file = File::open(format!("save-states/{fen}-tt.mp")).unwrap();
+                            debug!("Loading state for fen {}", fen);
                             let history_file = File::open(format!("save-states/{fen}-history.mp")).unwrap();
 
-                            self.transposition_table = rmp_serde::from_read(tt_file).unwrap();
+                            self.transposition_table = TranspositionTable::load_fast(format!("save-states/{fen}-ttbin.mp").as_str());
 
                             unsafe {
                                 let sadfasd: ByteArray<1536> = rmp_serde::from_read(history_file).unwrap();

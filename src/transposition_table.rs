@@ -1,3 +1,6 @@
+use std::{fs::File, io::{BufReader, BufWriter, Read, Write}};
+
+use bytemuck::{cast_slice, Pod, Zeroable};
 use log::error;
 use serde::{Deserialize, Serialize};
 
@@ -27,21 +30,24 @@ impl From<u8> for MoveType {
     }
 }
 
-#[derive(Copy, Clone, Default, Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Pod, Zeroable)]
 pub struct TwoTierEntry {
     pub always_replace: TTEntry,
     pub depth_first: TTEntry,
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Copy, Clone, Serialize, Deserialize, Pod, Zeroable)]
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
-    /// Bottom 2 bits: age, top 2 bits: MoveType
-    packed: u8,
     score: i16,
     pub draft: u8,
-    pub empty: bool,
+    pub empty: u8,
+    /// Bottom 2 bits: age, top 2 bits: MoveType
+    packed: u8,
+    padding: u8,
 }
 
 impl TTEntry {
@@ -71,7 +77,8 @@ impl TTEntry {
             packed,
             score: tt_score,
             draft,
-            empty: false,
+            empty: 0,
+            padding: 0,
         }
     }
 
@@ -115,15 +122,25 @@ impl Default for TTEntry {
             packed: 0xFF,
             score: 0,
             draft: 0,
-            empty: true,
+            empty: 1,
+            padding: 0,
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
+#[repr(C)]
 pub struct TranspositionTable {
     main_table: Vec<TwoTierEntry>,
     quiescense_table: Vec<TwoTierEntry>,
+    key_mask: usize,
+    pub index_collisions: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BinaryTranspositionTable {
+    main_table: Vec<u8>,
+    quiescense_table: Vec<u8>,
     key_mask: usize,
     pub index_collisions: u64,
 }
@@ -152,12 +169,12 @@ impl TranspositionTable {
 
         if let Some(entry) = table.get_mut(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
-            if !entry.depth_first.empty && entry.depth_first.hash == key {
+            if !entry.depth_first.empty != 0 && entry.depth_first.hash == key {
                 entry.depth_first.set_age(search_starting_halfmove % 4);
                 return Some(entry.depth_first);
             }
 
-            if !entry.always_replace.empty && entry.always_replace.hash == key {
+            if !entry.always_replace.empty != 0 && entry.always_replace.hash == key {
                 return Some(entry.always_replace);
             }
 
@@ -177,7 +194,7 @@ impl TranspositionTable {
 
         if let Some(entry) = table.get_mut(index) {
             if force_overwrite
-                || entry.depth_first.empty
+                || entry.depth_first.empty != 0
                 || entry.depth_first.get_age() != val.get_age()
                 || entry.depth_first.draft <= val.draft
             {
@@ -196,5 +213,61 @@ impl TranspositionTable {
         }
 
         self.index_collisions = 0;
+    }
+
+    // From chat gpt
+    pub fn save_fast(&self, path: &str) {
+        let mut file = BufWriter::new(File::create(path).unwrap());
+
+        let main_bytes = cast_slice(&self.main_table);
+        let quies_bytes = cast_slice(&self.quiescense_table);
+
+        // Write header: lengths and metadata
+        file.write_all(&(self.main_table.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&(self.quiescense_table.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&(self.key_mask as u64).to_le_bytes()).unwrap();
+        file.write_all(&self.index_collisions.to_le_bytes()).unwrap();
+
+        // Write raw bytes
+        file.write_all(main_bytes).unwrap();
+        file.write_all(quies_bytes).unwrap();
+    }
+
+    // From chat gpt
+    pub fn load_fast(path: &str) -> Self {
+        let mut file = BufReader::new(File::open(path).unwrap());
+
+        let mut buf = [0u8; 8];
+
+        // Read metadata
+        file.read_exact(&mut buf).unwrap();
+        let main_len = u64::from_le_bytes(buf) as usize;
+
+        file.read_exact(&mut buf).unwrap();
+        let quies_len = u64::from_le_bytes(buf) as usize;
+
+        file.read_exact(&mut buf).unwrap();
+        let key_mask = u64::from_le_bytes(buf) as usize;
+
+        file.read_exact(&mut buf).unwrap();
+        let index_collisions = u64::from_le_bytes(buf);
+
+        // Allocate vectors
+        let mut main_table = vec![TwoTierEntry::zeroed(); main_len];
+        let mut quiescense_table = vec![TwoTierEntry::zeroed(); quies_len];
+
+        // Read raw bytes directly into them
+        let main_bytes = bytemuck::cast_slice_mut(&mut main_table);
+        file.read_exact(main_bytes).unwrap();
+
+        let quies_bytes = bytemuck::cast_slice_mut(&mut quiescense_table);
+        file.read_exact(quies_bytes).unwrap();
+
+        Self {
+            main_table,
+            quiescense_table,
+            key_mask,
+            index_collisions,
+        }
     }
 }
