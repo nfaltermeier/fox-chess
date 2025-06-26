@@ -480,7 +480,7 @@ impl<'a> Searcher<'a> {
             && beta.abs() < 2000
             && (self.board.evaluate_side_to_move_relative() + 300 + 200 * (draft - 1) as i16) < alpha;
 
-        let mut searched_quiet_moves = Vec::new();
+        let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
         let mut has_legal_move = false;
         let mut improved_alpha = false;
