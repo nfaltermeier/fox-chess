@@ -15,19 +15,14 @@ pub enum MoveType {
     FailLow,
 }
 
-impl From<u8> for MoveType {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::FailHigh,
-            1 => Self::Best,
-            2 => Self::FailLow,
-            _ => Self::FailLow,
-        }
-    }
+pub struct TranspositionTable {
+    main_table: Vec<TwoTierEntry>,
+    quiescense_table: Vec<TwoTierEntry>,
+    key_mask: usize,
 }
 
 #[derive(Copy, Clone, Default)]
-pub struct TwoTierEntry {
+struct TwoTierEntry {
     pub always_replace: TTEntry,
     pub depth_first: TTEntry,
 }
@@ -119,13 +114,6 @@ impl Default for TTEntry {
     }
 }
 
-pub struct TranspositionTable {
-    main_table: Vec<TwoTierEntry>,
-    quiescense_table: Vec<TwoTierEntry>,
-    key_mask: usize,
-    pub index_collisions: u64,
-}
-
 impl TranspositionTable {
     pub fn new(size_log_2: u8) -> TranspositionTable {
         if size_log_2 == 0 {
@@ -137,7 +125,6 @@ impl TranspositionTable {
             main_table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 2)],
             quiescense_table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 2)],
             key_mask: (1 << (size_log_2 - 2)) - 1,
-            index_collisions: 0,
         }
     }
 
@@ -158,9 +145,6 @@ impl TranspositionTable {
             if !entry.always_replace.empty && entry.always_replace.hash == key {
                 return Some(entry.always_replace);
             }
-
-            // Technically should check for emptyness but eh
-            self.index_collisions += 1;
         }
 
         None
@@ -191,7 +175,16 @@ impl TranspositionTable {
             self.main_table[i] = default_entry;
             self.quiescense_table[i] = default_entry;
         }
+    }
+}
 
-        self.index_collisions = 0;
+impl From<u8> for MoveType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::FailHigh,
+            1 => Self::Best,
+            2 => Self::FailLow,
+            _ => Self::FailLow,
+        }
     }
 }

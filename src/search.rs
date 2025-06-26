@@ -1,22 +1,16 @@
 use std::{
-    cmp::Reverse,
-    collections::HashSet,
     sync::mpsc::Receiver,
     time::{Duration, Instant},
-    u64,
 };
 
 use log::{debug, error};
-use tinyvec::{ArrayVec, TinyVec, array_vec, tiny_vec};
+use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{
-        ENABLE_UNMAKE_MOVE_TEST, MOVE_ARRAY_SIZE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
-        ScoredMove,
-    },
+    move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove},
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
@@ -32,8 +26,6 @@ pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
 const EMPTY_MOVE: Move = Move { data: 0 };
-
-// pub const TEST_TT_FOR_HASH_COLLISION: bool = true;
 
 #[derive(Default)]
 pub struct SearchStats {
@@ -55,7 +47,7 @@ enum SearchControl {
 #[derive(Clone)]
 pub struct SearchResult {
     pub best_move: Move,
-    pub eval: i16,
+    pub score: i16,
 }
 
 pub struct AlphaBetaResult {
@@ -124,7 +116,8 @@ impl<'a> Searcher<'a> {
                     black_time,
                     white_increment,
                     black_increment,
-                    moves_to_go,
+                    // For TC where you get more time after playing a certain number of moves. May need to consider this if going for tournaments.
+                    moves_to_go: _,
                 } => {
                     let (time_left, increment) = if self.board.white_to_move {
                         (white_time, white_increment)
@@ -230,14 +223,14 @@ impl<'a> Searcher<'a> {
 
                 let elapsed = start_time.elapsed();
 
-                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed, &result.pv);
+                UciInterface::print_search_info(search_result.score, &self.stats, &elapsed, &result.pv);
 
                 self.stats.aspiration_researches = 0;
 
                 if self.stop_received
                     || (search_control != SearchControl::Infinite
                         && (result.end_search
-                            || search_result.eval.abs() >= MATE_THRESHOLD
+                            || search_result.score.abs() >= MATE_THRESHOLD
                             || depth >= max_depth
                             || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
                 {
@@ -275,7 +268,7 @@ impl<'a> Searcher<'a> {
             alpha_window_index = ASPIRATION_WINDOW_OFFSETS.len();
             beta_window_index = ASPIRATION_WINDOW_OFFSETS.len();
         } else {
-            let last_score = last_result.unwrap().eval;
+            let last_score = last_result.unwrap().score;
             alpha = last_score - ASPIRATION_WINDOW_OFFSETS[0];
             beta = last_score + ASPIRATION_WINDOW_OFFSETS[0];
             alpha_window_index = 1;
@@ -340,8 +333,8 @@ impl<'a> Searcher<'a> {
 
         AlphaBetaResult {
             search_result: Some(SearchResult {
-                best_move: best_move.clone(),
-                eval: score,
+                best_move: *best_move,
+                score,
             }),
             end_search: self.end_search,
             pv,
@@ -407,22 +400,22 @@ impl<'a> Searcher<'a> {
             .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
-                let eval = tt_data.get_score(ply);
+                let tt_score = tt_data.get_score(ply);
 
                 match tt_data.get_move_type() {
                     transposition_table::MoveType::FailHigh => {
-                        if eval >= beta {
+                        if tt_score >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, ply);
 
-                            return Ok(eval);
+                            return Ok(tt_score);
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return Ok(eval);
+                        return Ok(tt_score);
                     }
                     transposition_table::MoveType::FailLow => {
-                        if eval < alpha {
-                            return Ok(eval);
+                        if tt_score < alpha {
+                            return Ok(tt_score);
                         }
                     }
                 }
@@ -455,7 +448,7 @@ impl<'a> Searcher<'a> {
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
 
-            let eval = -self.alpha_beta_recurse(
+            let nmp_score = -self.alpha_beta_recurse(
                 -beta,
                 -(beta - 1),
                 draft - reduction,
@@ -468,8 +461,8 @@ impl<'a> Searcher<'a> {
 
             self.board.unmake_null_move(&mut self.rollback);
 
-            if eval >= beta {
-                return Ok(eval);
+            if nmp_score >= beta {
+                return Ok(nmp_score);
             }
         }
 

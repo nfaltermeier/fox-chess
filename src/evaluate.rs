@@ -1,17 +1,14 @@
 use array_macro::array;
-use log::error;
 
 use crate::{
     bitboard::{LIGHT_SQUARES, north_fill, south_fill},
-    board::{
-        Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
-        PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
-    },
+    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
 };
 
 /// Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 81, 309, 338, 501, 1021, 20000];
 
+/// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
 pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
@@ -197,11 +194,6 @@ pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 
 static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
-// thread_local! {
-//     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
-//     pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
-// }
-
 impl Board {
     pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
@@ -290,10 +282,10 @@ impl Board {
     /// positive value: black has more doubled pawns than white
     fn count_doubled_pawns(&self) -> i16 {
         let mut pawn_occupied_files = [0, 0];
-        for color in 0..2 {
+        for (color, occupied_files_count) in pawn_occupied_files.iter_mut().enumerate() {
             for file in FILES {
                 if self.piece_bitboards[color][PIECE_PAWN as usize] & file > 0 {
-                    pawn_occupied_files[color] += 1;
+                    *occupied_files_count += 1;
                 }
             }
         }

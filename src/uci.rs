@@ -42,7 +42,7 @@ impl UciInterface {
 
     // how to communicate with the engine while it is computing? How necessary is that?
     pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
-        debug!("Received UCI cmd string '{}'", cmds.0);
+        debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
         for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
@@ -60,10 +60,8 @@ impl UciInterface {
                     }
 
                     println!("id name FoxChess {} {}", build_info.profile, commit);
-                    println!("id author IDK");
+                    println!("id author nfaltermeier");
                     println!("uciok");
-                    // println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
-                    // println!("option name DoubledPawnPenalty type spin default 25 min 0 max 100");
                 }
                 UciMessage::IsReady => {
                     println!("readyok")
@@ -93,7 +91,7 @@ impl UciInterface {
                     }
 
                     if !moves.is_empty() && self.board.is_some() {
-                        debug!("running {} moves", moves.len());
+                        trace!("running {} moves", moves.len());
                         let mapped = moves.iter().map(|m| {
                             let from = (m.from.file as u8) - b'a' + ((m.from.rank - 1) * 8);
                             let to = (m.to.file as u8) - b'a' + ((m.to.rank - 1) * 8);
@@ -117,7 +115,7 @@ impl UciInterface {
                         find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
                     }
                     let duration = start.elapsed();
-                    debug!("Position with {} moves took {duration:#?} to calculate", moves.len());
+                    trace!("Position with {} moves took {duration:#?} to calculate", moves.len());
 
                     trace!("At end of position. {:#?}", self.board);
                 }
@@ -139,39 +137,14 @@ impl UciInterface {
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
-
-                        debug!(
-                            "transposition_table index collisions {}",
-                            self.transposition_table.index_collisions
-                        );
-                        self.transposition_table.index_collisions = 0;
                     } else {
                         error!("Board must be set with position first");
                     }
                 }
-                UciMessage::Stop => {
-                    // error!("UCI stop command but this is not implemented");
-                    // unimplemented!("UCI stop command")
-                    // println!("bestmove <>")
-                }
+                // Stop is handled with a separate sender and receiver to communicate with a running search so nothing needs to be done here
+                UciMessage::Stop => {}
                 UciMessage::Quit => exit(0),
-                UciMessage::SetOption { name, .. } => match name.as_str() {
-                    // "IsolatedPawnPenalty" => {
-                    //     if let Some(ipp) = value {
-                    //         ISOLATED_PAWN_PENALTY.set(
-                    //             ipp.parse()
-                    //                 .expect("IsolatedPawnPenalty setoption value was not a valid number"),
-                    //         );
-                    //     }
-                    // }
-                    // "DoubledPawnPenalty" => {
-                    //     if let Some(ipp) = value {
-                    //         DOUBLED_PAWN_PENALTY.set(
-                    //             ipp.parse()
-                    //                 .expect("DoubledPawnPenalty setoption value was not a valid number"),
-                    //         );
-                    //     }
-                    // }
+                UciMessage::SetOption { name, value: _ } => match name.as_str() {
                     _ => {
                         error!("Unknown UCI setoption name '{name}'");
                     }
@@ -207,7 +180,7 @@ impl UciInterface {
                     }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in '{}'", cmds.0);
+                    error!("Unhandled UCI cmd in (trimmed) '{}'", cmds.0.trim());
                 }
             }
         }

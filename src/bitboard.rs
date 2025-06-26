@@ -235,7 +235,7 @@ impl Board {
             }
         }
 
-        return false;
+        false
     }
 }
 
