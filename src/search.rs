@@ -431,6 +431,23 @@ impl<'a> Searcher<'a> {
 
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
 
+        let mut futility_prune = false;
+        if draft < 4
+            && !is_pv
+            && !in_check
+            && alpha.abs() < 2000
+            && beta.abs() < 2000
+        {
+            let eval = self.board.evaluate_side_to_move_relative();
+
+            // Reverse futility pruning
+            if eval - 150 * (draft as i16) >= beta {
+                return Ok((eval + beta) / 2);
+            }
+
+            futility_prune = (eval + 300 + 200 * (draft - 1) as i16) < alpha;
+        }
+
         // Null move pruning
         let our_side = if self.board.white_to_move { 0 } else { 1 };
         if can_null_move
@@ -465,13 +482,6 @@ impl<'a> Searcher<'a> {
                 return Ok(nmp_score);
             }
         }
-
-        let futility_prune = draft < 4
-            && !is_pv
-            && !in_check
-            && alpha.abs() < 2000
-            && beta.abs() < 2000
-            && (self.board.evaluate_side_to_move_relative() + 300 + 200 * (draft - 1) as i16) < alpha;
 
         let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
