@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::Write;
 use std::{
     fs::File,
@@ -269,6 +270,7 @@ fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 
 }
 
 pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
+    fs::create_dir("params").unwrap();
     let mut params = DEFAULT_PARAMS;
 
     let scaling_constant = 1.06;
