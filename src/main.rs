@@ -59,7 +59,7 @@ fn main() {
     // rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
 
     println!("Loading positions from file");
-    let positions = load_positions("2025-06-11.epd");
+    let positions = load_positions("set_three_positions.epd");
     println!(
         "{} Positions loaded, take to skip ratio: {}/{}",
         positions.positions.len(),
