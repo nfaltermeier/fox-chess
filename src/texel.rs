@@ -286,7 +286,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         best_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
         println!("Starting new loop, new best error is {best_error:.8}");
 
-        for mut i in 0..=98 {
+        for i in 0..DEFAULT_PARAMS.len() {
             // midgame pawns on first row
             if i < 8
                 // midgame pawns on last row
