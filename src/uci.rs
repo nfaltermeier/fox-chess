@@ -9,13 +9,14 @@ use std::{
 use build_info::VersionControl::Git;
 use build_info::build_info;
 use log::{debug, error, trace};
+use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
     STARTING_FEN,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, find_and_run_moves},
+    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
 };
@@ -41,7 +42,7 @@ impl UciInterface {
 
     // how to communicate with the engine while it is computing? How necessary is that?
     pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
-        debug!("Received UCI cmd string '{}'", cmds.0);
+        debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
         for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
@@ -59,10 +60,8 @@ impl UciInterface {
                     }
 
                     println!("id name FoxChess {} {}", build_info.profile, commit);
-                    println!("id author IDK");
+                    println!("id author nfaltermeier");
                     println!("uciok");
-                    // println!("option name IsolatedPawnPenalty type spin default 35 min -100 max 100");
-                    // println!("option name DoubledPawnPenalty type spin default 25 min 0 max 100");
                 }
                 UciMessage::IsReady => {
                     println!("readyok")
@@ -94,7 +93,7 @@ impl UciInterface {
                     println!("board size is {}", size_of_val(self.board.as_ref().unwrap()));
 
                     if !moves.is_empty() && self.board.is_some() {
-                        debug!("running {} moves", moves.len());
+                        trace!("running {} moves", moves.len());
                         let mapped = moves.iter().map(|m| {
                             let from = (m.from.file as u8) - b'a' + ((m.from.rank - 1) * 8);
                             let to = (m.to.file as u8) - b'a' + ((m.to.rank - 1) * 8);
@@ -118,7 +117,7 @@ impl UciInterface {
                         find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
                     }
                     let duration = start.elapsed();
-                    debug!("Position with {} moves took {duration:#?} to calculate", moves.len());
+                    trace!("Position with {} moves took {duration:#?} to calculate", moves.len());
 
                     trace!("At end of position. {:#?}", self.board);
                 }
@@ -140,39 +139,14 @@ impl UciInterface {
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
-
-                        debug!(
-                            "transposition_table index collisions {}",
-                            self.transposition_table.index_collisions
-                        );
-                        self.transposition_table.index_collisions = 0;
                     } else {
                         error!("Board must be set with position first");
                     }
                 }
-                UciMessage::Stop => {
-                    // error!("UCI stop command but this is not implemented");
-                    // unimplemented!("UCI stop command")
-                    // println!("bestmove <>")
-                }
+                // Stop is handled with a separate sender and receiver to communicate with a running search so nothing needs to be done here
+                UciMessage::Stop => {}
                 UciMessage::Quit => exit(0),
-                UciMessage::SetOption { name, .. } => match name.as_str() {
-                    // "IsolatedPawnPenalty" => {
-                    //     if let Some(ipp) = value {
-                    //         ISOLATED_PAWN_PENALTY.set(
-                    //             ipp.parse()
-                    //                 .expect("IsolatedPawnPenalty setoption value was not a valid number"),
-                    //         );
-                    //     }
-                    // }
-                    // "DoubledPawnPenalty" => {
-                    //     if let Some(ipp) = value {
-                    //         DOUBLED_PAWN_PENALTY.set(
-                    //             ipp.parse()
-                    //                 .expect("DoubledPawnPenalty setoption value was not a valid number"),
-                    //         );
-                    //     }
-                    // }
+                UciMessage::SetOption { name, value: _ } => match name.as_str() {
                     _ => {
                         error!("Unknown UCI setoption name '{name}'");
                     }
@@ -208,13 +182,13 @@ impl UciInterface {
                     }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in '{}'", cmds.0);
+                    error!("Unhandled UCI cmd in (trimmed) '{}'", cmds.0.trim());
                 }
             }
         }
     }
 
-    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration) {
+    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &TinyVec<[Move; 32]>) {
         let abs_cp = eval.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
@@ -231,9 +205,8 @@ impl UciInterface {
             stats.depth,
             nps,
             elapsed.as_millis(),
-            stats
-                .pv
-                .iter()
+            pv.iter()
+                .rev()
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use log::{debug, error};
+use log::error;
 
 use crate::{
     board::{Board, HASH_VALUES, PIECE_MASK, PIECE_PAWN},
@@ -92,7 +92,7 @@ impl RepetitionTracker {
                     let hash_values = &*HASH_VALUES;
                     for (i, v) in hash_values.iter().enumerate() {
                         if board_copied.hash ^ v == board.hash {
-                            debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                            error!("make/unmake differs by value {i} of HASH_VALUES in hash");
                         }
                     }
                 }

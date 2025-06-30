@@ -2,9 +2,8 @@
 
 use std::{
     cmp::Reverse,
-    io,
-    sync::mpsc::{self, Receiver, TryRecvError},
-    thread::{self, sleep},
+    sync::mpsc::{self, TryRecvError},
+    thread::sleep,
     time::{Duration, SystemTime},
 };
 
@@ -13,7 +12,7 @@ use clap::Parser;
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
-use moves::{Move, MoveRollback, square_indices_to_moves};
+use moves::{Move, MoveRollback};
 use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
 use texel::{find_best_params, load_positions};
 use transposition_table::TranspositionTable;
@@ -76,7 +75,6 @@ fn main() {
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
-    // run_to_pos(Vec::from([(12, 28), (52, 36), (3, 39), (57, 42), (5, 26), (62, 45), (39, 53)]));
     // hash_values_edit_distance();
 }
 
@@ -176,42 +174,27 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         } else {
             result = SearchResult {
                 best_move: r#move.m,
-                eval: 0,
+                score: 0,
             };
         }
 
         board.unmake_move(&r#move.m, &mut rollback);
 
         if best.as_ref().is_none_or(|v| {
-            v.eval * if board.white_to_move { 1 } else { -1 } < result.eval * if board.white_to_move { 1 } else { -1 }
+            v.score * if board.white_to_move { 1 } else { -1 } < result.score * if board.white_to_move { 1 } else { -1 }
         }) {
             best = Some(result);
         }
     }
 
     if let Some(r) = best {
-        debug!("best move: {} eval: {}", r.best_move.pretty_print(Some(&board)), r.eval)
+        debug!(
+            "best move: {} eval: {}",
+            r.best_move.pretty_print(Some(&board)),
+            r.score
+        )
     } else {
         debug!("No valid moves");
-    }
-}
-
-fn run_to_pos(index_moves: Vec<(u8, u8, Option<u16>)>) {
-    let moves = square_indices_to_moves(index_moves);
-    let mut board = Board::from_fen(STARTING_FEN).unwrap();
-    let mut rollback = MoveRollback::default();
-    for r#move in moves {
-        board.make_move(&r#move.m, &mut rollback);
-    }
-
-    let final_pos_moves = board.generate_legal_moves_without_history();
-
-    if final_pos_moves.is_empty() {
-        warn!("No moves found")
-    }
-
-    for r#move in final_pos_moves {
-        info!("{}", r#move.m.pretty_print(Some(&board)));
     }
 }
 

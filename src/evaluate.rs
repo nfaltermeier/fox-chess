@@ -1,5 +1,4 @@
 use array_macro::array;
-use log::error;
 
 use crate::{
     bitboard::{LIGHT_SQUARES, north_fill, south_fill},
@@ -16,6 +15,7 @@ use crate::{
 /// Indexed with piece code, so index 0 is no piece
 pub static CENTIPAWN_VALUES: [i16; 7] = [0, 81, 309, 338, 501, 1021, 20000];
 
+/// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
 pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
@@ -35,24 +35,24 @@ pub const MATE_VALUE: i16 = 25000;
 #[rustfmt::skip]
 const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
- 138, 174, 122,  87,  78,  58,  13,  80,
-  32,  58,  40,  46,  57,  59,  95,  10,
- -10,   4,   0,  13,  17,  15,   4,  -3,
- -14,   7,  -7,   5,  -4,   4,   0, -15,
- -23,   8,   0,  -5,  -1,   5,  23,  -2,
- -29,  -4, -17, -10,  -9,   7,  26, -18,
+ 173, 147, 135, 128,  90,  41,   2,  46,
+  39,  54,  43,  43,  50,  58,  82,  20,
+   3,  11,  -2,  11,  19,  13,  12,  -7,
+ -14,   5,  -5,   3,  -1,   8,   4, -16,
+ -13,   0,  -8,  -8,   2,   2,  21,  -4,
+ -20,  -6, -18, -16, -12,  17,  27, -15,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
 #[rustfmt::skip]
 const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
- 221, 237, 255, 153, 153, 236, 237, 225,
- 100, 132, 119,  88,  68,  32,  66,  69,
-  64,  63,  52,  -6, -14,   1,  40,  12,
-  26,  26,  14, -25,  -5,  12,  21,   7,
-  29,  34,  12,  21,  10,  13,   3,  -1,
-  40,  41,  23,  93,   4,  18,  -5,   4,
+  78, 116, 115,  70, 103, 136, 184, 132,
+ 108, 104,  81,  63,  57,  53,  64,  69,
+  68,  52,  49,  10,  12,  21,  37,  29,
+  46,  47,  24,   2,  12,  26,  37,  28,
+  48,  35,  27,  27,  19,  28,  26,  19,
+  62,  53,  40,   9,  42,  29,  28,  33,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
@@ -106,26 +106,26 @@ const BISHOP_ENDGAME_SQUARE_TABLE: [i16; 64] = [
 
 #[rustfmt::skip]
 const ROOK_MIDGAME_SQUARE_TABLE: [i16; 64] = [
-  38,  63,  58,  49,  73,  76,  83,  14,
-  41,  38,  71,  71,  64,  94,  63,  58,
-  22,  67,  60,  49,  47,  68,  77,  49,
-  18,  12,  19,  26,  39,  36,  42,  15,
- -11,   7,   2,  16,  12,   8,  22,  -3,
- -12,   4,   0,   1,  -2,   2,  18,   3,
- -26, -12,  -1,  -3,  -8,   5,   2, -37,
- -14,  -1,   9,   9,   8,   0, -19, -42,
+  45,  57,  42,  42,  50,  71,  75,  14,
+  31,  33,  57,  60,  50,  83,  61,  59,
+  14,  52,  47,  38,  34,  57,  70,  38,
+   4,   4,   6,  10,  22,  22,  33,   3,
+ -19,  -2,  -4,   4,   3,   1,  13, -11,
+ -15,  -4,  -7, -10, -10,  -6,  11,  -1,
+ -27, -20,  -9, -11, -13,  -2,  -8, -42,
+ -13,  -5,  -1,   1,   1,   0, -19, -40,
 ];
 
 #[rustfmt::skip]
 const ROOK_ENDGAME_SQUARE_TABLE: [i16; 64] = [
-  34,  16,  17,  30,  -4,   1,  17,  37,
-  32,  36,  11,  19,  16, -11,  19,  -1,
-  38,   1,  26,  21,  19,   1,  10,  -2,
-  26,  47,  51,  38,  18,  19,  30,  14,
-  42,  21,  52,  26,  32,  35,   0,  17,
-  14,   0,  16,  23,  26,  16, -28, -17,
-   9,  17,  27,  11,  17, -17, -20,   0,
-   8,   6,  17,  34,   1,   2,  33,  11,
+  16,  16,  32,  31,  21,  16,  25,  35,
+  45,  28,  14,  14,  21,   4,  19,  11,
+  44,  10,  22,  15,  30,  14,  19,  16,
+  46,  47,  49,  41,  22,  41,  41,  43,
+  49,  41,  46,  32,  27,  44,  27,  42,
+  19,  16,  24,  23,  22,  26,   6,   8,
+   9,  14,  26,  17,  22,   0,   2,  -5,
+  14,  18,  23,  34,  11,  12,  37,  18,
 ];
 
 #[rustfmt::skip]
@@ -200,11 +200,6 @@ pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 ];
 
 static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
-
-// thread_local! {
-//     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
-//     pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
-// }
 
 #[inline]
 /// for piece_type, pawn is 0
@@ -318,10 +313,10 @@ impl Board {
     /// positive value: black has more doubled pawns than white
     fn count_doubled_pawns(&self) -> i16 {
         let mut pawn_occupied_files = [0, 0];
-        for color in 0..2 {
+        for (color, occupied_files_count) in pawn_occupied_files.iter_mut().enumerate() {
             for file in FILES {
                 if self.piece_bitboards[color][PIECE_PAWN as usize] & file > 0 {
-                    pawn_occupied_files[color] += 1;
+                    *occupied_files_count += 1;
                 }
             }
         }

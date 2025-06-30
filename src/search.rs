@@ -1,19 +1,19 @@
 use std::{
     cmp::Reverse,
-    collections::HashSet,
     sync::mpsc::Receiver,
     time::{Duration, Instant},
-    u64,
 };
 
 use log::{debug, error};
+use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{
-        ENABLE_UNMAKE_MOVE_TEST, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove,
+        ENABLE_UNMAKE_MOVE_TEST, MOVE_ARRAY_SIZE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
+        ScoredMove,
     },
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
@@ -32,14 +32,11 @@ static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
 const EMPTY_MOVE: Move = Move { data: 0 };
 
-// pub const TEST_TT_FOR_HASH_COLLISION: bool = true;
-
 #[derive(Default)]
 pub struct SearchStats {
     pub depth: u8,
     pub total_nodes: u64,
     pub total_search_leaves: u64,
-    pub pv: Vec<Move>,
     pub aspiration_researches: u8,
 }
 
@@ -55,12 +52,13 @@ enum SearchControl {
 #[derive(Clone)]
 pub struct SearchResult {
     pub best_move: Move,
-    pub eval: i16,
+    pub score: i16,
 }
 
 pub struct AlphaBetaResult {
     pub search_result: Option<SearchResult>,
     pub end_search: bool,
+    pub pv: TinyVec<[Move; 32]>,
 }
 
 pub struct Searcher<'a> {
@@ -123,7 +121,8 @@ impl<'a> Searcher<'a> {
                     black_time,
                     white_increment,
                     black_increment,
-                    moves_to_go,
+                    // For TC where you get more time after playing a certain number of moves. May need to consider this if going for tournaments.
+                    moves_to_go: _,
                 } => {
                     let (time_left, increment) = if self.board.white_to_move {
                         (white_time, white_increment)
@@ -229,15 +228,14 @@ impl<'a> Searcher<'a> {
 
                 let elapsed = start_time.elapsed();
 
-                self.gather_pv(&search_result.best_move);
-                UciInterface::print_search_info(search_result.eval, &self.stats, &elapsed);
+                UciInterface::print_search_info(search_result.score, &self.stats, &elapsed, &result.pv);
 
                 self.stats.aspiration_researches = 0;
 
                 if self.stop_received
                     || (search_control != SearchControl::Infinite
                         && (result.end_search
-                            || search_result.eval.abs() >= MATE_THRESHOLD
+                            || search_result.score.abs() >= MATE_THRESHOLD
                             || depth >= max_depth
                             || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
                 {
@@ -260,7 +258,6 @@ impl<'a> Searcher<'a> {
 
     pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
         self.rollback = MoveRollback::default();
-        self.stats.pv.clear();
         self.stats.depth = draft;
         self.end_search = false;
 
@@ -276,15 +273,26 @@ impl<'a> Searcher<'a> {
             alpha_window_index = ASPIRATION_WINDOW_OFFSETS.len();
             beta_window_index = ASPIRATION_WINDOW_OFFSETS.len();
         } else {
-            let last_score = last_result.unwrap().eval;
+            let last_score = last_result.unwrap().score;
             alpha = last_score - ASPIRATION_WINDOW_OFFSETS[0];
             beta = last_score + ASPIRATION_WINDOW_OFFSETS[0];
             alpha_window_index = 1;
             beta_window_index = 1;
         }
 
+        let mut pv = tiny_vec!();
+
         let score = loop {
-            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, &mut killers, self.starting_in_check, true);
+            let result = self.alpha_beta_recurse(
+                alpha,
+                beta,
+                draft,
+                0,
+                &mut killers,
+                self.starting_in_check,
+                true,
+                &mut pv,
+            );
 
             let score;
             if let Ok(e) = result {
@@ -294,6 +302,7 @@ impl<'a> Searcher<'a> {
                 return AlphaBetaResult {
                     search_result: None,
                     end_search: true,
+                    pv,
                 };
             }
 
@@ -320,26 +329,20 @@ impl<'a> Searcher<'a> {
             }
         };
 
-        let best_move = self
-            .transposition_table
-            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-        if best_move.is_none() {
-            error!("Did not get a move from transposition table in alpha_beta_init");
-            panic!("Did not get a move from transposition table in alpha_beta_init")
+        if pv.is_empty() {
+            error!("PV is empty in alpha_beta_init");
+            panic!("PV is empty in alpha_beta_init")
         }
 
-        let best_move = best_move.unwrap();
-        if best_move.get_move_type() != MoveType::Best {
-            error!("Got a move from transposition table in alpha_beta_init but it is not a best move");
-            panic!("Got a move from transposition table in alpha_beta_init but it is not a best move")
-        }
+        let best_move = pv.last().unwrap();
 
         AlphaBetaResult {
             search_result: Some(SearchResult {
-                best_move: best_move.important_move,
-                eval: score,
+                best_move: *best_move,
+                score,
             }),
             end_search: self.end_search,
+            pv,
         }
     }
 
@@ -352,6 +355,7 @@ impl<'a> Searcher<'a> {
         killers: &mut [Move; 2],
         in_check: bool,
         can_null_move: bool,
+        parent_pv: &mut TinyVec<[Move; 32]>,
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
 
@@ -359,6 +363,7 @@ impl<'a> Searcher<'a> {
             || RepetitionTracker::test_threefold_repetition(self.board)
             || self.board.is_insufficient_material()
         {
+            parent_pv.clear();
             return Ok(0);
         }
 
@@ -383,6 +388,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
+            parent_pv.clear();
             return Ok(self
                 .board
                 .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback)
@@ -395,39 +401,53 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
 
-        let mut moves;
+        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
             .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
-                let eval = tt_data.get_score(ply);
+                let tt_score = tt_data.get_score(ply);
 
                 match tt_data.get_move_type() {
                     transposition_table::MoveType::FailHigh => {
-                        if eval >= beta {
+                        if tt_score >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, ply);
 
-                            return Ok(eval);
+                            return Ok(tt_score);
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return Ok(eval);
+                        return Ok(tt_score);
                     }
                     transposition_table::MoveType::FailLow => {
-                        if eval < alpha {
-                            return Ok(eval);
+                        if tt_score < alpha {
+                            return Ok(tt_score);
                         }
                     }
                 }
             }
 
-            moves = Vec::from([ScoredMove {
+            moves = tiny_vec!(ScoredMove {
                 m: tt_data.important_move,
                 score: 1,
-            }]);
+            });
         } else {
-            moves = Vec::new();
+            moves = tiny_vec!();
+        }
+
+        let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
+
+        let mut futility_prune = false;
+        if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 {
+            let eval = self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS);
+
+            // Reverse futility pruning
+            if eval - 150 * (draft as i16) >= beta {
+                return Ok((eval + beta) / 2);
+            }
+
+            futility_prune = (eval + 300 + 200 * (draft - 1) as i16) < alpha;
         }
 
         // Null move pruning
@@ -447,7 +467,7 @@ impl<'a> Searcher<'a> {
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
 
-            let eval = -self.alpha_beta_recurse(
+            let nmp_score = -self.alpha_beta_recurse(
                 -beta,
                 -(beta - 1),
                 draft - reduction,
@@ -455,25 +475,20 @@ impl<'a> Searcher<'a> {
                 &mut null_move_killers,
                 false,
                 false,
+                &mut pv,
             )?;
 
             self.board.unmake_null_move(&mut self.rollback);
 
-            if eval >= beta {
-                return Ok(eval);
+            if nmp_score >= beta {
+                return Ok(nmp_score);
             }
         }
 
-        let futility_prune = draft < 4
-            && !is_pv
-            && !in_check
-            && alpha.abs() < 2000
-            && beta.abs() < 2000
-            && (self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS) + 300 + 200 * (draft - 1) as i16) < alpha;
-
-        let mut searched_quiet_moves = Vec::new();
+        let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
         let mut has_legal_move = false;
+        let mut improved_alpha = false;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
@@ -512,7 +527,9 @@ impl<'a> Searcher<'a> {
 
                 has_legal_move = true;
                 let gives_check = self.board.is_in_check(false);
-                if futility_prune
+
+                // Futility pruning and late move pruning
+                if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -1000))
                     && searched_moves >= 1
                     && !gives_check
                     && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
@@ -555,6 +572,7 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                         gives_check,
                         can_null_move,
+                        &mut pv,
                     )?;
 
                     if score > alpha && reduction > 0 {
@@ -567,6 +585,7 @@ impl<'a> Searcher<'a> {
                             &mut new_killers,
                             gives_check,
                             can_null_move,
+                            &mut pv,
                         )?;
                     }
                 } else {
@@ -579,6 +598,7 @@ impl<'a> Searcher<'a> {
                         &mut new_killers,
                         gives_check,
                         can_null_move,
+                        &mut pv,
                     )?;
 
                     if score > alpha {
@@ -591,6 +611,7 @@ impl<'a> Searcher<'a> {
                             &mut new_killers,
                             gives_check,
                             can_null_move,
+                            &mut pv,
                         )?;
                     }
                 }
@@ -617,7 +638,6 @@ impl<'a> Searcher<'a> {
                             self.starting_halfmove,
                         ),
                         TableType::Main,
-                        false,
                     );
 
                     return Ok(score);
@@ -628,6 +648,12 @@ impl<'a> Searcher<'a> {
                     best_move = Some(r#move.m);
                     if score > alpha {
                         alpha = score;
+                        improved_alpha = true;
+
+                        if is_pv {
+                            *parent_pv = pv.clone();
+                            parent_pv.push(r#move.m);
+                        }
                     }
                 }
 
@@ -678,15 +704,17 @@ impl<'a> Searcher<'a> {
                 );
                 panic!("Found no legal moves from the root of the search")
             } else if in_check {
+                parent_pv.clear();
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
+                parent_pv.clear();
                 return Ok(0);
             }
         } else if searched_moves == 1 && ply == 0 {
             self.end_search = true;
         }
 
-        let entry_type = if alpha == best_score {
+        let entry_type = if improved_alpha {
             MoveType::Best
         } else {
             MoveType::FailLow
@@ -702,7 +730,6 @@ impl<'a> Searcher<'a> {
                 self.starting_halfmove,
             ),
             TableType::Main,
-            ply == 0,
         );
 
         Ok(best_score)
@@ -747,7 +774,7 @@ impl Board {
             alpha = stand_pat;
         }
 
-        let mut best_value = stand_pat;
+        let mut best_score = stand_pat;
         let mut best_position = None;
 
         let mut moves = self.generate_pseudo_legal_captures_and_queen_promos(&DEFAULT_HISTORY_TABLE);
@@ -774,8 +801,8 @@ impl Board {
                 return (result, pos);
             }
 
-            if best_value < result {
-                best_value = result;
+            if best_score < result {
+                best_score = result;
                 best_position = Some(pos);
 
                 if alpha < result {
@@ -785,7 +812,7 @@ impl Board {
         }
 
         (
-            best_value,
+            best_score,
             if best_position.is_some() {
                 best_position.unwrap()
             } else {
@@ -825,77 +852,5 @@ impl<'a> Searcher<'a> {
         let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
         *current_value +=
             (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
-    }
-
-    fn gather_pv(&mut self, first_move: &Move) {
-        self.stats.pv.clear();
-
-        let mut board_copy = None;
-        if ENABLE_UNMAKE_MOVE_TEST {
-            board_copy = Some(self.board.clone());
-        }
-
-        // Prevent cycles from occurring
-        let mut previous_hashes = HashSet::new();
-        previous_hashes.insert(self.board.hash);
-
-        self.stats.pv.push(*first_move);
-        self.board.make_move(first_move, &mut self.rollback);
-        previous_hashes.insert(self.board.hash);
-
-        if !self.board.halfmove_clock >= 100 && !RepetitionTracker::test_threefold_repetition(self.board) {
-            let mut next_move =
-                self.transposition_table
-                    .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
-            loop {
-                match next_move {
-                    None => {
-                        break;
-                    }
-                    Some(e) => {
-                        if e.get_move_type() != MoveType::Best {
-                            break;
-                        }
-
-                        self.board.make_move(&e.important_move, &mut self.rollback);
-
-                        if previous_hashes.contains(&self.board.hash)
-                            || self.board.halfmove_clock >= 100
-                            || RepetitionTracker::test_threefold_repetition(self.board)
-                        {
-                            self.board.unmake_move(&e.important_move, &mut self.rollback);
-                            break;
-                        }
-
-                        previous_hashes.insert(self.board.hash);
-                        self.stats.pv.push(e.important_move);
-                        next_move = self.transposition_table.get_entry(
-                            self.board.hash,
-                            TableType::Main,
-                            self.starting_halfmove,
-                        );
-                    }
-                }
-            }
-        }
-
-        for m in self.stats.pv.iter().rev() {
-            self.board.unmake_move(m, &mut self.rollback);
-        }
-
-        if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self.board {
-            error!("gather_pv did not reset the board state properly");
-
-            let board_copied = board_copy.as_ref().unwrap();
-            if board_copied.hash != self.board.hash {
-                for (i, v) in HASH_VALUES.iter().enumerate() {
-                    if board_copied.hash ^ v == self.board.hash {
-                        debug!("board states differ by value {i} of HASH_VALUES in hash");
-                    }
-                }
-            }
-
-            assert_eq!(board_copy.as_ref().unwrap(), self.board);
-        }
     }
 }

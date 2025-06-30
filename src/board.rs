@@ -61,13 +61,13 @@ pub struct Board {
     pub castling_rights: u8,
     pub en_passant_target_square_index: Option<u8>,
     pub halfmove_clock: u8,
-    // Is this needed?
     pub fullmove_counter: u16,
     pub hash: u64,
     pub game_stage: i16,
     pub repetitions: RepetitionTracker,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
+    /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_bitboards: [[u64; 7]; 2],
     pub side_occupancy: [u64; 2],
     pub occupancy: u64,

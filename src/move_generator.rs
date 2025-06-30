@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use log::{debug, error, info};
 use num_format::{Locale, ToFormattedString};
+use tinyvec::{TinyVec, tiny_vec};
 
 use crate::{
     bitboard::{
@@ -43,9 +44,14 @@ const MOVE_SCORE_QUEEN_CASTLE: i16 = 998;
 pub const MOVE_SCORE_HISTORY_MAX: i32 = 1800;
 const MOVE_SCORE_QUIET: i16 = 0;
 
+pub const MOVE_ARRAY_SIZE: usize = 64;
+
 impl Board {
     #[inline]
-    pub fn generate_pseudo_legal_moves_with_history(&mut self, history_table: &HistoryTable) -> Vec<ScoredMove> {
+    pub fn generate_pseudo_legal_moves_with_history(
+        &mut self,
+        history_table: &HistoryTable,
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let moves = self.generate_moves_pseudo_legal::<true, false>(history_table);
 
         self.do_make_unmake_move_test(&moves);
@@ -54,12 +60,12 @@ impl Board {
     }
 
     #[inline]
-    pub fn generate_legal_moves_without_history(&mut self) -> Vec<ScoredMove> {
+    pub fn generate_legal_moves_without_history(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         self.generate_legal_moves::<false, false>(&DEFAULT_HISTORY_TABLE)
     }
 
     #[inline]
-    pub fn generate_pseudo_legal_moves_without_history(&mut self) -> Vec<ScoredMove> {
+    pub fn generate_pseudo_legal_moves_without_history(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let moves = self.generate_moves_pseudo_legal::<false, false>(&DEFAULT_HISTORY_TABLE);
 
         self.do_make_unmake_move_test(&moves);
@@ -68,7 +74,7 @@ impl Board {
     }
 
     #[inline]
-    pub fn generate_pseudo_legal_capture_moves(&mut self) -> Vec<ScoredMove> {
+    pub fn generate_pseudo_legal_capture_moves(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let moves = self.generate_moves_pseudo_legal::<false, true>(&DEFAULT_HISTORY_TABLE);
 
         self.do_make_unmake_move_test(&moves);
@@ -76,7 +82,10 @@ impl Board {
         moves
     }
 
-    pub fn generate_pseudo_legal_captures_and_queen_promos(&mut self, history_table: &HistoryTable) -> Vec<ScoredMove> {
+    pub fn generate_pseudo_legal_captures_and_queen_promos(
+        &mut self,
+        history_table: &HistoryTable,
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let mut moves = self.generate_moves_pseudo_legal::<false, true>(history_table);
 
         let mut promos;
@@ -116,12 +125,15 @@ impl Board {
     pub fn generate_legal_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
         &mut self,
         history_table: &HistoryTable,
-    ) -> Vec<ScoredMove> {
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let moves = self.generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(history_table);
         self.filter_to_legal_moves(moves)
     }
 
-    fn filter_to_legal_moves(&mut self, mut moves: Vec<ScoredMove>) -> Vec<ScoredMove> {
+    fn filter_to_legal_moves(
+        &mut self,
+        mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>,
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let mut rollback = MoveRollback::default();
         let mut board_copy = None;
         if ENABLE_UNMAKE_MOVE_TEST {
@@ -147,7 +159,7 @@ impl Board {
                     if board_copied.hash != self.hash {
                         for (i, v) in HASH_VALUES.iter().enumerate() {
                             if board_copied.hash ^ v == self.hash {
-                                debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                                error!("make/unmake differs by value {i} of HASH_VALUES in hash");
                             }
                         }
                     }
@@ -167,8 +179,8 @@ impl Board {
     pub fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
         &self,
         history_table: &HistoryTable,
-    ) -> Vec<ScoredMove> {
-        let mut result = Vec::new();
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
+        let mut result = tiny_vec!();
         let side = if self.white_to_move { 0 } else { 1 };
         let other_side = if self.white_to_move { 1 } else { 0 };
 
@@ -394,7 +406,7 @@ impl Board {
         piece_type: u8,
         side: usize,
         other_side: usize,
-        result: &mut Vec<ScoredMove>,
+        result: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>,
         history_table: &HistoryTable,
         get_attacks: F,
     ) {
@@ -437,9 +449,12 @@ impl Board {
     }
 
     /// Assumes the king of the side to move is in check
-    pub fn generate_pseudo_legal_check_evasions(&self, history_table: &HistoryTable) -> Vec<ScoredMove> {
+    pub fn generate_pseudo_legal_check_evasions(
+        &self,
+        history_table: &HistoryTable,
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let (self_side, other_side) = if self.white_to_move { (0, 1) } else { (1, 0) };
-        let mut result = vec![];
+        let mut result = tiny_vec!();
 
         let king_pos = self.piece_bitboards[self_side][PIECE_KING as usize].trailing_zeros() as u8;
         if king_pos == 64 {
@@ -640,7 +655,7 @@ impl Board {
         &self,
         mut to_squares: u64,
         offset: i8,
-        result: &mut Vec<ScoredMove>,
+        result: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>,
         side: usize,
         history_table: &HistoryTable,
     ) {
@@ -801,7 +816,7 @@ impl Board {
     }
 
     #[inline]
-    fn do_make_unmake_move_test(&mut self, moves: &Vec<ScoredMove>) {
+    fn do_make_unmake_move_test(&mut self, moves: &TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>) {
         if ENABLE_UNMAKE_MOVE_TEST {
             let board_copy = self.clone();
             let mut rollback = MoveRollback::default();
@@ -816,7 +831,7 @@ impl Board {
                     if board_copy.hash != self.hash {
                         for (i, v) in HASH_VALUES.iter().enumerate() {
                             if board_copy.hash ^ v == self.hash {
-                                debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                                error!("make/unmake differs by value {i} of HASH_VALUES in hash");
                             }
                         }
                     }
@@ -927,6 +942,7 @@ fn check_perft_stats(r#move: &Move, board: &mut Board, stats: &mut PerftStats) {
     board.white_to_move = !board.white_to_move;
 }
 
+#[derive(Default)]
 pub struct ScoredMove {
     pub m: Move,
     pub score: i16,
