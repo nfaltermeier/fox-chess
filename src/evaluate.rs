@@ -1,8 +1,10 @@
 use array_macro::array;
 
 use crate::{
-    bitboard::{LIGHT_SQUARES, north_fill, south_fill},
-    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
+    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::Move,
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -293,11 +295,68 @@ impl Board {
         (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1])
             - (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
     }
+
+    // Algorithm from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
+    /// Move is expected to be a capture but probably will work if it isn't. En passant, castling, and promotions are not supported.
+    pub fn static_exchange_eval(&self, m: Move) -> i16 {
+        let from = m.from();
+        let to = m.to();
+        let mut occupancy = self.occupancy & !BIT_SQUARES[from as usize];
+        let mut attacks_data = self.get_attacks_to(to as u8, occupancy);
+        attacks_data.attackers &= !BIT_SQUARES[from as usize];
+
+        let mut values = [0; 32];
+        let mut depth = 1;
+        let mut color = if self.white_to_move { 1 } else { 0 };
+        values[0] = CENTIPAWN_VALUES[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
+        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
+
+        loop {
+            // Check if the last move opened up an x-ray
+            if (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
+                && attacks_data.possible_rook_like_x_rays != 0
+            {
+                let new_attacks = lookup_rook_attack(to as u8, occupancy) & attacks_data.possible_rook_like_x_rays;
+                attacks_data.attackers |= new_attacks;
+                attacks_data.possible_rook_like_x_rays ^= new_attacks;
+            }
+
+            if (last_attacker == PIECE_BISHOP as usize
+                || last_attacker == PIECE_QUEEN as usize
+                || last_attacker == PIECE_PAWN as usize)
+                && attacks_data.possible_bishop_like_x_rays != 0
+            {
+                let new_attacks = lookup_bishop_attack(to as u8, occupancy) & attacks_data.possible_bishop_like_x_rays;
+                attacks_data.attackers |= new_attacks;
+                attacks_data.possible_bishop_like_x_rays ^= new_attacks;
+            }
+
+            let (attacker_bitboard, next_attacker_piece) =
+                self.get_least_valuable_attacker(attacks_data.attackers, color);
+            if attacker_bitboard == 0 {
+                break;
+            }
+
+            attacks_data.attackers ^= attacker_bitboard;
+            occupancy ^= attacker_bitboard;
+            values[depth] = CENTIPAWN_VALUES[last_attacker] - values[depth - 1];
+            depth += 1;
+            color = if color != 0 { 0 } else { 1 };
+            last_attacker = next_attacker_piece;
+        }
+
+        for i in (1..depth).rev() {
+            values[i - 1] = -values[i].max(-values[i - 1]);
+        }
+
+        values[0]
+    }
 }
 
 #[cfg(test)]
 mod eval_tests {
     use crate::STARTING_FEN;
+    use crate::magic_bitboard::initialize_magic_bitboards;
 
     use super::*;
 
@@ -354,5 +413,39 @@ mod eval_tests {
         black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
         unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
         unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
+    }
+
+    macro_rules! see_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_eval, m) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+
+                    initialize_magic_bitboards();
+
+                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m));
+
+                    assert_eq!(expected_eval, see_result);
+                }
+            )*
+        }
+    }
+
+    see_test! {
+        // Some positions taken from https://github.com/zzzzz151/Starzix/blob/main/tests/SEE.txt
+        no_recapture: ("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - -", CENTIPAWN_VALUES[PIECE_PAWN as usize], "e1e5"),
+        pawn_captures: ("k7/8/4p1p1/5p2/4P1P1/8/8/K7 w - - 0 1", 0, "e4f5"),
+        sliders_behind_capturing_piece: ("2r2r1k/6bp/p7/2q2p1Q/3PpP2/1B6/P5PP/2RR3K b - -", CENTIPAWN_VALUES[PIECE_ROOK as usize] * 2 - CENTIPAWN_VALUES[PIECE_QUEEN as usize], "c5c1"),
+        pawn_before_rook: ("4R3/2r3p1/5bk1/1p1r1p1p/p2PR1P1/P1BK1P2/1P6/8 b - -", 0, "h5g4"),
+        bishop_for_knight_no_losing_queen_capture: ("5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -", -CENTIPAWN_VALUES[PIECE_BISHOP as usize] + CENTIPAWN_VALUES[PIECE_KNIGHT as usize], "d6f4"),
+        non_capture1: ("2r1k2r/pb4pp/5p1b/2KB3n/4N3/2NP1PB1/PPP1P1PP/R2Q3R w k -", -CENTIPAWN_VALUES[PIECE_BISHOP as usize], "d5c6"),
+        non_capture1_recapture: ("2r1k2r/pb4pp/5p1b/2KB3n/1N2N3/3P1PB1/PPP1P1PP/R2Q3R w k -", 0, "d5c6"),
+        rook_xray: ("4q3/1p1pr1k1/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES[PIECE_PAWN as usize] - CENTIPAWN_VALUES[PIECE_ROOK as usize], "e6e4"),
+        rook_xray_extra_defender: ("4q3/1p1pr1kb/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES[PIECE_PAWN as usize], "e6e4"),
+        // I think the best is if everything gets traded off, this is the net change of that. It fails, not sure if that is because my bishop val != knight val
+        // big_trade_both_xrays: ("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -", CENTIPAWN_VALUES[PIECE_KNIGHT as usize] * 2 - CENTIPAWN_VALUES[PIECE_BISHOP as usize] + CENTIPAWN_VALUES[PIECE_ROOK as usize] - CENTIPAWN_VALUES[PIECE_QUEEN as usize], "d3d4"),
     }
 }

@@ -1,8 +1,8 @@
 use array_macro::array;
 
 use crate::{
-    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    magic_bitboard::{COMBINED_BISHOP_RAYS, COMBINED_ROOK_RAYS, lookup_bishop_attack, lookup_rook_attack},
 };
 
 // Little endian rank file mapping
@@ -24,6 +24,12 @@ static KNIGHT_ATTACKS: [u64; 64] = array![i => generate_knight_attack(BIT_SQUARE
 static KING_ATTACKS: [u64; 64] = array![i => generate_king_attack(BIT_SQUARES[i]); 64];
 static PAWN_ATTACKS: [[u64; 64]; 2] = array![x => array![y => generate_pawn_attack(BIT_SQUARES[y], x == 0); 64]; 2];
 pub static SQUARES_BETWEEN: [[u64; 64]; 64] = array![x => array![y => squares_in_between(x as u64, y as u64); 64]; 64];
+
+pub struct AttacksTo {
+    pub attackers: u64,
+    pub possible_rook_like_x_rays: u64,
+    pub possible_bishop_like_x_rays: u64,
+}
 
 #[inline]
 pub fn lookup_knight_attack(square_bitindex: u8) -> u64 {
@@ -236,6 +242,53 @@ impl Board {
         }
 
         false
+    }
+
+    /// Gets psuedolegal attackers to a square for both sides
+    pub fn get_attacks_to(&self, square_index: u8, occupancy: u64) -> AttacksTo {
+        let mut attackers = 0;
+        let queens = self.piece_bitboards[0][PIECE_QUEEN as usize] | self.piece_bitboards[1][PIECE_QUEEN as usize];
+
+        // Moving from target square to potential pawn squares so use opposite colors
+        attackers |= lookup_pawn_attack(square_index, false) & self.piece_bitboards[0][PIECE_PAWN as usize];
+        attackers |= lookup_pawn_attack(square_index, true) & self.piece_bitboards[1][PIECE_PAWN as usize];
+
+        attackers |= lookup_knight_attack(square_index)
+            & (self.piece_bitboards[0][PIECE_KNIGHT as usize] | self.piece_bitboards[1][PIECE_KNIGHT as usize]);
+
+        let bishop_like_squares =
+            queens | self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
+        attackers |= lookup_bishop_attack(square_index, occupancy) & bishop_like_squares;
+        let possible_bishop_like_x_rays =
+            COMBINED_BISHOP_RAYS[square_index as usize] & bishop_like_squares & !attackers;
+
+        let rook_like_squares =
+            queens | self.piece_bitboards[0][PIECE_ROOK as usize] | self.piece_bitboards[1][PIECE_ROOK as usize];
+        attackers |= lookup_rook_attack(square_index, occupancy) & rook_like_squares;
+        let possible_rook_like_x_rays = COMBINED_ROOK_RAYS[square_index as usize] & rook_like_squares & !attackers;
+
+        attackers |= lookup_king_attack(square_index)
+            & (self.piece_bitboards[0][PIECE_KING as usize] | self.piece_bitboards[1][PIECE_KING as usize]);
+
+        AttacksTo {
+            attackers,
+            possible_rook_like_x_rays,
+            possible_bishop_like_x_rays,
+        }
+    }
+
+    // Code from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
+    pub fn get_least_valuable_attacker(&self, attacks: u64, color: usize) -> (u64, usize) {
+        let boards = &self.piece_bitboards[color];
+        for (piece, board) in boards.iter().enumerate().skip(1) {
+            let matches = attacks & board;
+            if matches != 0 {
+                // Same as matches & -matches
+                return (matches & (!matches).wrapping_add(1), piece);
+            }
+        }
+
+        (0, 0)
     }
 }
 

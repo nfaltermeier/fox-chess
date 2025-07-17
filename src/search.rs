@@ -432,12 +432,7 @@ impl<'a> Searcher<'a> {
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
 
         let mut futility_prune = false;
-        if draft < 4
-            && !is_pv
-            && !in_check
-            && alpha.abs() < 2000
-            && beta.abs() < 2000
-        {
+        if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 {
             let eval = self.board.evaluate_side_to_move_relative();
 
             // Reverse futility pruning
@@ -811,6 +806,12 @@ impl<'a> Searcher<'a> {
                 let r#move = &moves[move_index];
 
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                    continue;
+                }
+
+                // SEE is coded to be run before the move is made so have to do it before testing legality
+                // Typical implementations also only check if the score is better than a threshold instead of calculating the whole thing.
+                if self.board.static_exchange_eval(r#move.m) < 0 {
                     continue;
                 }
 
