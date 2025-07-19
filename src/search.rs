@@ -1,5 +1,7 @@
 use std::{
-    io::{self, Write}, sync::mpsc::Receiver, time::{Duration, Instant}
+    io::{self, Write},
+    sync::mpsc::Receiver,
+    time::{Duration, Instant},
 };
 
 use log::{debug, error};
@@ -395,9 +397,8 @@ impl<'a> Searcher<'a> {
         let fen = self.board.to_fen();
         const POSITION_TO_FIND: &'static str = "6k1/5p2/5b1p/1R2p1pP/3pP1P1/3P4/5K2/3B4 w";
         const REQUIRE_IS_PV: bool = false;
-        let the_point = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
-        if the_point {
-            // let real = if fen.ends_with(" - - 56 80") { "real" } else { "fake" };
+        let position_to_debug = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
+        if position_to_debug {
             debug!("at {POSITION_TO_FIND} on ply {ply} and draft {draft}, alpha {alpha} beta {beta}");
             io::stderr().flush().unwrap();
         }
@@ -407,10 +408,6 @@ impl<'a> Searcher<'a> {
             .transposition_table
             .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
-            // if the_point {
-            //     debug!("tt entry: {tt_entry:?}");
-            // }
-
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
 
@@ -419,14 +416,26 @@ impl<'a> Searcher<'a> {
                         if tt_score >= beta {
                             self.update_killers_and_history(killers, &tt_data.important_move, ply);
 
+                            if position_to_debug {
+                                debug!("TT cutoff by stored fail high with score {tt_score} and beta {beta}");
+                            }
+
                             return Ok(tt_score);
                         }
                     }
                     transposition_table::MoveType::Best => {
+                        if position_to_debug {
+                            debug!("TT cutoff by best move with score {tt_score}");
+                        }
+
                         return Ok(tt_score);
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_score < alpha {
+                            if position_to_debug {
+                                debug!("TT cutoff by stored fail low with score {tt_score} and alpha {alpha}");
+                            }
+
                             return Ok(tt_score);
                         }
                     }
@@ -449,7 +458,7 @@ impl<'a> Searcher<'a> {
 
             // Reverse futility pruning
             if eval - 150 * (draft as i16) >= beta {
-                if the_point {
+                if position_to_debug {
                     debug!("Reverse futility pruning with eval {eval}");
                 }
 
@@ -490,7 +499,7 @@ impl<'a> Searcher<'a> {
             self.board.unmake_null_move(&mut self.rollback);
 
             if nmp_score >= beta {
-                if the_point {
+                if position_to_debug {
                     debug!("Null move pruned with score {nmp_score}");
                 }
 
@@ -536,6 +545,16 @@ impl<'a> Searcher<'a> {
                     && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
                 {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
+
+                    debug!(
+                        "{searched_moves:2}    Move {move_string} skipped by {}",
+                        if futility_prune {
+                            "futility pruning"
+                        } else {
+                            "late move pruning"
+                        }
+                    );
+
                     continue;
                 }
 
@@ -576,8 +595,9 @@ impl<'a> Searcher<'a> {
                         &mut pv,
                     )?;
 
-                    if the_point {
-                        let str_pv = pv.iter()
+                    if position_to_debug {
+                        let str_pv = pv
+                            .iter()
                             .rev()
                             .map(|m| m.simple_long_algebraic_notation())
                             .collect::<Vec<String>>()
@@ -599,8 +619,9 @@ impl<'a> Searcher<'a> {
                             &mut pv,
                         )?;
 
-                        if the_point {
-                            let str_pv = pv.iter()
+                        if position_to_debug {
+                            let str_pv = pv
+                                .iter()
                                 .rev()
                                 .map(|m| m.simple_long_algebraic_notation())
                                 .collect::<Vec<String>>()
@@ -621,8 +642,9 @@ impl<'a> Searcher<'a> {
                         &mut pv,
                     )?;
 
-                    if the_point {
-                        let str_pv = pv.iter()
+                    if position_to_debug {
+                        let str_pv = pv
+                            .iter()
                             .rev()
                             .map(|m| m.simple_long_algebraic_notation())
                             .collect::<Vec<String>>()
@@ -644,8 +666,9 @@ impl<'a> Searcher<'a> {
                             &mut pv,
                         )?;
 
-                        if the_point {
-                            let str_pv = pv.iter()
+                        if position_to_debug {
+                            let str_pv = pv
+                                .iter()
                                 .rev()
                                 .map(|m| m.simple_long_algebraic_notation())
                                 .collect::<Vec<String>>()
@@ -679,7 +702,7 @@ impl<'a> Searcher<'a> {
                         TableType::Main,
                     );
 
-                    if the_point {
+                    if position_to_debug {
                         debug!("Failed high with score {score}");
                     }
 
@@ -763,7 +786,7 @@ impl<'a> Searcher<'a> {
             (MoveType::FailLow, "failed low")
         };
 
-        if the_point {
+        if position_to_debug {
             debug!("Result is {entry_type_desc} with score {best_score}");
         }
 
