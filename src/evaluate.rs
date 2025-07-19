@@ -1,17 +1,16 @@
 use array_macro::array;
-use log::error;
 
 use crate::{
-    bitboard::{LIGHT_SQUARES, north_fill, south_fill},
-    board::{
-        Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE,
-        PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
-    },
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
+    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::Move,
 };
 
 /// Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES: [i16; 7] = [0, 81, 309, 338, 501, 1021, 20000];
+pub static CENTIPAWN_VALUES: [i16; 7] = [0, 79, 286, 313, 443, 901, 20000];
 
+/// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
 pub const MAX_GAME_STAGE: i16 = 16 * GAME_STAGE_VALUES[PIECE_PAWN as usize]
     + 4 * GAME_STAGE_VALUES[PIECE_KNIGHT as usize]
@@ -31,146 +30,146 @@ pub const MATE_VALUE: i16 = 25000;
 #[rustfmt::skip]
 const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
- 173, 147, 135, 128,  90,  41,   2,  46,
-  39,  54,  43,  43,  50,  58,  82,  20,
-   3,  11,  -2,  11,  19,  13,  12,  -7,
- -14,   5,  -5,   3,  -1,   8,   4, -16,
- -13,   0,  -8,  -8,   2,   2,  21,  -4,
- -20,  -6, -18, -16, -12,  17,  27, -15,
+ 164, 147, 136, 128,  85,  59,  16,  55,
+  37,  53,  50,  46,  50,  62,  74,  30,
+   0,  11,  -2,  11,  20,  16,  14,  -2,
+ -12,   4,  -5,   1,  -1,  10,   6, -13,
+ -13,   2,  -9,  -7,   2,   5,  21,  -4,
+ -18,  -5, -18, -16,  -8,  19,  29, -14,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
 #[rustfmt::skip]
 const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
-  78, 116, 115,  70, 103, 136, 184, 132,
- 108, 104,  81,  63,  57,  53,  64,  69,
-  68,  52,  49,  10,  12,  21,  37,  29,
-  46,  47,  24,   2,  12,  26,  37,  28,
-  48,  35,  27,  27,  19,  28,  26,  19,
-  62,  53,  40,   9,  42,  29,  28,  33,
+  82, 111, 109,  71, 102, 128, 171, 128,
+ 109, 103,  79,  63,  54,  46,  63,  63,
+  70,  54,  47,  14,  12,  20,  40,  30,
+  50,  44,  23,   7,  14,  26,  38,  25,
+  48,  35,  28,  22,  21,  24,  28,  19,
+  60,  51,  41,  24,  32,  29,  33,  33,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
 #[rustfmt::skip]
 const KNIGHT_MIDGAME_SQUARE_TABLE: [i16; 64] = [
--157, -13, -14, -13,  33, -45, -40,-102,
- -29,   0,  21,  54,  35,  41, -26,   7,
-  -8,  23,  40,  61,  85,  87,  42,  13,
-  10,   7,  26,  49,  17,  50,  14,  36,
-  -1,  -3,  15,   7,  19,  24,  25,  -3,
-  -1,  -5,   4,  16,  25,   2,  14,  -8,
- -45, -15,  -1,  -2,   0,   3, -26, -14,
- -76, -12, -38, -33, -17,  -9, -12, -41,
+-124, -21,  -7, -15,  24, -46, -39,-118,
+ -10,   4,  23,  36,  43,  38, -35, -10,
+   6,  27,  42,  60,  76,  81,  36,   6,
+   1,  13,  32,  51,  22,  53,  17,  26,
+  -7,   7,  21,   8,  20,  18,  26,  -8,
+ -23,  -8,  -1,  10,  25,   2,   5, -11,
+ -49, -22, -15,  -5,  -4,  -1, -13, -33,
+ -81, -24, -35, -25, -24, -15, -16, -66,
 ];
 
 #[rustfmt::skip]
 const KNIGHT_ENDGAME_SQUARE_TABLE: [i16; 64] = [
- -50, -35, -28, -37, -33, -30, -40, -55,
- -50, -28, -61, -42, -32, -71, -22, -70,
- -15,  -5, -44, -58,-103, -56, -29, -65,
- -72, -31, -48, -48, -16, -49, -39, -77,
- -59, -41, -13,  -7, -17, -39, -24, -56,
- -84, -55, -41, -49, -37, -38, -71, -69,
- -44, -20, -49, -66, -56, -72, -43,-147,
--105, -84, -44, -71, -93, -60, -41, -51,
+  -4, -34, -34, -37, -68, -18, -31, -60,
+ -64, -40, -52, -53, -56, -72, -39, -80,
+ -49, -65, -36, -51, -75, -78, -53, -68,
+ -72, -45, -28, -51, -25, -46, -48, -90,
+ -60, -37, -25, -19, -38, -41, -75, -66,
+ -85, -50, -31, -38, -43, -44, -72, -95,
+ -58, -61, -55, -53, -58, -59, -71,-117,
+-105,-104, -67, -72, -91, -83,-118,-109,
 ];
 
 #[rustfmt::skip]
 const BISHOP_MIDGAME_SQUARE_TABLE: [i16; 64] = [
- -26, -32, -22, -30, -13, -48,   2,  -6,
- -21, -22,   9,  13,   3,   3,   6, -27,
-  -8,   2,  21,  32,  41,  67,  21,  27,
-  17,  -4,  12,  29,  28,  17,  -4,   9,
-  -8,   9,   3,  18,  18,   6,   5,  -2,
-   3,   5,  12,   6,   7,   2,   1,  20,
-   5,  -8,   8,  -6,   0,  -2,   9, -31,
- -48, -22, -18, -11, -15, -15,  -7, -25,
+ -13, -29, -36, -18, -37, -57, -14,  20,
+  -7,  -1,   7, -10,   9,   4,  -8, -17,
+   0,  16,  27,  34,  37,  63,  34,  25,
+   3,   2,  17,  38,  30,  25,  -4,  -3,
+ -10,  11,   6,  30,  19,   5,   0,   1,
+  -9,   8,  10,   9,  10,   6,   6,   1,
+ -11,  -2,   1,  -5,   2,  -3,  11, -16,
+ -37, -25, -18, -19, -17, -18, -23, -25,
 ];
 
 #[rustfmt::skip]
 const BISHOP_ENDGAME_SQUARE_TABLE: [i16; 64] = [
- -20, -25, -18, -10, -10, -10, -10, -20,
-  -1, -12, -44, -39, -13, -34, -26, -43,
- -23,   2, -32, -67, -63, -53, -19, -61,
- -55, -15, -34, -34, -29, -23, -21, -47,
- -33, -23,  -8, -11, -30, -36, -35, -79,
- -85, -35,  -9, -35, -17, -31, -88, -96,
- -92, -62, -91, -44, -63, -51,-102,-185,
- -38, -25, -90, -62, -43, -68, -56, -39,
+ -14, -10, -18, -25, -30, -28, -47, -58,
+ -37, -34, -37, -38, -39, -51, -49, -48,
+ -41, -44, -47, -63, -60, -65, -58, -71,
+ -50, -38, -48, -47, -45, -58, -35, -45,
+ -46, -43, -35, -41, -42, -34, -38, -66,
+ -81, -48, -37, -46, -29, -51, -74, -79,
+ -71, -72, -62, -47, -59, -56, -85,-148,
+ -68, -48, -81, -55, -71, -81, -65, -66,
 ];
 
 #[rustfmt::skip]
 const ROOK_MIDGAME_SQUARE_TABLE: [i16; 64] = [
-  45,  57,  42,  42,  50,  71,  75,  14,
-  31,  33,  57,  60,  50,  83,  61,  59,
-  14,  52,  47,  38,  34,  57,  70,  38,
-   4,   4,   6,  10,  22,  22,  33,   3,
- -19,  -2,  -4,   4,   3,   1,  13, -11,
- -15,  -4,  -7, -10, -10,  -6,  11,  -1,
- -27, -20,  -9, -11, -13,  -2,  -8, -42,
- -13,  -5,  -1,   1,   1,   0, -19, -40,
+  50,  47,  43,  37,  35,  34,  47,  39,
+  24,  27,  45,  55,  46,  67,  54,  53,
+  11,  24,  28,  35,  39,  65,  50,  22,
+  -4,  -2,   9,  12,  14,  20,  13,  -7,
+ -22, -15,  -8,  -4,  -5,  -5,   0, -22,
+ -29, -20, -20, -20, -18, -19,  -3, -23,
+ -31, -27, -15, -17, -15,  -8, -20, -49,
+ -14, -14,  -7,  -3,  -4,  -5, -36, -16,
 ];
 
 #[rustfmt::skip]
 const ROOK_ENDGAME_SQUARE_TABLE: [i16; 64] = [
-  16,  16,  32,  31,  21,  16,  25,  35,
-  45,  28,  14,  14,  21,   4,  19,  11,
-  44,  10,  22,  15,  30,  14,  19,  16,
-  46,  47,  49,  41,  22,  41,  41,  43,
-  49,  41,  46,  32,  27,  44,  27,  42,
-  19,  16,  24,  23,  22,  26,   6,   8,
-   9,  14,  26,  17,  22,   0,   2,  -5,
-  14,  18,  23,  34,  11,  12,  37,  18,
+   3,  25,  27,  32,  47,  55,  41,  29,
+  40,  39,  30,  23,  28,  20,  26,  11,
+  38,  29,  27,  22,  24,  14,  20,  24,
+  40,  42,  30,  27,  25,  24,  25,  37,
+  46,  40,  37,  30,  29,  35,  24,  31,
+  12,  15,  18,  21,  15,  20,   4,  10,
+   4,   7,   9,   6,   4,   2,   1,   4,
+  13,   8,  20,  22,   3,   9,  46,  -5,
 ];
 
 #[rustfmt::skip]
 const QUEEN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
-   0,  10,  33,  51,  59,  81,  98,  38,
- -17, -31,  11,  16,  24,  77,  36,  68,
-   0,   8,   6,  27,  44,  97,  78,  63,
-  -4,  -6,   1,  22,  32,  26,  48,  30,
-  -2,  -5,   0,   5,   8,  14,  20,  13,
- -11,   3,   4,   5,   9,  11,  21,   4,
- -27,  -6,   2,   0,   7,   6, -13,  -8,
-  11, -14,  -9,   0,  -6, -27, -30, -54,
+   4,  21,  28,  39,  67,  78,  71,  61,
+  -1,  -8,  21,  30,  35,  73,  48,  66,
+   4,   8,  22,  34,  54,  98,  86,  41,
+  -5,   0,  11,  23,  30,  31,  41,  18,
+   0,   5,   4,  10,  11,  10,  17,   6,
+  -4,   3,   2,   4,   4,   7,  12,  -4,
+ -17,  -3,   6,   2,   7,  -4, -16, -37,
+  -5,  -8,  -9,   3,  -9, -37, -49, -27,
 ];
 
 #[rustfmt::skip]
 const QUEEN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
-  15,  72,  53,  72,  -2,   8,  -5, -20,
-  44, 110, 115, 100, 142,  90,  78,   2,
-  13,   1,  82,  74, 106,  50,   1,  -9,
-  69,  60,  86,  72, 121, 107,  57,  22,
-  31,  54,  79,  70, 110,  98,  23,  -5,
-  -8,  34,  89,  45,  32,  69,   5, -10,
- -10,   0,  45,   8,  11, -26, -45, -10,
- -20, -30, -10,   9,  -5, -11, -10, -20,
+  15,  60,  53,  55,   2,   5, -17, -20,
+  44,  76,  74,  95,  86,  26,  55,   1,
+  14,  37,  55,  75,  73,   1, -20,  -4,
+  51,  33,  81,  72,  75,  82,  54,  23,
+  29,  45,  62,  64,  65,  67,  56,   4,
+  -7,  18,  56,  20,  31,  36,   6, -10,
+  -9,  -7,  10, -10,  -7, -28, -50, -10,
+ -22, -29, -11, -62,  -5, -13, -10, -20,
 ];
 
 #[rustfmt::skip]
 /// This appears to have some anomalous values
 const KING_MIDGAME_SQUARE_TABLE: [i16; 64] = [
- -30, -39, -40, -50, -47, -39, -40, -30,
- -30, -30, -29, -50, -50, -40,  -2, -30,
- -30,  31, -13, -23,  13,  66, 123,  14,
- -30,  57,  11,  15,  40,  99, 123,  31,
- -18,  26,  32,  31,  18,  13, -32,   3,
- -12,  30,  18,  10,   3,   1,   0, -27,
-  10,  19,   7, -21, -10,  -9,  13,  16,
- -10,  40,  14, -34,  19, -33,  26,  20,
+ -28,  52,  32, -40,  65, -14,  51, -46,
+  13,  -4,  58, -15, -39,  35,  -7,  18,
+ -28,   8,   0,  -5, -28, -32, -43, -40,
+  27,  45,  11,   7,  15,  21,  43,  29,
+  16,  40,  37,  30,  26,  26,   5,  -2,
+   6,  24,  18,  17,  19,   7,   7, -13,
+  21,  13,   8, -10,  -4,  -2,  19,  18,
+ -34,  21,  -2, -41,  -4, -34,  29,  14,
 ];
 
 #[rustfmt::skip]
 const KING_ENDGAME_SQUARE_TABLE: [i16; 64] = [
- -50, -36, -30, -20, -15,  22, -20, -50,
- -30,  46,   2,  47,  53,  69,  45,  -2,
-  -4,  24,  35,  37,  37,  18,   3,  41,
- -25, -12,  21,  16,   9, -14, -34,  -3,
- -30,  -3,   1,   8,  18,  24,  14,   7,
-   1, -16,   0,   5,  21,  18,   8,   6,
- -46,  -9,   0,  20,  10,  13,  -6, -23,
- -29, -62, -26, -27, -70,  -8, -54, -68,
+ -69, -36,  -2,  23, -11,  22,   2, -64,
+  -9,  11,  24,  47,  47,  -9,  36,  21,
+  13,  28,  43,  41,  45,  57,  48,  39,
+  -5,  10,  25,  29,  28,  27,  14,   6,
+ -28, -10,   2,  11,  19,  17,  13,   1,
+ -37, -17,  -1,   5,   7,  14,   2,  -8,
+ -44, -12,  -9,   2,   2,   5,  -6, -29,
+   6, -37, -16, -11, -28,  -6, -50, -56,
 ];
 
 const ALL_PIECE_SQUARE_TABLES: [[i16; 64]; 12] = [
@@ -196,11 +195,6 @@ pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 ];
 
 static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
-
-// thread_local! {
-//     pub static ISOLATED_PAWN_PENALTY: Cell<i16> = const { Cell::new(35) };
-//     pub static DOUBLED_PAWN_PENALTY: Cell<i16> = const { Cell::new(25) };
-// }
 
 impl Board {
     pub fn evaluate(&self) -> i16 {
@@ -234,10 +228,10 @@ impl Board {
 
         material_score
             + position_score_final
-            + doubled_pawns * 22
-            + net_passed_pawns * 10
-            + (w_open - b_open) * 18
-            + (w_half_open - b_half_open) * 17
+            + doubled_pawns * 23
+            + net_passed_pawns * 8
+            + (w_open - b_open) * 21
+            + (w_half_open - b_half_open) * 18
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -290,10 +284,10 @@ impl Board {
     /// positive value: black has more doubled pawns than white
     fn count_doubled_pawns(&self) -> i16 {
         let mut pawn_occupied_files = [0, 0];
-        for color in 0..2 {
+        for (color, occupied_files_count) in pawn_occupied_files.iter_mut().enumerate() {
             for file in FILES {
                 if self.piece_bitboards[color][PIECE_PAWN as usize] & file > 0 {
-                    pawn_occupied_files[color] += 1;
+                    *occupied_files_count += 1;
                 }
             }
         }
@@ -301,11 +295,68 @@ impl Board {
         (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1])
             - (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
     }
+
+    // Algorithm from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
+    /// Move is expected to be a capture but probably will work if it isn't. En passant, castling, and promotions are not supported.
+    pub fn static_exchange_eval(&self, m: Move) -> i16 {
+        let from = m.from();
+        let to = m.to();
+        let mut occupancy = self.occupancy & !BIT_SQUARES[from as usize];
+        let mut attacks_data = self.get_attacks_to(to as u8, occupancy);
+        attacks_data.attackers &= !BIT_SQUARES[from as usize];
+
+        let mut values = [0; 32];
+        let mut depth = 1;
+        let mut color = if self.white_to_move { 1 } else { 0 };
+        values[0] = CENTIPAWN_VALUES[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
+        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
+
+        loop {
+            // Check if the last move opened up an x-ray
+            if (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
+                && attacks_data.possible_rook_like_x_rays != 0
+            {
+                let new_attacks = lookup_rook_attack(to as u8, occupancy) & attacks_data.possible_rook_like_x_rays;
+                attacks_data.attackers |= new_attacks;
+                attacks_data.possible_rook_like_x_rays ^= new_attacks;
+            }
+
+            if (last_attacker == PIECE_BISHOP as usize
+                || last_attacker == PIECE_QUEEN as usize
+                || last_attacker == PIECE_PAWN as usize)
+                && attacks_data.possible_bishop_like_x_rays != 0
+            {
+                let new_attacks = lookup_bishop_attack(to as u8, occupancy) & attacks_data.possible_bishop_like_x_rays;
+                attacks_data.attackers |= new_attacks;
+                attacks_data.possible_bishop_like_x_rays ^= new_attacks;
+            }
+
+            let (attacker_bitboard, next_attacker_piece) =
+                self.get_least_valuable_attacker(attacks_data.attackers, color);
+            if attacker_bitboard == 0 {
+                break;
+            }
+
+            attacks_data.attackers ^= attacker_bitboard;
+            occupancy ^= attacker_bitboard;
+            values[depth] = CENTIPAWN_VALUES[last_attacker] - values[depth - 1];
+            depth += 1;
+            color = if color != 0 { 0 } else { 1 };
+            last_attacker = next_attacker_piece;
+        }
+
+        for i in (1..depth).rev() {
+            values[i - 1] = -values[i].max(-values[i - 1]);
+        }
+
+        values[0]
+    }
 }
 
 #[cfg(test)]
 mod eval_tests {
     use crate::STARTING_FEN;
+    use crate::magic_bitboard::initialize_magic_bitboards;
 
     use super::*;
 
@@ -362,5 +413,39 @@ mod eval_tests {
         black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
         unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
         unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
+    }
+
+    macro_rules! see_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_eval, m) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+
+                    initialize_magic_bitboards();
+
+                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m));
+
+                    assert_eq!(expected_eval, see_result);
+                }
+            )*
+        }
+    }
+
+    see_test! {
+        // Some positions taken from https://github.com/zzzzz151/Starzix/blob/main/tests/SEE.txt
+        no_recapture: ("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - -", CENTIPAWN_VALUES[PIECE_PAWN as usize], "e1e5"),
+        pawn_captures: ("k7/8/4p1p1/5p2/4P1P1/8/8/K7 w - - 0 1", 0, "e4f5"),
+        sliders_behind_capturing_piece: ("2r2r1k/6bp/p7/2q2p1Q/3PpP2/1B6/P5PP/2RR3K b - -", CENTIPAWN_VALUES[PIECE_ROOK as usize] * 2 - CENTIPAWN_VALUES[PIECE_QUEEN as usize], "c5c1"),
+        pawn_before_rook: ("4R3/2r3p1/5bk1/1p1r1p1p/p2PR1P1/P1BK1P2/1P6/8 b - -", 0, "h5g4"),
+        bishop_for_knight_no_losing_queen_capture: ("5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -", -CENTIPAWN_VALUES[PIECE_BISHOP as usize] + CENTIPAWN_VALUES[PIECE_KNIGHT as usize], "d6f4"),
+        non_capture1: ("2r1k2r/pb4pp/5p1b/2KB3n/4N3/2NP1PB1/PPP1P1PP/R2Q3R w k -", -CENTIPAWN_VALUES[PIECE_BISHOP as usize], "d5c6"),
+        non_capture1_recapture: ("2r1k2r/pb4pp/5p1b/2KB3n/1N2N3/3P1PB1/PPP1P1PP/R2Q3R w k -", 0, "d5c6"),
+        rook_xray: ("4q3/1p1pr1k1/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES[PIECE_PAWN as usize] - CENTIPAWN_VALUES[PIECE_ROOK as usize], "e6e4"),
+        rook_xray_extra_defender: ("4q3/1p1pr1kb/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES[PIECE_PAWN as usize], "e6e4"),
+        // I think the best is if everything gets traded off, this is the net change of that. It fails, not sure if that is because my bishop val != knight val
+        // big_trade_both_xrays: ("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -", CENTIPAWN_VALUES[PIECE_KNIGHT as usize] * 2 - CENTIPAWN_VALUES[PIECE_BISHOP as usize] + CENTIPAWN_VALUES[PIECE_ROOK as usize] - CENTIPAWN_VALUES[PIECE_QUEEN as usize], "d3d4"),
     }
 }

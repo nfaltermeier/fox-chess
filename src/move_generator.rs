@@ -120,7 +120,7 @@ impl Board {
                     if board_copied.hash != self.hash {
                         for (i, v) in HASH_VALUES.iter().enumerate() {
                             if board_copied.hash ^ v == self.hash {
-                                debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                                error!("make/unmake differs by value {i} of HASH_VALUES in hash");
                             }
                         }
                     }
@@ -792,7 +792,7 @@ impl Board {
                     if board_copy.hash != self.hash {
                         for (i, v) in HASH_VALUES.iter().enumerate() {
                             if board_copy.hash ^ v == self.hash {
-                                debug!("make/unmake differs by value {i} of HASH_VALUES in hash");
+                                error!("make/unmake differs by value {i} of HASH_VALUES in hash");
                             }
                         }
                     }

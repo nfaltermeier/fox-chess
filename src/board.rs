@@ -61,13 +61,13 @@ pub struct Board {
     pub castling_rights: u8,
     pub en_passant_target_square_index: Option<u8>,
     pub halfmove_clock: u8,
-    // Is this needed?
     pub fullmove_counter: u16,
     pub hash: u64,
     pub game_stage: i16,
     pub repetitions: RepetitionTracker,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
+    /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_bitboards: [[u64; 7]; 2],
     pub side_occupancy: [u64; 2],
     pub occupancy: u64,
@@ -112,9 +112,9 @@ impl Board {
         }
 
         let fen_pieces: Vec<&str> = fen.split(' ').collect();
-        if fen_pieces.len() != 6 {
+        if fen_pieces.len() < 4 || fen_pieces.len() > 6 {
             return Err(format!(
-                "Expected FEN to have 6 space-delimited parts but it had {}",
+                "Expected FEN to have 4 to 6 space-delimited parts but it had {}",
                 fen_pieces.len()
             ));
         }
@@ -285,29 +285,33 @@ impl Board {
             board.en_passant_target_square_index = Some(ep_square_index);
         }
 
-        let hmc_result = fen_pieces[4].parse::<u8>();
-        match hmc_result {
-            Ok(hmc) => {
-                board.halfmove_clock = hmc;
+        if fen_pieces.len() > 4 {
+            let hmc_result = fen_pieces[4].parse::<u8>();
+            match hmc_result {
+                Ok(hmc) => {
+                    board.halfmove_clock = hmc;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Encountered error while parsing halfmove counter value '{}' as u8: {}",
+                        fen_pieces[4], e
+                    ));
+                }
             }
-            Err(e) => {
-                return Err(format!(
-                    "Encountered error while parsing halfmove counter value '{}' as u8: {}",
-                    fen_pieces[4], e
-                ));
-            }
-        }
 
-        let fmc_result = fen_pieces[5].parse::<u16>();
-        match fmc_result {
-            Ok(fmc) => {
-                board.fullmove_counter = fmc;
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Encountered error while parsing fullmove counter value '{}' as u16: {}",
-                    fen_pieces[5], e
-                ));
+            if fen_pieces.len() > 5 {
+                let fmc_result = fen_pieces[5].parse::<u16>();
+                match fmc_result {
+                    Ok(fmc) => {
+                        board.fullmove_counter = fmc;
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "Encountered error while parsing fullmove counter value '{}' as u16: {}",
+                            fen_pieces[5], e
+                        ));
+                    }
+                }
             }
         }
 

@@ -1,6 +1,9 @@
-use std::{fs::File, io::{BufReader, BufWriter, Read, Write}};
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter, Read, Write},
+};
 
-use bytemuck::{cast_slice, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, cast_slice};
 use log::error;
 use serde::{Deserialize, Serialize};
 
@@ -19,15 +22,12 @@ pub enum MoveType {
     FailLow,
 }
 
-impl From<u8> for MoveType {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::FailHigh,
-            1 => Self::Best,
-            2 => Self::FailLow,
-            _ => Self::FailLow,
-        }
-    }
+#[derive(Serialize, Deserialize)]
+#[repr(C)]
+pub struct TranspositionTable {
+    main_table: Vec<TwoTierEntry>,
+    quiescense_table: Vec<TwoTierEntry>,
+    key_mask: usize,
 }
 
 #[repr(C)]
@@ -128,23 +128,6 @@ impl Default for TTEntry {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[repr(C)]
-pub struct TranspositionTable {
-    main_table: Vec<TwoTierEntry>,
-    quiescense_table: Vec<TwoTierEntry>,
-    key_mask: usize,
-    pub index_collisions: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BinaryTranspositionTable {
-    main_table: Vec<u8>,
-    quiescense_table: Vec<u8>,
-    key_mask: usize,
-    pub index_collisions: u64,
-}
-
 impl TranspositionTable {
     pub fn new(size_log_2: u8) -> TranspositionTable {
         if size_log_2 == 0 {
@@ -156,7 +139,6 @@ impl TranspositionTable {
             main_table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 2)],
             quiescense_table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 2)],
             key_mask: (1 << (size_log_2 - 2)) - 1,
-            index_collisions: 0,
         }
     }
 
@@ -177,15 +159,12 @@ impl TranspositionTable {
             if !entry.always_replace.empty != 0 && entry.always_replace.hash == key {
                 return Some(entry.always_replace);
             }
-
-            // Technically should check for emptyness but eh
-            self.index_collisions += 1;
         }
 
         None
     }
 
-    pub fn store_entry(&mut self, val: TTEntry, table: TableType, force_overwrite: bool) {
+    pub fn store_entry(&mut self, val: TTEntry, table: TableType) {
         let index = val.hash as usize & self.key_mask;
         let table = match table {
             TableType::Main => &mut self.main_table,
@@ -193,8 +172,7 @@ impl TranspositionTable {
         };
 
         if let Some(entry) = table.get_mut(index) {
-            if force_overwrite
-                || entry.depth_first.empty != 0
+            if entry.depth_first.empty != 0
                 || entry.depth_first.get_age() != val.get_age()
                 || entry.depth_first.draft <= val.draft
             {
@@ -211,8 +189,6 @@ impl TranspositionTable {
             self.main_table[i] = default_entry;
             self.quiescense_table[i] = default_entry;
         }
-
-        self.index_collisions = 0;
     }
 
     // From chat gpt
@@ -224,9 +200,9 @@ impl TranspositionTable {
 
         // Write header: lengths and metadata
         file.write_all(&(self.main_table.len() as u64).to_le_bytes()).unwrap();
-        file.write_all(&(self.quiescense_table.len() as u64).to_le_bytes()).unwrap();
+        file.write_all(&(self.quiescense_table.len() as u64).to_le_bytes())
+            .unwrap();
         file.write_all(&(self.key_mask as u64).to_le_bytes()).unwrap();
-        file.write_all(&self.index_collisions.to_le_bytes()).unwrap();
 
         // Write raw bytes
         file.write_all(main_bytes).unwrap();
@@ -249,9 +225,6 @@ impl TranspositionTable {
         file.read_exact(&mut buf).unwrap();
         let key_mask = u64::from_le_bytes(buf) as usize;
 
-        file.read_exact(&mut buf).unwrap();
-        let index_collisions = u64::from_le_bytes(buf);
-
         // Allocate vectors
         let mut main_table = vec![TwoTierEntry::zeroed(); main_len];
         let mut quiescense_table = vec![TwoTierEntry::zeroed(); quies_len];
@@ -267,7 +240,17 @@ impl TranspositionTable {
             main_table,
             quiescense_table,
             key_mask,
-            index_collisions,
+        }
+    }
+}
+
+impl From<u8> for MoveType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::FailHigh,
+            1 => Self::Best,
+            2 => Self::FailLow,
+            _ => Self::FailLow,
         }
     }
 }

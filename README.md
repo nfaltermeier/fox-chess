@@ -1,10 +1,52 @@
 # Fox chess
 :3
 
-A UCI chess engine
+A UCI chess engine. Intended for use with a chess GUI such as Cute Chess or Arena or interfacing with a chess server with a program like lichess-bot.
 
-When targetting the x86_64-pc-windows-msvc triple all native CPU features will be enabled by default.
-To build a portable executable, specify an appropriate target cpu with `-Ctarget-cpu=<target>`.
+The program is available for challenge some of the time at [lichess](https://lichess.org/@/FoxChessBot). I run it on my own computer so availability is sporadic and is not guranteed.
+
+## Building
+You will need a recent version of Rust installed.
+
+You are recommended to enable your CPU's supported features for the best performance. If you will be running the program on the same computer you are building, you can use
+```
+RUSTFLAGS=-Ctarget-cpu=native cargo build -r
+```
+Or on x86_64-pc-windows-msvc that will be enabled automatically and you can simply run
+```
+cargo build -r
+```
+
+### Note for Ryzen 1000 or 2000
+These CPUs support but have poor performance for some instructions used for determining sliding piece attacks. Before building you should disable the `use_pext` feature in `Cargo.toml` for the best performance.
+
+### Building for another computer
+Based on the supported features of the computer you are building for, you should select one of these options
+
+|Features|Target|
+|--------|-------|
+|AVX512|x86-64-v4|
+|AVX2 and BMI2|x86-64-v3|
+|POPCNT|x86-64-v2|
+
+Replace `<target>` in the below command with the target above based on the computer's supported features
+```
+RUSTFLAGS=-Ctarget-cpu=<target> cargo build -r
+```
+
+If you're unsure, you can instead just use (although performance will be impacted)
+```
+cargo build -r
+```
+
+If you want to build a fully portable executable on x86_64-pc-windows-msvc then you will need to explicitly pass `x86-64-v1` for the target
+
+## Credits
+Many thanks to the [Chess Programming Wiki](https://www.chessprogramming.org) for explaining the basic and advanced concepts of creating a chess engine
+
+The Engine Programming Discord for interesting discussions and ideas
+
+Other open source chess engines
 
 ## Ideas of features to add
 - [x] Needs some help in endgames. It lost KQK because it wouldn't move the king out of the center to support the queen. Greater depth helps with this.

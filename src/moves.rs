@@ -4,15 +4,12 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    STARTING_FEN,
-    bitboard::lookup_pawn_attack,
     board::{
         Board, COLOR_BLACK, CastlingValue, HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
         HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value,
         index_8x8_to_pos_str, piece_to_name, rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
-    move_generator::ScoredMove,
 };
 
 // Assumes flags have been shifted to bits 1-4
@@ -148,18 +145,48 @@ impl Move {
             format!("{}{}", result, piece_to_name(promo_to_piece))
         }
     }
+
+    pub fn from_simple_long_algebraic_notation(m: &str) -> Self {
+        if !Regex::new("^[a-h][1-8][a-h][1-8][qrbnQRBN]?$").unwrap().is_match(m) {
+            error!("Invalid move notation {m}");
+            panic!("Invalid move notation {m}");
+        }
+
+        let bytes = m.as_bytes();
+
+        let from = bytes[0] - b'a' + ((bytes[1] - b'1') * 8);
+        let to = bytes[2] - b'a' + ((bytes[3] - b'1') * 8);
+        let flags = if m.len() == 5 {
+            match m.chars().nth(4).unwrap().to_ascii_lowercase() {
+                'q' => MOVE_PROMO_QUEEN,
+                'r' => MOVE_PROMO_ROOK,
+                'b' => MOVE_PROMO_BISHOP,
+                'n' => MOVE_PROMO_KNIGHT,
+                v => {
+                    error!("Unexpected promotion value '{v}'");
+                    panic!("Unexpected promotion value '{v}'")
+                }
+            }
+        } else {
+            0
+        };
+
+        Move::new(from, to, flags)
+    }
 }
 
 impl std::fmt::Debug for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Move from: {} to: {} flags: {}\nPretty: {}",
-            self.from(),
-            self.to(),
-            self.flags(),
-            self.pretty_print(None)
-        )
+        // write!(
+        //     f,
+        //     "Move from: {} to: {} flags: {}\nPretty: {}",
+        //     self.from(),
+        //     self.to(),
+        //     self.flags(),
+        //     self.pretty_print(None)
+        // )
+
+        write!(f, "{}", self.pretty_print(None))
     }
 }
 
@@ -534,73 +561,7 @@ impl Board {
     }
 }
 
-// Not going to be super optimized probably and only support basic PGNs
-pub fn pgn_to_moves(pgn: &str) -> Vec<Move> {
-    let result = Vec::new();
-    let board = Board::from_fen(STARTING_FEN);
-    let rollback = MoveRollback::default();
-
-    let parts = pgn.split_ascii_whitespace();
-    let turn_pattern = Regex::new(r"[1-9][0-9]*\.").unwrap();
-    let move_pattern = Regex::new(r"([nNbBrRqQkK]?)([a-f][1-8])").unwrap();
-    for (i, part) in parts.enumerate() {
-        if i % 3 == 0 {
-            if !turn_pattern.is_match(part) {
-                panic!("Expected '{part}' at index {i} to be a move number");
-            }
-            continue;
-        } else {
-            let Some(captures) = move_pattern.captures(part) else {
-                panic!("Expected '{part}' at index {i} to be a move")
-            };
-            let piece_type = &captures[1];
-            let square = &captures[2];
-            let chars = square.chars();
-        }
-    }
-
-    unimplemented!();
-
-    result
-}
-
-pub fn square_indices_to_moves(indices: Vec<(u8, u8, Option<u16>)>) -> Vec<ScoredMove> {
-    let mut result = Vec::new();
-    let mut board = Board::from_fen(STARTING_FEN).unwrap();
-    let mut rollback = MoveRollback::default();
-
-    for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = board.generate_legal_moves_without_history();
-        let Some(gen_move_pos) = moves.iter().position(|m| {
-            if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
-                return false;
-            }
-
-            match r#move.2 {
-                Some(p) => m.m.flags() & 0x03 == p,
-                None => true,
-            }
-        }) else {
-            debug!("{:?}", board);
-            error!(
-                "Requested move {} from {} {} to {} {} but it was not found in the board state",
-                i + 1,
-                r#move.0,
-                index_8x8_to_pos_str(r#move.0),
-                r#move.1,
-                index_8x8_to_pos_str(r#move.1)
-            );
-            panic!("Requested move not found");
-        };
-        let gen_move = moves.swap_remove(gen_move_pos);
-
-        board.make_move(&gen_move.m, &mut rollback);
-        result.push(gen_move);
-    }
-
-    result
-}
-
+/// indices data is intended to come from vampiric uci parsing a position command
 pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
     let mut rollback = MoveRollback::default();
 

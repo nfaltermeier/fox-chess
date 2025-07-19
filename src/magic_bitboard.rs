@@ -21,6 +21,18 @@ static mut ATTACKS: Vec<u64> = Vec::new();
 
 static ROOK_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_rook_rays(i as u8) } else { [0; 4] }; 65];
 static BISHOP_RAYS: [[u64; 4]; 65] = array![i => if i < 64 { generate_bishop_rays(i as u8) } else { [0; 4] }; 65];
+/// Does not have squares irrelevant for occupancy on the edge of the board masked off
+pub static COMBINED_ROOK_RAYS: [u64; 64] = array![i => {
+    let rays = &ROOK_RAYS[i];
+
+    rays[NORTH] | rays[EAST] | rays[SOUTH] | rays[WEST]
+}; 64];
+/// Does not have squares irrelevant for occupancy on the edge of the board masked off
+pub static COMBINED_BISHOP_RAYS: [u64; 64] = array![i => {
+    let rays = &BISHOP_RAYS[i];
+
+    rays[NORTH_EAST] | rays[SOUTH_EAST] | rays[SOUTH_WEST] | rays[NORTH_WEST]
+}; 64];
 
 struct MagicEntry {
     attacks_offset: u32,
@@ -128,12 +140,6 @@ pub fn initialize_magic_bitboards() {
     });
 }
 
-const fn generate_rook_attack(square_index: u8) -> u64 {
-    let rays = &ROOK_RAYS[square_index as usize];
-
-    rays[NORTH] | rays[EAST] | rays[SOUTH] | rays[WEST]
-}
-
 const fn generate_rook_relevant_occupancy(square_index: u8) -> u64 {
     let rays = &ROOK_RAYS[square_index as usize];
 
@@ -154,14 +160,8 @@ fn generate_occluded_bishop_attack(square_index: u8, occupancy: u64) -> u64 {
         | get_occluded_negative_ray(square_index, occupancy, SOUTH_WEST, &BISHOP_RAYS)
 }
 
-const fn generate_bishop_attack(square_index: u8) -> u64 {
-    let rays = &BISHOP_RAYS[square_index as usize];
-
-    rays[NORTH_EAST] | rays[SOUTH_EAST] | rays[SOUTH_WEST] | rays[NORTH_WEST]
-}
-
 const fn generate_bishop_relevant_occupancy(square_index: u8) -> u64 {
-    generate_bishop_attack(square_index) & !A_FILE & !H_FILE & !RANK_1 & !RANK_8
+    COMBINED_BISHOP_RAYS[square_index as usize] & !A_FILE & !H_FILE & !RANK_1 & !RANK_8
 }
 
 fn map_value_to_mask(value: u64, mask: u64) -> u64 {
