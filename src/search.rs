@@ -395,7 +395,7 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
         let fen = self.board.to_fen();
-        const POSITION_TO_FIND: &'static str = "6k1/5p2/5b1p/1R2p1pP/3pP1P1/3P4/5K2/3B4 w";
+        const POSITION_TO_FIND: &'static str = "rnb1k2r/ppp2pp1/3bp1qp/3pP3/3P4/1NPB1N2/PP3PPP/R2QK2R b KQkq";
         const REQUIRE_IS_PV: bool = false;
         let position_to_debug = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
         if position_to_debug {
@@ -546,14 +546,16 @@ impl<'a> Searcher<'a> {
                 {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
 
-                    debug!(
-                        "{searched_moves:2}    Move {move_string} skipped by {}",
-                        if futility_prune {
-                            "futility pruning"
-                        } else {
-                            "late move pruning"
-                        }
-                    );
+                    if position_to_debug {
+                        debug!(
+                            "{searched_moves:2}    Move {move_string} skipped by {}",
+                            if futility_prune {
+                                "futility pruning"
+                            } else {
+                                "late move pruning"
+                            }
+                        );
+                    }
 
                     continue;
                 }
