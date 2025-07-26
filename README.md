@@ -17,7 +17,7 @@ Or on x86_64-pc-windows-msvc that will be enabled automatically and you can simp
 cargo build -r
 ```
 
-### Note for Ryzen 1000 or 2000
+### Note for Ryzen CPUs below 5000 series
 These CPUs support but have poor performance for some instructions used for determining sliding piece attacks. Before building you should disable the `use_pext` feature in `Cargo.toml` for the best performance.
 
 ### Building for another computer
