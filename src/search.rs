@@ -10,9 +10,12 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{ScoredMove, MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2},
+    move_generator::{
+        MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1,
+        MOVE_SCORE_KILLER_2, ScoredMove,
+    },
     moves::{
-        Move, MoveRollback, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL
+        MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
@@ -364,9 +367,10 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
 
-        if self.board.halfmove_clock >= 100
-            || RepetitionTracker::test_threefold_repetition(self.board)
-            || self.board.is_insufficient_material()
+        if ply != 0
+            && (self.board.halfmove_clock >= 100
+                || RepetitionTracker::test_repetition(self.board)
+                || self.board.is_insufficient_material())
         {
             parent_pv.clear();
             return Ok(0);
@@ -999,14 +1003,16 @@ fn update_history(
 
     let clamped_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
     let current_history = &mut history_table[history_color_value][piece_type - 1][to];
-    *current_history +=
-        (clamped_history_bonus - ((*current_history as i32) * clamped_history_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
+    *current_history += (clamped_history_bonus
+        - ((*current_history as i32) * clamped_history_bonus.abs() / MOVE_SCORE_HISTORY_MAX))
+        as i16;
 
     let clamped_const_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_CONST_HISTORY_MAX);
     if let Some(relevant_cont_hist) = relevant_cont_hist {
         let current_cont_hist = &mut relevant_cont_hist[piece_type - 1][to];
-        *current_cont_hist +=
-            (clamped_const_history_bonus - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONST_HISTORY_MAX)) as i16;
+        *current_cont_hist += (clamped_const_history_bonus
+            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONST_HISTORY_MAX))
+            as i16;
     }
 }
 
