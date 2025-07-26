@@ -522,7 +522,7 @@ impl<'a> Searcher<'a> {
                 let gives_check = self.board.is_in_check(false);
 
                 // Futility pruning and late move pruning
-                if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -1000))
+                if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -750 - 50 * draft as i16))
                     && searched_moves >= 1
                     && !gives_check
                     && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
