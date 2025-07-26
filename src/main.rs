@@ -241,7 +241,7 @@ fn run_uci() {
                 panic!("stdin channel disconnected")
             }
         }
-        sleep(Duration::from_millis(50));
+        sleep(Duration::from_millis(10));
     }
 }
 
