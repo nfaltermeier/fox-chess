@@ -395,7 +395,7 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
         let fen = self.board.to_fen();
-        const POSITION_TO_FIND: &'static str = "rnb1k2r/ppp2pp1/3bp1qp/3pP3/3P4/1NPB1N2/PP3PPP/R2QK2R b KQkq";
+        const POSITION_TO_FIND: &'static str = "rnb1k2r/ppp2pp1/3bp2p/3pP3/3P4/1NPB1N2/PP3PqP/R2QK2R w KQkq";
         const REQUIRE_IS_PV: bool = false;
         let position_to_debug = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
         if position_to_debug {
