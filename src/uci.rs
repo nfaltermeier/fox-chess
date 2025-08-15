@@ -1,4 +1,5 @@
 use std::{
+    alloc::{Layout, alloc_zeroed},
     fs::{self, File},
     io::{self, Write},
     mem::transmute,
@@ -20,7 +21,7 @@ use crate::{
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
-    search::{HistoryTable, SearchStats, Searcher},
+    search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
 };
 
@@ -29,6 +30,7 @@ pub struct UciInterface {
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
+    continuation_history: Box<ContinuationHistoryTable>,
 }
 
 build_info!(fn get_build_info);
@@ -40,6 +42,7 @@ impl UciInterface {
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
+            continuation_history: Self::alloc_zeroed_continuation_history(),
         }
     }
 
@@ -73,6 +76,7 @@ impl UciInterface {
                     self.board = None;
                     self.transposition_table.clear();
                     self.history_table = [[[0; 64]; 6]; 2];
+                    self.continuation_history = Self::alloc_zeroed_continuation_history();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
@@ -135,6 +139,7 @@ impl UciInterface {
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
+                            &mut self.continuation_history,
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -286,5 +291,14 @@ impl UciInterface {
             }
         });
         (message_rx, stop_rx)
+    }
+
+    fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
+        unsafe {
+            let mem =
+                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTable>() / size_of::<i16>()).unwrap());
+            let typed_mem = mem.cast::<ContinuationHistoryTable>();
+            Box::from_raw(typed_mem)
+        }
     }
 }

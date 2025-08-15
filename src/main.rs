@@ -139,13 +139,20 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut transposition_table = TranspositionTable::new(23);
     let mut history = DEFAULT_HISTORY_TABLE;
     let mut best: Option<SearchResult> = None;
+    let mut continuation_history = [[[[[0; 64]; 6]; 64]; 6]; 2];
 
     for r#move in moves {
         info!("{}:", r#move.m.pretty_print(Some(&board)));
         board.make_move(&r#move.m, &mut rollback);
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history, &stop_rx);
+        let mut searcher = Searcher::new(
+            &mut board,
+            &mut transposition_table,
+            &mut history,
+            &stop_rx,
+            &mut continuation_history,
+        );
 
         let mut result;
         if depth != 1 {
@@ -241,7 +248,7 @@ fn run_uci() {
                 panic!("stdin channel disconnected")
             }
         }
-        sleep(Duration::from_millis(50));
+        sleep(Duration::from_millis(10));
     }
 }
 
