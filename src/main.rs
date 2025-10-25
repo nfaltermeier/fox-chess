@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::bench::bench;
 use board::{Board, HASH_VALUES};
 use clap::Parser;
 use log::{debug, error, info, warn};
@@ -16,6 +17,7 @@ use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::UciSearchControl;
 
+mod bench;
 mod bitboard;
 mod board;
 mod evaluate;
@@ -31,6 +33,7 @@ pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w K
 
 #[derive(Parser)]
 struct CliArgs {
+    command: Option<String>,
     #[arg(short, long, default_value_t = log::LevelFilter::Debug)]
     log_level: log::LevelFilter,
 }
@@ -52,7 +55,11 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    run_uci();
+    if args.command.is_some_and(|c| c.eq_ignore_ascii_case("bench")) {
+        bench();
+    } else {
+        run_uci();
+    }
 
     // run_perft_tests();
     // search_moves_from_pos(STARTING_FEN, 1);

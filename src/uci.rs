@@ -15,6 +15,7 @@ use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
     STARTING_FEN,
+    bench::bench,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
@@ -180,6 +181,8 @@ impl UciInterface {
                         } else {
                             error!("Board must be set with position first");
                         }
+                    } else if message.eq_ignore_ascii_case("bench") {
+                        bench();
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
