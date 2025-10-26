@@ -812,6 +812,10 @@ impl Board {
         do_perft(depth, 1, self, &mut rollback, &mut stats, divide);
         let elapsed = start_time.elapsed();
 
+        if divide {
+            println!("\n{}", stats.nodes);
+        }
+
         let nps = stats.nodes as f64 / elapsed.as_secs_f64();
         info!(
             "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {}",
@@ -870,8 +874,8 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
         do_perft(draft - 1, ply + 1, board, rollback, stats, divide);
 
         if divide && ply == 1 {
-            debug!(
-                "{}: {}",
+            println!(
+                "{} {}",
                 r#move.m.simple_long_algebraic_notation(),
                 stats.nodes - start_nodes
             )
