@@ -301,7 +301,9 @@ fn run_uci() {
     loop {
         match message_rx.try_recv() {
             Ok(val) => {
-                uci.process_command(val);
+                if uci.process_command(val) {
+                    return;
+                }
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {

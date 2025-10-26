@@ -5,14 +5,26 @@ A UCI chess engine. Intended for use with a chess GUI such as Cute Chess or Aren
 
 The program is available for challenge some of the time at [lichess](https://lichess.org/@/FoxChessBot). I run it on my own computer so availability is sporadic and is not guranteed.
 
-## Building
-You will need a recent version of Rust installed.
+### Prerequisites for Building
+The MSRV is currently 1.88.
 
+To create a PGO optimized build (recommended) you will need the `llvm-profdata` binary which can be installed with:
+```
+rustup component add llvm-tools-preview
+```
+
+## Building
 You are recommended to enable your CPU's supported features for the best performance. If you will be running the program on the same computer you are building, you can use
 ```
-RUSTFLAGS=-Ctarget-cpu=native cargo build -r
+RUSTFLAGS=-Ctarget-cpu=native cargo pgo run -- bench
+RUSTFLAGS=-Ctarget-cpu=native cargo pgo optimize
 ```
 Or on x86_64-pc-windows-msvc that will be enabled automatically and you can simply run
+```
+cargo pgo run -- bench
+cargo pgo optimize
+```
+To skip PGO optimization, just run
 ```
 cargo build -r
 ```
@@ -31,12 +43,14 @@ Based on the supported features of the computer you are building for, you should
 
 Replace `<target>` in the below command with the target above based on the computer's supported features
 ```
-RUSTFLAGS=-Ctarget-cpu=<target> cargo build -r
+RUSTFLAGS=-Ctarget-cpu=<target> cargo pgo run -- bench
+RUSTFLAGS=-Ctarget-cpu=<target> cargo pgo optimize
 ```
 
 If you're unsure, you can instead just use (although performance will be impacted)
 ```
-cargo build -r
+cargo pgo run -- bench
+cargo pgo optimize
 ```
 
 If you want to build a fully portable executable on x86_64-pc-windows-msvc then you will need to explicitly pass `x86-64-v1` for the target
