@@ -550,12 +550,19 @@ impl<'a> Searcher<'a> {
                 has_legal_move = true;
                 let gives_check = self.board.is_in_check(false);
 
+                // limit to avoid underflow
+                let limited_draft = draft.min(21) as i16;
+
                 // Futility pruning and late move pruning
-                if (futility_prune
-                    || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -750 - 50 * draft as i16))
-                    && searched_moves >= 1
+                if searched_moves >= 1
                     && !gives_check
                     && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+                    && (futility_prune
+                        || (!is_pv
+                            && !in_check
+                            && searched_moves >= 6
+                            // LMP will not happen at all for I think draft 14 and above
+                            && r#move.score < -1.6f32.powi(limited_draft as i32) as i16 - 70 * limited_draft - 700))
                 {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
                     continue;
