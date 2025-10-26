@@ -45,7 +45,7 @@ impl UciInterface {
     }
 
     // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
+    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) -> bool {
         debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
         for m in cmds.1 {
             match m {
@@ -149,7 +149,9 @@ impl UciInterface {
                 }
                 // Stop is handled with a separate sender and receiver to communicate with a running search so nothing needs to be done here
                 UciMessage::Stop => {}
-                UciMessage::Quit => exit(0),
+                UciMessage::Quit => {
+                    return true;
+                }
                 UciMessage::SetOption { name, value: _ } => match name.as_str() {
                     _ => {
                         error!("Unknown UCI setoption name '{name}'");
@@ -160,7 +162,7 @@ impl UciInterface {
                         let parts = message.split(' ').collect::<Vec<_>>();
                         if parts.len() < 3 {
                             error!("Expected format: go perft [depth]");
-                            return;
+                            return false;
                         }
 
                         if let Some(board) = &mut self.board {
@@ -192,6 +194,8 @@ impl UciInterface {
                 }
             }
         }
+
+        false
     }
 
     pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &TinyVec<[Move; 32]>) {
