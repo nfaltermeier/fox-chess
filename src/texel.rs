@@ -177,12 +177,12 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
             continue;
         }
 
-        let board = Board::from_fen(fen).unwrap();
-
         considered_to_load += 1;
         if considered_to_load % load_skip_cycle_size >= load_positions {
             continue;
         }
+
+        let board = Board::from_fen(fen).unwrap();
 
         let c1_index = line.find("c1");
         if c1_index.is_none() {
