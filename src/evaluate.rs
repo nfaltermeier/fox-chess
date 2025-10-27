@@ -224,7 +224,7 @@ impl Board {
 
                 position_score_midgame += get_piece_square_value(params, color, piece_type - 1, i);
                 position_score_endgame += get_piece_square_value(params, color, piece_type - 1 + 6, i);
-                material_score += params[EP_PIECE_VALUES_IDX + i] * if color == 0 { 1 } else { -1 };
+                material_score += params[EP_PIECE_VALUES_IDX + piece_type] * if color == 0 { 1 } else { -1 };
             }
         }
 
