@@ -192,16 +192,12 @@ pub struct MoveRollback {
     // Only added when a piece is actually captured
     pub captured_pieces: Vec<u8>,
     pub ep_index: Vec<Option<u8>>,
-    pub castling_rights: Vec<u8>,
-    pub halfmove_clocks: Vec<u8>,
 }
 
 impl MoveRollback {
     pub fn is_empty(&self) -> bool {
         self.captured_pieces.is_empty()
             && self.ep_index.is_empty()
-            && self.castling_rights.is_empty()
-            && self.halfmove_clocks.is_empty()
     }
 }
 
