@@ -143,7 +143,7 @@ pub struct LoadPositionsResult {
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
     let load_positions = 3;
-    let skip_positions = 97;
+    let skip_positions = 17;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -228,15 +228,15 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     }
 
     // test starting from zeros
-    // let mut params = DEFAULT_PARAMS;
-    let mut params = [0; EVAL_PARAM_COUNT];
+    let mut params = DEFAULT_PARAMS;
+    // let mut params = [0; EVAL_PARAM_COUNT];
 
     let scaling_constant = 1.06;
-    let mut step_size = 100000.0;
+    let mut step_size = 10000000.0;
     // The goal for how much to improve at each descent step
     let c = 0.01;
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
-    let tau = 0.95;
+    let tau = 0.75;
 
     let mut count = 0;
     loop {
@@ -247,7 +247,11 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
         let gradient = search_gradient(&quiet_positions, &mut params, scaling_constant, base_error);
         let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
-        println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
+        let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
+        let mut sorted = gradient.clone();
+        sorted.sort_unstable_by(f64::total_cmp);
+        let median_gradient_value = sorted[gradient.len() / 2];
+        println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}, avg is {avg_gradient_value}, median is {median_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
 
         // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
         let m = calc_m(&gradient);
