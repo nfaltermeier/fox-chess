@@ -143,7 +143,7 @@ pub struct LoadPositionsResult {
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
     let load_positions = 3;
-    let skip_positions = 27;
+    let skip_positions = 97;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -270,6 +270,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             if base_error - new_error >= step_size * t {
                 break;
             } else {
+                println!("{} < {}", base_error - new_error, step_size * t);
                 step_size *= tau;
             }
         }
