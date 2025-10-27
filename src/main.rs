@@ -76,13 +76,11 @@ fn main() {
     println!("Loading positions from file");
     let positions = load_positions("set_three_positions.epd");
     println!(
-        "{} Positions loaded, take to skip ratio: {}/{}",
-        positions.positions.len(),
-        positions.loaded_ratio,
-        positions.skipped_ratio
+        "{} Positions loaded",
+        positions.len(),
     );
     // find_scaling_constant(positions.positions);
-    find_best_params(positions.positions);
+    find_best_params(positions);
 
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
