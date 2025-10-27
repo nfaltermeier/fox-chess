@@ -143,7 +143,7 @@ pub struct LoadPositionsResult {
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
     let load_positions = 3;
-    let skip_positions = 17;
+    let skip_positions = 27;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -236,7 +236,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut count = 0;
     loop {
         let base_error = search_error_for_params(&mut nonquiet_positions, &params, scaling_constant);
-        println!("Starting new loop, new error is {base_error:.8}");
+        println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
         let gradient = search_gradient(&mut nonquiet_positions, &mut params, scaling_constant, base_error);
         println!("[{}] Calculated gradient", humantime::format_rfc3339(SystemTime::now()));
@@ -252,6 +252,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             updated_params = params;
             let changes = gradient.par_iter().map(|v| (-v * step_size).round() as i16);
             biggest_change = changes.clone().map(|v| v.abs()).max().unwrap();
+
+            if biggest_change >= 100 {
+                panic!("Biggest change {biggest_change} could cause an overflow")
+            }
 
             println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
 
@@ -289,7 +293,7 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
         .map_with(MoveRollback::default(), |r, p| {
             let result = p
                 .board
-                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r).0;
 
             let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f32;
             let val_sqrt = p.result - sigmoid(eval, scaling_constant);
@@ -298,6 +302,38 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
         .collect::<Vec<f32>>();
 
     sum_orlp(&errors[..]) / positions.len() as f32
+}
+
+fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<TexelPosition> {
+    positions
+        .par_iter_mut()
+        .map_with(MoveRollback::default(), |r, p| {
+            let result = p
+                .board
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
+            TexelPosition {
+                board: result.1,
+                result: p.result,
+            }
+        })
+        .collect()
+}
+
+fn find_error_for_quiet_positions(
+    quiet_positions: &Vec<TexelPosition>,
+    params: &EvalParams,
+    scaling_constant: f32,
+) -> f32 {
+    let errors = quiet_positions
+        .par_iter()
+        .map(|p| {
+            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f32, scaling_constant);
+            val_sqrt * val_sqrt
+        })
+        .collect::<Vec<f32>>();
+
+    let sum = sum_orlp(&errors[..]);
+    sum / errors.len() as f32
 }
 
 /// params should be unchanged when this method returns
