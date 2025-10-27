@@ -22,9 +22,9 @@ pub struct TexelPosition {
     pub result: f32,
 }
 
-pub const EVAL_SIZE: usize = 779;
-pub type EvalParams = [i16; EVAL_SIZE];
-pub type EvalGradient = [f32; EVAL_SIZE];
+pub const EVAL_PARAM_COUNT: usize = 779;
+pub type EvalParams = [i16; EVAL_PARAM_COUNT];
+pub type EvalGradient = [f32; EVAL_PARAM_COUNT];
 
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
@@ -226,12 +226,17 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     if !fs::exists("params").unwrap() {
         fs::create_dir("params").unwrap();
     }
-    let mut params = DEFAULT_PARAMS;
+
+    // test starting from zeros
+    // let mut params = DEFAULT_PARAMS;
+    let mut params = [0; EVAL_PARAM_COUNT];
 
     let scaling_constant = 1.06;
-    let mut step_size = 1000000.0;
-    let c = 0.5;
-    let tau = 0.5;
+    let mut step_size = 100000.0;
+    // The goal for how much to improve at each descent step
+    let c = 0.01;
+    // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
+    let tau = 0.95;
 
     let mut count = 0;
     loop {
@@ -241,7 +246,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
         let gradient = search_gradient(&quiet_positions, &mut params, scaling_constant, base_error);
-        println!("[{}] Calculated gradient", humantime::format_rfc3339(SystemTime::now()));
+        let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f32::max).unwrap();
+        println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
 
         // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
         let m = calc_m(&gradient);
@@ -250,27 +256,35 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let mut updated_params;
         let mut new_error = base_error;
         let mut biggest_change;
+        let mut failed_on_biggest_change_one = false;
         loop {
             updated_params = params;
             let changes = gradient.par_iter().map(|v| (-v * step_size).round() as i16);
             biggest_change = changes.clone().map(|v| v.abs()).max().unwrap();
-            let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f32::max).unwrap();
 
-            println!("[{}] Biggest change {biggest_change} for step size {step_size} and biggest gradient value {biggest_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
+            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
 
-            if biggest_change >= 100 {
-                panic!("Biggest change {biggest_change} could cause an overflow")
-            } else if biggest_change == 0 {
+            // if biggest_change >= 100 {
+            //     panic!("Biggest change {biggest_change} could cause an overflow")
+            // } else
+            if biggest_change == 0 {
                 break;
             }
 
             updated_params.par_iter_mut().zip(changes).for_each(|(param, change)| *param += change);
 
-            new_error = find_error_for_quiet_positions(&quiet_positions, &updated_params, scaling_constant);
+            // Searching for error will be more accurate to the true error than reusing the found quiet positions
+            new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
                 break;
             } else {
-                println!("{} < {}", base_error - new_error, step_size * t);
+                println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+
+                if biggest_change == 1 {
+                    failed_on_biggest_change_one = true;
+                    break;
+                }
+
                 step_size *= tau;
             }
         }
@@ -280,12 +294,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
         count += 1;
         println!(
-            "Saving, error: {new_error:.8}, iterations: {count}, step size: {step_size}, biggest change: {biggest_change} time: {}",
+            "[{}] Saving, error: {new_error:.8}, iterations: {count}, step size: {step_size}, biggest change: {biggest_change}",
             humantime::format_rfc3339(SystemTime::now())
         );
         save_params(&params);
 
-        if biggest_change == 0 {
+        if failed_on_biggest_change_one || biggest_change == 0 {
             break;
         }
     }
@@ -344,7 +358,7 @@ fn find_error_for_quiet_positions(
 
 /// params should be unchanged when this method returns
 fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f32, base_error: f32) -> Box<EvalGradient> {
-    let mut result = Box::new([0f32; EVAL_SIZE]);
+    let mut result = Box::new([0f32; EVAL_PARAM_COUNT]);
 
     for i in 0..params.len() {
         // midgame pawns on first row
