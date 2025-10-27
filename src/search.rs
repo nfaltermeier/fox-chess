@@ -395,8 +395,7 @@ impl<'a> Searcher<'a> {
             parent_pv.clear();
             return Ok(self
                 .board
-                .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback)
-                .0);
+                .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback));
         }
 
         let mut best_score = -i16::MAX;
@@ -808,15 +807,15 @@ impl Board {
         draft: u8,
         params: &EvalParams,
         rollback: &mut MoveRollback,
-    ) -> (i16, Board) {
+    ) -> i16 {
         if self.is_insufficient_material() {
-            return (0, self.clone());
+            return 0;
         }
 
         let stand_pat = self.evaluate_side_to_move_relative(params);
 
         if stand_pat >= beta {
-            return (stand_pat, self.clone());
+            return stand_pat;
         }
 
         if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
@@ -831,7 +830,7 @@ impl Board {
                 }
                 < alpha
         {
-            return (stand_pat, self.clone());
+            return stand_pat;
         }
 
         if alpha < stand_pat {
@@ -839,7 +838,6 @@ impl Board {
         }
 
         let mut best_score = stand_pat;
-        let mut best_position = None;
 
         let mut moves = self.generate_pseudo_legal_captures_and_queen_promos(&DEFAULT_HISTORY_TABLE);
 
@@ -856,18 +854,16 @@ impl Board {
             }
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            let (result, pos) = self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1, params, rollback);
-            let result = -result;
+            let result = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1, params, rollback);
 
             self.unmake_move(&r#move.m, rollback);
 
             if result >= beta {
-                return (result, pos);
+                return result;
             }
 
             if best_score < result {
                 best_score = result;
-                best_position = Some(pos);
 
                 if alpha < result {
                     alpha = result;
@@ -875,14 +871,7 @@ impl Board {
             }
         }
 
-        (
-            best_score,
-            if best_position.is_some() {
-                best_position.unwrap()
-            } else {
-                self.clone()
-            },
-        )
+        best_score
     }
 }
 

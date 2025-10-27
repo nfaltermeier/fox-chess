@@ -22,7 +22,9 @@ pub struct TexelPosition {
     pub result: f32,
 }
 
-pub type EvalParams = [i16; 779];
+pub const EVAL_SIZE: usize = 779;
+pub type EvalParams = [i16; EVAL_SIZE];
+pub type EvalGradient = [f32; EVAL_SIZE];
 
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
@@ -218,57 +220,8 @@ fn sigmoid(eval: f32, scaling_constant: f32) -> f32 {
     1.0 / (1.0 + 10.0_f32.powf(exp))
 }
 
-pub fn find_scaling_constant(mut positions: Vec<TexelPosition>) {
-    let evals = positions
-        .par_iter_mut()
-        .map_with(MoveRollback::default(), |r, p| {
-            let eval = p
-                .board
-                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, &DEFAULT_PARAMS, r)
-                .0 as f32;
-            (p.result, eval * if p.board.white_to_move { 1.0 } else { -1.0 })
-        })
-        .collect::<Vec<(f32, f32)>>();
-
-    let mut scaling_constant = 1.06;
-    let mut best_error = find_error_from_evals(&evals, scaling_constant);
-
-    let mut improving = true;
-    while improving {
-        improving = false;
-
-        scaling_constant += 0.01;
-        let new_error = find_error_from_evals(&evals, scaling_constant);
-        if new_error < best_error {
-            best_error = new_error;
-            improving = true;
-        } else {
-            scaling_constant -= 0.02;
-            let new_error = find_error_from_evals(&evals, scaling_constant);
-            if new_error < best_error {
-                best_error = new_error;
-                improving = true;
-            } else {
-                scaling_constant += 0.01;
-            }
-        }
-    }
-
-    println!("Best scaling constant is {scaling_constant}")
-}
-
-fn find_error_from_evals(evals: &Vec<(f32, f32)>, scaling_constant: f32) -> f32 {
-    let errors = evals
-        .par_iter()
-        .map(|e| {
-            let val_sqrt = e.0 - sigmoid(e.1, scaling_constant);
-            val_sqrt * val_sqrt
-        })
-        .collect::<Vec<f32>>();
-
-    sum_orlp(&errors[..]) / evals.len() as f32
-}
-
+/// Uses gradient descent with backtracking line search
+/// https://en.wikipedia.org/wiki/Gradient_descent
 pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     if !fs::exists("params").unwrap() {
         fs::create_dir("params").unwrap();
@@ -276,118 +229,52 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS;
 
     let scaling_constant = 1.06;
-    let mut best_error;
+    let mut step_size = 10000.0;
+    let c = 0.5;
+    let tau = 0.5;
 
-    let mut improving = true;
     let mut count = 0;
-    let mut adjustments: u64 = 0;
-    while improving {
-        improving = false;
+    loop {
+        let base_error = search_error_for_params(&mut nonquiet_positions, &params, scaling_constant);
+        println!("Starting new loop, new error is {base_error:.8}");
 
-        let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
-        best_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
-        println!("Starting new loop, new best error is {best_error:.8}");
+        let gradient = search_gradient(&mut nonquiet_positions, &mut params, scaling_constant, base_error);
 
-        for i in 0..DEFAULT_PARAMS.len() {
-            // midgame pawns on first row
-            if i < 8
-                // midgame pawns on last row
-                || (i >= 56 && i < 64)
-                // endgame pawns on first row
-                || (i >= 6 * 64 && i < 8 + 6 * 64)
-                // endgame pawns on last row
-                || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
-                // None piece centipawn value
-                || i == EP_PIECE_VALUES_IDX
-                // King centipawn value
-                || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
-            {
-                continue;
-            }
+        // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
+        let m = calc_m(&gradient);
+        let t = -c * m;
 
-            params[i] += 1;
-            let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
-            if new_error < best_error {
-                best_error = new_error;
-                improving = true;
-                adjustments += 1;
+        let mut updated_params;
+        let mut new_error;
+        let mut biggest_change;
+        loop {
+            updated_params = params;
+            let changes = gradient.par_iter().map(|v| (-v * step_size).round() as i16);
+            biggest_change = changes.clone().map(|v| v.abs()).max().unwrap();
 
-                if adjustments % 1000 == 999 {
-                    println!(
-                        "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
-                        humantime::format_rfc3339(SystemTime::now())
-                    );
-                    save_params(&params);
-                }
+            updated_params.par_iter_mut().zip(changes).for_each(|(param, change)| *param += change);
 
-                let mut local_improving = true;
-                while local_improving {
-                    params[i] += 1;
-                    let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
-                    local_improving = new_error < best_error;
-                    if local_improving {
-                        best_error = new_error;
-                        adjustments += 1;
-
-                        if adjustments % 1000 == 999 {
-                            println!(
-                                "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
-                                humantime::format_rfc3339(SystemTime::now())
-                            );
-                            save_params(&params);
-                        }
-                    }
-                }
-
-                params[i] -= 1;
+            new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
+            if base_error - new_error >= step_size * t {
+                break;
             } else {
-                params[i] -= 2;
-                let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
-                if new_error < best_error {
-                    best_error = new_error;
-                    improving = true;
-                    adjustments += 1;
-
-                    if adjustments % 1000 == 999 {
-                        println!(
-                            "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
-                            humantime::format_rfc3339(SystemTime::now())
-                        );
-                        save_params(&params);
-                    }
-
-                    let mut local_improving = true;
-                    while local_improving {
-                        params[i] -= 1;
-                        let new_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
-                        local_improving = new_error < best_error;
-                        if local_improving {
-                            best_error = new_error;
-                            adjustments += 1;
-
-                            if adjustments % 1000 == 999 {
-                                println!(
-                                    "Saving, error: {best_error:.8}, adjustments: {adjustments}, time: {}",
-                                    humantime::format_rfc3339(SystemTime::now())
-                                );
-                                save_params(&params);
-                            }
-                        }
-                    }
-
-                    params[i] += 1;
-                } else {
-                    params[i] += 1;
-                }
+                step_size *= tau;
             }
         }
 
+        // To find the appropriate step size we descend the gradient, so we just use that value as our next value
+        params = updated_params;
+
         count += 1;
         println!(
-            "Saving, error: {best_error:.8}, iterations: {count}, adjustments: {adjustments}, time: {}",
+            "Saving, error: {new_error:.8}, iterations: {count}, step size: {step_size}, biggest change: {biggest_change} time: {}",
             humantime::format_rfc3339(SystemTime::now())
         );
         save_params(&params);
+
+        if biggest_change == 0 {
+            break;
+        }
     }
 
     println!("Regression done");
@@ -401,7 +288,7 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
 
-            let eval = (result.0 * if p.board.white_to_move { 1 } else { -1 }) as f32;
+            let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f32;
             let val_sqrt = p.result - sigmoid(eval, scaling_constant);
             val_sqrt * val_sqrt
         })
@@ -410,36 +297,43 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
     sum_orlp(&errors[..]) / positions.len() as f32
 }
 
-fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<TexelPosition> {
-    positions
-        .par_iter_mut()
-        .map_with(MoveRollback::default(), |r, p| {
-            let result = p
-                .board
-                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
-            TexelPosition {
-                board: result.1,
-                result: p.result,
-            }
-        })
-        .collect()
+/// params should be unchanged when this method returns
+fn search_gradient(positions: &mut Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f32, base_error: f32) -> Box<EvalGradient> {
+    let mut result = Box::new([0f32; EVAL_SIZE]);
+
+    for i in 0..params.len() {
+        // midgame pawns on first row
+        if i < 8
+            // midgame pawns on last row
+            || (i >= 56 && i < 64)
+            // endgame pawns on first row
+            || (i >= 6 * 64 && i < 8 + 6 * 64)
+            // endgame pawns on last row
+            || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
+            // None piece centipawn value
+            || i == EP_PIECE_VALUES_IDX
+            // King centipawn value
+            || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
+        {
+            continue;
+        }
+
+        params[i] += 1;
+
+        // Approximate the derivative with numerical differentiation
+        result[i] = search_error_for_params(positions, params, scaling_constant) - base_error;
+
+        params[i] -=1;
+    }
+
+    result
 }
 
-fn find_error_for_quiet_positions(
-    quiet_positions: &Vec<TexelPosition>,
-    params: &EvalParams,
-    scaling_constant: f32,
-) -> f32 {
-    let errors = quiet_positions
-        .par_iter()
-        .map(|p| {
-            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f32, scaling_constant);
-            val_sqrt * val_sqrt
-        })
-        .collect::<Vec<f32>>();
-
-    let sum = sum_orlp(&errors[..]);
-    sum / errors.len() as f32
+/// Finds the dot product of the gradient and the search direction p
+fn calc_m(gradient: &Box<EvalGradient>) -> f32 {
+    // p is the negative gradient so first square everything and make them negative
+    let negative_squares = gradient.par_iter().map(|v| -v * v).collect::<Vec<f32>>();
+    sum_orlp(&negative_squares)
 }
 
 fn save_params(params: &EvalParams) {
