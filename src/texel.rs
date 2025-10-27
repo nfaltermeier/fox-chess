@@ -19,12 +19,12 @@ use crate::{
 
 pub struct TexelPosition {
     pub board: Board,
-    pub result: f32,
+    pub result: f64,
 }
 
 pub const EVAL_PARAM_COUNT: usize = 779;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
-pub type EvalGradient = [f32; EVAL_PARAM_COUNT];
+pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
@@ -215,9 +215,9 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
     }
 }
 
-fn sigmoid(eval: f32, scaling_constant: f32) -> f32 {
+fn sigmoid(eval: f64, scaling_constant: f64) -> f64 {
     let exp = -eval * scaling_constant / 400.0;
-    1.0 / (1.0 + 10.0_f32.powf(exp))
+    1.0 / (1.0 + 10.0_f64.powf(exp))
 }
 
 /// Uses gradient descent with backtracking line search
@@ -246,7 +246,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
         let gradient = search_gradient(&quiet_positions, &mut params, scaling_constant, base_error);
-        let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f32::max).unwrap();
+        let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
         println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
 
         // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
@@ -307,7 +307,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     println!("Regression done");
 }
 
-fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f32) -> f32 {
+fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f64) -> f64 {
     let errors = positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
@@ -315,13 +315,13 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r).0;
 
-            let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f32;
+            let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f64;
             let val_sqrt = p.result - sigmoid(eval, scaling_constant);
             val_sqrt * val_sqrt
         })
-        .collect::<Vec<f32>>();
+        .collect::<Vec<f64>>();
 
-    sum_orlp(&errors[..]) / positions.len() as f32
+    sum_orlp(&errors[..]) / positions.len() as f64
 }
 
 fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<TexelPosition> {
@@ -342,23 +342,23 @@ fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams)
 fn find_error_for_quiet_positions(
     quiet_positions: &Vec<TexelPosition>,
     params: &EvalParams,
-    scaling_constant: f32,
-) -> f32 {
+    scaling_constant: f64,
+) -> f64 {
     let errors = quiet_positions
         .par_iter()
         .map(|p| {
-            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f32, scaling_constant);
+            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f64, scaling_constant);
             val_sqrt * val_sqrt
         })
-        .collect::<Vec<f32>>();
+        .collect::<Vec<f64>>();
 
     let sum = sum_orlp(&errors[..]);
-    sum / errors.len() as f32
+    sum / errors.len() as f64
 }
 
 /// params should be unchanged when this method returns
-fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f32, base_error: f32) -> Box<EvalGradient> {
-    let mut result = Box::new([0f32; EVAL_PARAM_COUNT]);
+fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f64, base_error: f64) -> Box<EvalGradient> {
+    let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in 0..params.len() {
         // midgame pawns on first row
@@ -393,9 +393,9 @@ fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scal
 }
 
 /// Finds the dot product of the gradient and the search direction p
-fn calc_m(gradient: &Box<EvalGradient>) -> f32 {
+fn calc_m(gradient: &Box<EvalGradient>) -> f64 {
     // p is the negative gradient so first square everything and make them negative
-    let negative_squares = gradient.par_iter().map(|v| -v * v).collect::<Vec<f32>>();
+    let negative_squares = gradient.par_iter().map(|v| -v * v).collect::<Vec<f64>>();
     sum_orlp(&negative_squares)
 }
 
@@ -417,11 +417,11 @@ fn save_params(params: &EvalParams) {
 
 // Summing floats can be surprisingly complicated. These methods are taken from https://orlp.net/blog/taming-float-sums/
 // which has a lovely writeup on the issue and solutions
-fn sum_block(arr: &[f32]) -> f32 {
+fn sum_block(arr: &[f64]) -> f64 {
     arr.iter().fold(0.0, |x, y| fadd_algebraic(x, *y))
 }
 
-pub fn sum_orlp(arr: &[f32]) -> f32 {
+pub fn sum_orlp(arr: &[f64]) -> f64 {
     let mut chunks = arr.chunks_exact(256);
     let mut sum = 0.0;
     let mut c = 0.0;
