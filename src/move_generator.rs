@@ -41,7 +41,8 @@ const MOVE_SCORE_PROMOTION: i16 = 1000;
 const MOVE_SCORE_KING_CASTLE: i16 = 999;
 const MOVE_SCORE_QUEEN_CASTLE: i16 = 998;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i32 = 1800;
+pub const MOVE_SCORE_HISTORY_MAX: i32 = 1400;
+pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 800;
 const MOVE_SCORE_QUIET: i16 = 0;
 
 pub const MOVE_ARRAY_SIZE: usize = 64;
@@ -850,6 +851,10 @@ impl Board {
         do_perft(depth, 1, self, &mut rollback, &mut stats, divide);
         let elapsed = start_time.elapsed();
 
+        if divide {
+            println!("\n{}", stats.nodes);
+        }
+
         let nps = stats.nodes as f64 / elapsed.as_secs_f64();
         info!(
             "depth {depth} in {elapsed:#?}. Nodes: {}. Nodes per second: {}",
@@ -908,8 +913,8 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
         do_perft(draft - 1, ply + 1, board, rollback, stats, divide);
 
         if divide && ply == 1 {
-            debug!(
-                "{}: {}",
+            println!(
+                "{} {}",
                 r#move.m.simple_long_algebraic_notation(),
                 stats.nodes - start_nodes
             )

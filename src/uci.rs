@@ -1,4 +1,5 @@
 use std::{
+    alloc::{Layout, alloc_zeroed},
     io,
     process::exit,
     sync::mpsc::{self, Receiver},
@@ -14,10 +15,11 @@ use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
     STARTING_FEN,
+    bench::bench,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
-    search::{HistoryTable, SearchStats, Searcher},
+    search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
     transposition_table::TranspositionTable,
 };
 
@@ -26,6 +28,7 @@ pub struct UciInterface {
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
+    continuation_history: Box<ContinuationHistoryTable>,
 }
 
 build_info!(fn get_build_info);
@@ -37,11 +40,12 @@ impl UciInterface {
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
+            continuation_history: Self::alloc_zeroed_continuation_history(),
         }
     }
 
     // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
+    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) -> bool {
         debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
         for m in cmds.1 {
             match m {
@@ -70,6 +74,7 @@ impl UciInterface {
                     self.board = None;
                     self.transposition_table.clear();
                     self.history_table = [[[0; 64]; 6]; 2];
+                    self.continuation_history = Self::alloc_zeroed_continuation_history();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
@@ -134,6 +139,7 @@ impl UciInterface {
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
+                            &mut self.continuation_history,
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -145,7 +151,9 @@ impl UciInterface {
                 }
                 // Stop is handled with a separate sender and receiver to communicate with a running search so nothing needs to be done here
                 UciMessage::Stop => {}
-                UciMessage::Quit => exit(0),
+                UciMessage::Quit => {
+                    return true;
+                }
                 UciMessage::SetOption { name, value: _ } => match name.as_str() {
                     _ => {
                         error!("Unknown UCI setoption name '{name}'");
@@ -156,7 +164,7 @@ impl UciInterface {
                         let parts = message.split(' ').collect::<Vec<_>>();
                         if parts.len() < 3 {
                             error!("Expected format: go perft [depth]");
-                            return;
+                            return false;
                         }
 
                         if let Some(board) = &mut self.board {
@@ -177,6 +185,8 @@ impl UciInterface {
                         } else {
                             error!("Board must be set with position first");
                         }
+                    } else if message.eq_ignore_ascii_case("bench") {
+                        bench();
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
@@ -186,6 +196,8 @@ impl UciInterface {
                 }
             }
         }
+
+        false
     }
 
     pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &TinyVec<[Move; 32]>) {
@@ -244,5 +256,14 @@ impl UciInterface {
             }
         });
         (message_rx, stop_rx)
+    }
+
+    fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
+        unsafe {
+            let mem =
+                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTable>() / size_of::<i16>()).unwrap());
+            let typed_mem = mem.cast::<ContinuationHistoryTable>();
+            Box::from_raw(typed_mem)
+        }
     }
 }

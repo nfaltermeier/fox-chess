@@ -1,4 +1,5 @@
 use log::error;
+use regex::Regex;
 
 use crate::{
     board::{
@@ -140,6 +141,34 @@ impl Move {
 
             format!("{}{}", result, piece_to_name(promo_to_piece))
         }
+    }
+
+    pub fn from_simple_long_algebraic_notation(m: &str) -> Self {
+        if !Regex::new("^[a-h][1-8][a-h][1-8][qrbnQRBN]?$").unwrap().is_match(m) {
+            error!("Invalid move notation {m}");
+            panic!("Invalid move notation {m}");
+        }
+
+        let bytes = m.as_bytes();
+
+        let from = bytes[0] - b'a' + ((bytes[1] - b'1') * 8);
+        let to = bytes[2] - b'a' + ((bytes[3] - b'1') * 8);
+        let flags = if m.len() == 5 {
+            match m.chars().nth(4).unwrap().to_ascii_lowercase() {
+                'q' => MOVE_PROMO_QUEEN,
+                'r' => MOVE_PROMO_ROOK,
+                'b' => MOVE_PROMO_BISHOP,
+                'n' => MOVE_PROMO_KNIGHT,
+                v => {
+                    error!("Unexpected promotion value '{v}'");
+                    panic!("Unexpected promotion value '{v}'")
+                }
+            }
+        } else {
+            0
+        };
+
+        Move::new(from, to, flags)
     }
 }
 

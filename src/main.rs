@@ -7,8 +7,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::bench::bench;
 use board::{Board, HASH_VALUES};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
@@ -17,8 +18,9 @@ use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
 use texel::{find_best_params, load_positions};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
-use vampirc_uci::UciSearchControl;
+use vampirc_uci::{UciSearchControl, parse_with_unknown};
 
+mod bench;
 mod bitboard;
 mod board;
 mod evaluate;
@@ -35,8 +37,21 @@ pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w K
 
 #[derive(Parser)]
 struct CliArgs {
+    #[command(subcommand)]
+    command: Option<Commands>,
     #[arg(short, long, default_value_t = log::LevelFilter::Debug)]
     log_level: log::LevelFilter,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Runs all perft tests if no arguments are provided. Arguments are intended for use with perftree https://github.com/agausmann/perftree
+    Perft {
+        depth: Option<u8>,
+        fen: Option<String>,
+        moves: Option<String>,
+    },
+    Bench,
 }
 
 fn main() {
@@ -69,13 +84,59 @@ fn main() {
     // find_scaling_constant(positions.positions);
     find_best_params(positions.positions);
 
+    // if let Some(command) = &args.command {
+    //     handle_startup_command(command);
+    //     return;
+    // }
+
     // run_uci();
 
-    // run_perft_tests();
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // hash_values_edit_distance();
+}
+
+fn handle_startup_command(command: &Commands) {
+    match command {
+        &Commands::Perft {
+            depth,
+            ref fen,
+            ref moves,
+        } => {
+            let has_any_subarg = depth.is_some() || fen.is_some() || moves.is_some();
+
+            if !has_any_subarg {
+                run_perft_tests();
+            } else {
+                if let Some(depth) = depth {
+                    if let Some(fen) = fen
+                        && fen != ""
+                    {
+                        let mut uci_command = format!("position fen {fen}");
+                        if let Some(moves) = moves
+                            && moves != ""
+                        {
+                            uci_command = format!("{uci_command} moves {moves}");
+                        }
+
+                        let messages = parse_with_unknown(&uci_command);
+                        let (_, stop_rx) = mpsc::channel::<()>();
+                        let mut uci = UciInterface::new(2, stop_rx);
+                        uci.process_command((uci_command.clone(), messages));
+
+                        uci.get_board_copy().unwrap().start_perft(depth, true);
+                        return;
+                    }
+                }
+
+                error!("If the depth perft argument is provided, fen must also be provided")
+            }
+        }
+        Commands::Bench => {
+            bench();
+        }
+    }
 }
 
 fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
@@ -156,13 +217,20 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
     let mut transposition_table = TranspositionTable::new(23);
     let mut history = DEFAULT_HISTORY_TABLE;
     let mut best: Option<SearchResult> = None;
+    let mut continuation_history = [[[[[0; 64]; 6]; 64]; 6]; 2];
 
     for r#move in moves {
         info!("{}:", r#move.m.pretty_print(Some(&board)));
         board.make_move(&r#move.m, &mut rollback);
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let mut searcher = Searcher::new(&mut board, &mut transposition_table, &mut history, &stop_rx);
+        let mut searcher = Searcher::new(
+            &mut board,
+            &mut transposition_table,
+            &mut history,
+            &stop_rx,
+            &mut continuation_history,
+        );
 
         let mut result;
         if depth != 1 {
@@ -249,7 +317,9 @@ fn run_uci() {
     loop {
         match message_rx.try_recv() {
             Ok(val) => {
-                uci.process_command(val);
+                if uci.process_command(val) {
+                    return;
+                }
             }
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
@@ -257,7 +327,7 @@ fn run_uci() {
                 panic!("stdin channel disconnected")
             }
         }
-        sleep(Duration::from_millis(50));
+        sleep(Duration::from_millis(10));
     }
 }
 

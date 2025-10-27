@@ -9,11 +9,11 @@ use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, HASH_VALUES, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
-    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
+    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{
-        ENABLE_UNMAKE_MOVE_TEST, MOVE_ARRAY_SIZE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
-        ScoredMove,
+        MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1,
+        MOVE_SCORE_KILLER_2, ScoredMove,
     },
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
@@ -26,6 +26,8 @@ use crate::{
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
+
+pub type ContinuationHistoryTable = [[[[[i16; 64]; 6]; 64]; 6]; 2];
 
 /// Each value is in addition to the last
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
@@ -74,6 +76,8 @@ pub struct Searcher<'a> {
     stop_rx: &'a Receiver<()>,
     stop_received: bool,
     max_nodes: u64,
+    continuation_history: &'a mut ContinuationHistoryTable,
+    move_history: Vec<Move>,
 }
 
 impl<'a> Searcher<'a> {
@@ -82,6 +86,7 @@ impl<'a> Searcher<'a> {
         transposition_table: &'a mut TranspositionTable,
         history_table: &'a mut HistoryTable,
         stop_rx: &'a Receiver<()>,
+        continuation_history: &'a mut ContinuationHistoryTable,
     ) -> Self {
         let starting_halfmove = board.halfmove_clock;
 
@@ -100,6 +105,8 @@ impl<'a> Searcher<'a> {
             stop_rx,
             stop_received: false,
             max_nodes: u64::MAX,
+            continuation_history,
+            move_history: vec![],
         }
     }
 
@@ -298,6 +305,8 @@ impl<'a> Searcher<'a> {
             if let Ok(e) = result {
                 score = e;
             } else {
+                self.move_history.clear();
+
                 // In this case the state of the board will not been reset back to the starting state
                 return AlphaBetaResult {
                     search_result: None,
@@ -307,6 +316,7 @@ impl<'a> Searcher<'a> {
             }
 
             debug_assert!(self.rollback.is_empty());
+            debug_assert!(self.move_history.is_empty());
 
             if score <= alpha {
                 self.stats.aspiration_researches += 1;
@@ -359,9 +369,10 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         self.stats.total_nodes += 1;
 
-        if self.board.halfmove_clock >= 100
-            || RepetitionTracker::test_threefold_repetition(self.board)
-            || self.board.is_insufficient_material()
+        if ply != 0
+            && (self.board.halfmove_clock >= 100
+                || RepetitionTracker::test_repetition(self.board)
+                || self.board.is_insufficient_material())
         {
             parent_pv.clear();
             return Ok(0);
@@ -412,7 +423,20 @@ impl<'a> Searcher<'a> {
                 match tt_data.get_move_type() {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
-                            self.update_killers_and_history(killers, &tt_data.important_move, ply);
+                            // should history be updated here?
+                            let mut relevant_cont_hist = get_relevant_cont_hist(
+                                &self.move_history,
+                                &self.board,
+                                &mut *self.continuation_history,
+                            );
+                            update_killers_and_history(
+                                &self.board,
+                                &mut self.history_table,
+                                killers,
+                                &tt_data.important_move,
+                                ply,
+                                &mut relevant_cont_hist,
+                            );
 
                             return Ok(tt_score);
                         }
@@ -463,6 +487,7 @@ impl<'a> Searcher<'a> {
         {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
+            self.move_history.push(EMPTY_MOVE);
 
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
@@ -479,6 +504,7 @@ impl<'a> Searcher<'a> {
             )?;
 
             self.board.unmake_null_move(&mut self.rollback);
+            self.move_history.pop();
 
             if nmp_score >= beta {
                 return Ok(nmp_score);
@@ -528,15 +554,25 @@ impl<'a> Searcher<'a> {
                 has_legal_move = true;
                 let gives_check = self.board.is_in_check(false);
 
+                // limit to avoid underflow
+                let limited_draft = draft.min(21) as i16;
+
                 // Futility pruning and late move pruning
-                if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -1000))
-                    && searched_moves >= 1
+                if searched_moves >= 1
                     && !gives_check
                     && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+                    && (futility_prune
+                        || (!is_pv
+                            && !in_check
+                            && searched_moves >= 6
+                            // LMP will not happen at all for I think draft 14 and above
+                            && r#move.score < -1.6f32.powi(limited_draft as i32) as i16 - 70 * limited_draft - 700))
                 {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
                     continue;
                 }
+
+                self.move_history.push(r#move.m);
 
                 let mut reduction = 0;
                 // Late move reduction
@@ -617,14 +653,31 @@ impl<'a> Searcher<'a> {
                 }
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
+                self.move_history.pop();
                 searched_moves += 1;
 
                 if score >= beta {
-                    self.update_killers_and_history(killers, &r#move.m, ply);
+                    let mut relevant_cont_hist =
+                        get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history);
+
+                    update_killers_and_history(
+                        &self.board,
+                        &mut self.history_table,
+                        killers,
+                        &r#move.m,
+                        ply,
+                        &mut relevant_cont_hist,
+                    );
 
                     let penalty = -(ply as i16) * (ply as i16);
                     for m in searched_quiet_moves {
-                        self.update_history(&m, penalty);
+                        update_history(
+                            &self.board,
+                            &mut self.history_table,
+                            &m,
+                            penalty,
+                            &mut relevant_cont_hist,
+                        );
                     }
 
                     self.transposition_table.store_entry(
@@ -657,6 +710,7 @@ impl<'a> Searcher<'a> {
                     }
                 }
 
+                // TODO: change to check for capture flag
                 if r#move.m.flags() == 0 {
                     searched_quiet_moves.push(r#move.m);
                 }
@@ -668,6 +722,8 @@ impl<'a> Searcher<'a> {
                 } else {
                     moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
                 }
+
+                self.apply_history_to_move_scores(&mut moves);
 
                 if killers[0] != EMPTY_MOVE {
                     let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
@@ -733,6 +789,21 @@ impl<'a> Searcher<'a> {
         );
 
         Ok(best_score)
+    }
+
+    fn apply_history_to_move_scores(&mut self, moves: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>) {
+        if let Some(relevant_cont_hist) =
+            get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history)
+        {
+            for m in moves {
+                if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+                    continue;
+                }
+
+                let piece_to_move = self.board.get_piece_64(m.m.from() as usize);
+                m.score += relevant_cont_hist[((piece_to_move & PIECE_MASK) - 1) as usize][m.m.to() as usize];
+            }
+        }
     }
 }
 
@@ -822,35 +893,83 @@ impl Board {
     }
 }
 
-impl<'a> Searcher<'a> {
-    #[inline]
-    fn update_killers_and_history(&mut self, killers: &mut [Move; 2], m: &Move, ply_depth: u8) {
-        if m.flags() != 0 {
-            return;
-        }
+#[inline]
+fn update_killers_and_history(
+    board: &Board,
+    history_table: &mut HistoryTable,
+    killers: &mut [Move; 2],
+    m: &Move,
+    ply_depth: u8,
+    relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
+) {
+    // TODO: Change this to check for capture flag specifically
+    if m.flags() != 0 {
+        return;
+    }
 
-        self.update_history(m, (ply_depth as i16) * (ply_depth as i16));
+    update_history(
+        board,
+        history_table,
+        m,
+        (ply_depth as i16) * (ply_depth as i16),
+        relevant_cont_hist,
+    );
 
-        if killers[0] == *m {
-            return;
-        }
+    if killers[0] == *m {
+        return;
+    }
 
-        if killers[1] == *m {
-            (killers[0], killers[1]) = (killers[1], killers[0]);
-        } else {
-            killers[1] = *m;
+    if killers[1] == *m {
+        (killers[0], killers[1]) = (killers[1], killers[0]);
+    } else {
+        killers[1] = *m;
+    }
+}
+
+#[inline]
+fn update_history(
+    board: &Board,
+    history_table: &mut HistoryTable,
+    m: &Move,
+    bonus: i16,
+    relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
+) {
+    // from https://www.chessprogramming.org/History_Heuristic
+    let piece_type = (board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize;
+    let history_color_value = if board.white_to_move { 0 } else { 1 };
+    let to = m.to() as usize;
+
+    let clamped_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
+    let current_history = &mut history_table[history_color_value][piece_type - 1][to];
+    *current_history += (clamped_history_bonus
+        - ((*current_history as i32) * clamped_history_bonus.abs() / MOVE_SCORE_HISTORY_MAX))
+        as i16;
+
+    let clamped_const_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_CONST_HISTORY_MAX);
+    if let Some(relevant_cont_hist) = relevant_cont_hist {
+        let current_cont_hist = &mut relevant_cont_hist[piece_type - 1][to];
+        *current_cont_hist += (clamped_const_history_bonus
+            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONST_HISTORY_MAX))
+            as i16;
+    }
+}
+
+#[inline]
+fn get_relevant_cont_hist<'a>(
+    move_history: &Vec<Move>,
+    board: &Board,
+    continuation_history: &'a mut ContinuationHistoryTable,
+) -> Option<&'a mut [[i16; 64]; 6]> {
+    if let Some(last_move) = move_history.last() {
+        if *last_move != EMPTY_MOVE {
+            let last_moved_to = last_move.to() as usize;
+            let last_moved_piece = board.get_piece_64(last_moved_to);
+            return Some(
+                &mut continuation_history[if board.white_to_move { 0 } else { 1 }]
+                    [((last_moved_piece & PIECE_MASK) - 1) as usize][last_moved_to],
+            );
         }
     }
 
-    #[inline]
-    fn update_history(&mut self, m: &Move, bonus: i16) {
-        // from https://www.chessprogramming.org/History_Heuristic
-        let piece_type = (self.board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize;
-        let history_color_value = if self.board.white_to_move { 0 } else { 1 };
-
-        let current_value = &mut self.history_table[history_color_value][piece_type - 1][m.to() as usize];
-        let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-        *current_value +=
-            (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
-    }
+    None
 }

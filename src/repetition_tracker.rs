@@ -12,6 +12,7 @@ use crate::{
 const TABLE_LOG_2_SIZE: usize = 0;
 const MAX_MOVE_HISTORY: usize = 201;
 const TABLE_MASK: u64 = (1 << TABLE_LOG_2_SIZE) - 1;
+const MIN_REPETITIONS_FOR_DRAW: u8 = 2;
 
 #[derive(Clone, Eq)]
 pub struct RepetitionTracker {
@@ -45,8 +46,8 @@ impl RepetitionTracker {
         self.repetitions[(hash & TABLE_MASK) as usize] -= 1;
     }
 
-    pub fn test_threefold_repetition(board: &mut Board) -> bool {
-        if board.repetitions.repetitions[(board.hash & TABLE_MASK) as usize] >= 3 {
+    pub fn test_repetition(board: &mut Board) -> bool {
+        if board.repetitions.repetitions[(board.hash & TABLE_MASK) as usize] >= MIN_REPETITIONS_FOR_DRAW {
             let mut check = true;
             let mut repetitions = 0;
             let target_hash = board.hash;
@@ -61,7 +62,7 @@ impl RepetitionTracker {
             loop {
                 if check && board.hash == target_hash {
                     repetitions += 1;
-                    if repetitions == 3 {
+                    if repetitions == MIN_REPETITIONS_FOR_DRAW {
                         break;
                     }
                 }
@@ -100,7 +101,7 @@ impl RepetitionTracker {
                 assert_eq!(board_copy.as_ref().unwrap(), board);
             }
 
-            repetitions >= 3
+            repetitions >= MIN_REPETITIONS_FOR_DRAW
         } else {
             false
         }

@@ -112,9 +112,9 @@ impl Board {
         }
 
         let fen_pieces: Vec<&str> = fen.split(' ').collect();
-        if fen_pieces.len() != 5 && fen_pieces.len() != 6 {
+        if fen_pieces.len() < 4 || fen_pieces.len() > 6 {
             return Err(format!(
-                "Expected FEN to have 5 or 6 space-delimited parts but it had {}",
+                "Expected FEN to have 4 to 6 space-delimited parts but it had {}",
                 fen_pieces.len()
             ));
         }
@@ -283,9 +283,7 @@ impl Board {
             board.en_passant_target_square_index = Some(ep_square_index);
         }
 
-        if fen_pieces[4].is_empty() {
-            board.halfmove_clock = 0;
-        } else {
+        if fen_pieces.len() > 4 {
             let hmc_result = fen_pieces[4].parse::<u8>();
             match hmc_result {
                 Ok(hmc) => {
@@ -298,19 +296,19 @@ impl Board {
                     ));
                 }
             }
-        }
 
-        if fen_pieces.len() > 5 {
-            let fmc_result = fen_pieces[5].parse::<u16>();
-            match fmc_result {
-                Ok(fmc) => {
-                    board.fullmove_counter = fmc;
-                }
-                Err(e) => {
-                    return Err(format!(
-                        "Encountered error while parsing fullmove counter value '{}' as u16: {}",
-                        fen_pieces[5], e
-                    ));
+            if fen_pieces.len() > 5 {
+                let fmc_result = fen_pieces[5].parse::<u16>();
+                match fmc_result {
+                    Ok(fmc) => {
+                        board.fullmove_counter = fmc;
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "Encountered error while parsing fullmove counter value '{}' as u16: {}",
+                            fen_pieces[5], e
+                        ));
+                    }
                 }
             }
         } else {
