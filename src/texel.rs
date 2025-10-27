@@ -246,7 +246,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let t = -c * m;
 
         let mut updated_params;
-        let mut new_error;
+        let mut new_error = base_error;
         let mut biggest_change;
         loop {
             updated_params = params;
@@ -255,6 +255,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
             if biggest_change >= 100 {
                 panic!("Biggest change {biggest_change} could cause an overflow")
+            } else if biggest_change == 0 {
+                break;
             }
 
             println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
