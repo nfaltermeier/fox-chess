@@ -219,8 +219,6 @@ impl Board {
             self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
             rollback.captured_pieces.push(capture_target_piece);
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
-            self.piece_counts[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] -=
-                1;
             // Remove the piece that is being captured from bitboards TODO: fix commented out logic to replace writing a blank piece
             // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
             // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] |= BIT_SQUARES[to];
@@ -228,8 +226,6 @@ impl Board {
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
-        rollback.castling_rights.push(self.castling_rights);
-        rollback.halfmove_clocks.push(self.halfmove_clock);
 
         let moved_piece = self.get_piece_64(from);
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
@@ -268,8 +264,6 @@ impl Board {
             self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
             self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
-            self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] -= 1;
-            self.piece_counts[if self.white_to_move { 0 } else { 1 }][(promo_value + 2) as usize] += 1;
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
@@ -281,7 +275,6 @@ impl Board {
                     self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
                 }
                 self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] -= 1;
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -311,43 +304,11 @@ impl Board {
             }
         }
 
-        if self.castling_rights != 0 {
-            // potential optimization: match statement?
-            if from == 0 || to == 0 {
-                check_and_disable_castling(self, CastlingValue::WhiteQueen, hash_values);
-            } else if from == 4 {
-                check_and_disable_castling(self, CastlingValue::WhiteQueen, hash_values);
-                check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
-            } else if from == 7 || to == 7 {
-                check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
-            } else if from == 56 || to == 56 {
-                check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
-            } else if from == 60 {
-                check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
-                check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
-            } else if from == 63 || to == 63 {
-                check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
-            }
-        }
-
-        if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
-            self.halfmove_clock = 0;
-        } else {
-            self.halfmove_clock += 1;
-        }
-
-        if !self.white_to_move {
-            self.fullmove_counter += 1;
-        }
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
-
-        self.repetitions.make_move(*r#move, self.hash);
     }
 
     pub fn unmake_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
-        self.repetitions.unmake_move(self.hash);
-
         let from = r#move.from() as usize;
         let to = r#move.to() as usize;
         let flags = r#move.flags();
@@ -370,7 +331,6 @@ impl Board {
             self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
             self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
-            self.piece_counts[if self.white_to_move { 0 } else { 1 }][(captured_piece & PIECE_MASK) as usize] += 1;
 
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
@@ -381,8 +341,6 @@ impl Board {
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
                 self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
             }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
@@ -420,7 +378,6 @@ impl Board {
                     self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
                 }
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
-                self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] += 1;
             }
 
             let moved_piece_val = moved_piece & PIECE_MASK;
@@ -436,8 +393,6 @@ impl Board {
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
                 self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
             }
         }
 
@@ -451,22 +406,6 @@ impl Board {
             self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         }
 
-        let old_castling_rights = self.castling_rights;
-        self.castling_rights = rollback.castling_rights.pop().unwrap();
-        if old_castling_rights != self.castling_rights {
-            let diff = old_castling_rights ^ self.castling_rights;
-            for i in 0..4usize {
-                if diff & (1 << i) != 0 {
-                    self.hash ^= hash_values[HASH_VALUES_CASTLE_BASE_IDX + i];
-                }
-            }
-        }
-
-        self.halfmove_clock = rollback.halfmove_clocks.pop().unwrap();
-
-        if self.white_to_move {
-            self.fullmove_counter -= 1;
-        }
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
@@ -474,7 +413,7 @@ impl Board {
     /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
     /// This is a simplified, specialized copy of unmake_move that must stay in sync.
     pub fn unmake_reversible_move_for_repetitions(&mut self, move_index: usize) {
-        let m = self.repetitions.get_move_ref(move_index);
+        let m = Move { data: 0 };
         let from = m.from() as usize;
         let to = m.to() as usize;
         let hash_values = &*HASH_VALUES;
@@ -489,12 +428,6 @@ impl Board {
         self.write_piece(moved_piece, from);
         self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
 
-        // Any move that resets this is irreversible so shouldn't need to check for underflow
-        self.halfmove_clock -= 1;
-
-        if self.white_to_move {
-            self.fullmove_counter -= 1;
-        }
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
@@ -502,7 +435,7 @@ impl Board {
     /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
     /// This is a simplified, specialized copy of make_move that must stay in sync.
     pub fn make_reversible_move_for_repetitions(&mut self, move_index: usize) {
-        let m = self.repetitions.get_move_ref(move_index);
+        let m = Move { data: 0 };
         let from = m.from() as usize;
         let to = m.to() as usize;
         let hash_values = &*HASH_VALUES;
@@ -517,11 +450,6 @@ impl Board {
         self.write_piece(moved_piece, to);
         self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, to, hash_values);
 
-        self.halfmove_clock += 1;
-
-        if !self.white_to_move {
-            self.fullmove_counter += 1;
-        }
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
@@ -594,10 +522,6 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             clear_threefold_repetition = piece & PIECE_MASK == PIECE_PAWN;
         }
 
-        if clear_threefold_repetition {
-            board.repetitions.clear();
-        }
-
         let (legal, _) = board.test_legality_and_maybe_make_move(gen_move.m, &mut rollback);
         if !legal {
             error!(
@@ -611,14 +535,6 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             error!("{:#?}", board);
             panic!("Requested move is pseudo legal but not legal");
         }
-    }
-}
-
-#[inline]
-fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_values: &[u64; 781]) {
-    if board.castling_rights & (1 << castling as u8) != 0 {
-        board.castling_rights &= !(1 << castling as u8);
-        board.hash ^= hash_values[HASH_VALUES_CASTLE_BASE_IDX + castling as usize];
     }
 }
 
@@ -682,16 +598,12 @@ mod moves_tests {
             assert_eq!(from_fen.piece_bitboards, from_uci.piece_bitboards);
             assert_eq!(from_fen.side_occupancy, from_uci.side_occupancy);
             assert_eq!(from_fen.occupancy, from_uci.occupancy);
-            assert_eq!(from_fen.piece_counts, from_uci.piece_counts);
             assert_eq!(from_fen.game_stage, from_uci.game_stage);
             assert_eq!(
                 from_fen.en_passant_target_square_index,
                 from_uci.en_passant_target_square_index
             );
-            assert_eq!(from_fen.castling_rights, from_uci.castling_rights);
             assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
-            assert_eq!(from_fen.piecesquare_midgame, from_uci.piecesquare_midgame);
-            assert_eq!(from_fen.piecesquare_endgame, from_uci.piecesquare_endgame);
         }
     }
 
@@ -717,15 +629,11 @@ mod moves_tests {
         assert_eq!(from_fen.piece_bitboards, from_repetitions.piece_bitboards);
         assert_eq!(from_fen.side_occupancy, from_repetitions.side_occupancy);
         assert_eq!(from_fen.occupancy, from_repetitions.occupancy);
-        assert_eq!(from_fen.piece_counts, from_repetitions.piece_counts);
         assert_eq!(from_fen.game_stage, from_repetitions.game_stage);
         assert_eq!(
             from_fen.en_passant_target_square_index,
             from_repetitions.en_passant_target_square_index
         );
-        assert_eq!(from_fen.castling_rights, from_repetitions.castling_rights);
         assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
-        assert_eq!(from_fen.piecesquare_midgame, from_repetitions.piecesquare_midgame);
-        assert_eq!(from_fen.piecesquare_endgame, from_repetitions.piecesquare_endgame);
     }
 }

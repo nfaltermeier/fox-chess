@@ -88,7 +88,7 @@ impl<'a> Searcher<'a> {
         stop_rx: &'a Receiver<()>,
         continuation_history: &'a mut ContinuationHistoryTable,
     ) -> Self {
-        let starting_halfmove = board.halfmove_clock;
+        let starting_halfmove = 0;
 
         let starting_in_check = board.is_in_check(false);
 
@@ -142,13 +142,7 @@ impl<'a> Searcher<'a> {
                         panic!("No time left value provided when searching");
                     }
 
-                    let divisor = if self.board.fullmove_counter < 15 {
-                        25
-                    } else if self.board.fullmove_counter < 25 {
-                        20
-                    } else {
-                        30
-                    };
+                    let divisor = 30;
 
                     let time_left = time_left.as_ref().unwrap().to_std().unwrap();
                     target_dur = Some(time_left.checked_div(divisor).unwrap());
@@ -370,8 +364,7 @@ impl<'a> Searcher<'a> {
         self.stats.total_nodes += 1;
 
         if ply != 0
-            && (self.board.halfmove_clock >= 100
-                || RepetitionTracker::test_repetition(self.board)
+            && (RepetitionTracker::test_repetition(self.board)
                 || self.board.is_insufficient_material())
         {
             parent_pv.clear();

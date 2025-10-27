@@ -84,13 +84,6 @@ fn main() {
     // find_scaling_constant(positions.positions);
     find_best_params(positions.positions);
 
-    // if let Some(command) = &args.command {
-    //     handle_startup_command(command);
-    //     return;
-    // }
-
-    // run_uci();
-
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");

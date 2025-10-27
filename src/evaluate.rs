@@ -224,12 +224,8 @@ impl Board {
 
                 position_score_midgame += get_piece_square_value(params, color, piece_type - 1, i);
                 position_score_endgame += get_piece_square_value(params, color, piece_type - 1 + 6, i);
+                material_score += params[EP_PIECE_VALUES_IDX + i] * if color == 0 { 1 } else { -1 };
             }
-        }
-
-        for i in 1..7 {
-            material_score +=
-                params[EP_PIECE_VALUES_IDX + i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
         }
 
         let doubled_pawns = self.count_doubled_pawns();
@@ -279,32 +275,6 @@ impl Board {
 
     /// Returns true if this position will be called a draw by the arbiter
     pub fn is_insufficient_material(&self) -> bool {
-        if self.piece_counts[0][PIECE_QUEEN as usize] == 0
-            && self.piece_counts[0][PIECE_ROOK as usize] == 0
-            && self.piece_counts[0][PIECE_PAWN as usize] == 0
-            && self.piece_counts[1][PIECE_QUEEN as usize] == 0
-            && self.piece_counts[1][PIECE_ROOK as usize] == 0
-            && self.piece_counts[1][PIECE_PAWN as usize] == 0
-        {
-            let white_minor_pieces =
-                self.piece_counts[0][PIECE_BISHOP as usize] + self.piece_counts[0][PIECE_KNIGHT as usize];
-            let black_minor_pieces =
-                self.piece_counts[1][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_KNIGHT as usize];
-
-            if white_minor_pieces == 1
-                && black_minor_pieces == 1
-                && self.piece_counts[0][PIECE_BISHOP as usize] == 1
-                && self.piece_counts[1][PIECE_BISHOP as usize] == 1
-            {
-                let bishops =
-                    self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
-                return (bishops & LIGHT_SQUARES).count_ones() != 1;
-            }
-
-            return (white_minor_pieces == 0 && black_minor_pieces == 0)
-                || (white_minor_pieces == 0 && black_minor_pieces == 1)
-                || (white_minor_pieces == 1 && black_minor_pieces == 0);
-        }
         false
     }
 
@@ -319,8 +289,8 @@ impl Board {
             }
         }
 
-        (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1])
-            - (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
+        (self.piece_bitboards[1][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[1])
+            - (self.piece_bitboards[0][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[0])
     }
 
     // Algorithm from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
