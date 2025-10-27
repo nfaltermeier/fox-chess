@@ -143,7 +143,7 @@ pub struct LoadPositionsResult {
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
     let load_positions = 3;
-    let skip_positions = 7;
+    let skip_positions = 17;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -239,6 +239,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         println!("Starting new loop, new error is {base_error:.8}");
 
         let gradient = search_gradient(&mut nonquiet_positions, &mut params, scaling_constant, base_error);
+        println!("[{}] Calculated gradient", humantime::format_rfc3339(SystemTime::now()));
 
         // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
         let m = calc_m(&gradient);
@@ -251,6 +252,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             updated_params = params;
             let changes = gradient.par_iter().map(|v| (-v * step_size).round() as i16);
             biggest_change = changes.clone().map(|v| v.abs()).max().unwrap();
+
+            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
 
             updated_params.par_iter_mut().zip(changes).for_each(|(param, change)| *param += change);
 
@@ -324,6 +327,10 @@ fn search_gradient(positions: &mut Vec<TexelPosition>, params: &mut EvalParams, 
         result[i] = search_error_for_params(positions, params, scaling_constant) - base_error;
 
         params[i] -=1;
+
+        if i % 100 == 0 {
+            println!("[{}] Calculated derivative for {i} elements of gradient", humantime::format_rfc3339(SystemTime::now()))
+        }
     }
 
     result
