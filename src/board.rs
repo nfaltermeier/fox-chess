@@ -295,7 +295,7 @@ impl Board {
             result += " b ";
         }
 
-        result += "castling_unknown";
+        result += "castling_unknown ";
 
         // En passant
         if let Some(ep_index) = self.en_passant_target_square_index {
