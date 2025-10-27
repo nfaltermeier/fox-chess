@@ -383,10 +383,16 @@ fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scal
 
         params[i] += 1;
 
-        // Approximate the derivative with numerical differentiation
-        result[i] = find_error_for_quiet_positions(positions, params, scaling_constant) - base_error;
+        let positive_error = find_error_for_quiet_positions(positions, params, scaling_constant);
 
-        params[i] -=1;
+        params[i] -= 2;
+
+        let negative_error = find_error_for_quiet_positions(positions, params, scaling_constant);
+
+        params[i] += 1;
+
+        // Approximate the derivative with symmetrical difference quotient numerical differentiation
+        result[i] = (positive_error - negative_error) / 2.0;
 
         if i % 100 == 0 {
             println!("[{}] Calculated derivative for {i} elements of gradient", humantime::format_rfc3339(SystemTime::now()))
