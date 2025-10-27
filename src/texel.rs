@@ -229,16 +229,18 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS;
 
     let scaling_constant = 1.06;
-    let mut step_size = 10000.0;
+    let mut step_size = 1000000.0;
     let c = 0.5;
     let tau = 0.5;
 
     let mut count = 0;
     loop {
-        let base_error = search_error_for_params(&mut nonquiet_positions, &params, scaling_constant);
+        let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
+
+        let base_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
-        let gradient = search_gradient(&mut nonquiet_positions, &mut params, scaling_constant, base_error);
+        let gradient = search_gradient(&quiet_positions, &mut params, scaling_constant, base_error);
         println!("[{}] Calculated gradient", humantime::format_rfc3339(SystemTime::now()));
 
         // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
@@ -252,6 +254,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             updated_params = params;
             let changes = gradient.par_iter().map(|v| (-v * step_size).round() as i16);
             biggest_change = changes.clone().map(|v| v.abs()).max().unwrap();
+            let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f32::max).unwrap();
+
+            println!("[{}] Biggest change {biggest_change} for step size {step_size} and biggest gradient value {biggest_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
 
             if biggest_change >= 100 {
                 panic!("Biggest change {biggest_change} could cause an overflow")
@@ -259,11 +264,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                 break;
             }
 
-            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
-
             updated_params.par_iter_mut().zip(changes).for_each(|(param, change)| *param += change);
 
-            new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
+            new_error = find_error_for_quiet_positions(&quiet_positions, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
                 break;
             } else {
@@ -339,7 +342,7 @@ fn find_error_for_quiet_positions(
 }
 
 /// params should be unchanged when this method returns
-fn search_gradient(positions: &mut Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f32, base_error: f32) -> Box<EvalGradient> {
+fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f32, base_error: f32) -> Box<EvalGradient> {
     let mut result = Box::new([0f32; EVAL_SIZE]);
 
     for i in 0..params.len() {
@@ -362,7 +365,7 @@ fn search_gradient(positions: &mut Vec<TexelPosition>, params: &mut EvalParams, 
         params[i] += 1;
 
         // Approximate the derivative with numerical differentiation
-        result[i] = search_error_for_params(positions, params, scaling_constant) - base_error;
+        result[i] = find_error_for_quiet_positions(positions, params, scaling_constant) - base_error;
 
         params[i] -=1;
 

@@ -73,10 +73,11 @@ fn main() {
 
     // rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
 
-    println!("Loading positions from file");
+    println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
     let positions = load_positions("set_three_positions.epd");
     println!(
-        "{} Positions loaded, take to skip ratio: {}/{}",
+        "[{}] {} Positions loaded, take to skip ratio: {}/{}",
+        humantime::format_rfc3339(SystemTime::now()),
         positions.positions.len(),
         positions.loaded_ratio,
         positions.skipped_ratio
