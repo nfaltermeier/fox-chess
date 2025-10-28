@@ -143,7 +143,7 @@ pub struct LoadPositionsResult {
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
     let load_positions = 3;
-    let skip_positions = 17;
+    let skip_positions = 97;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -227,6 +227,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         fs::create_dir("params").unwrap();
     }
 
+    if !fs::exists("gradients").unwrap() {
+        fs::create_dir("gradients").unwrap();
+    }
+
     // test starting from zeros
     let mut params = DEFAULT_PARAMS;
     // let mut params = [0; EVAL_PARAM_COUNT];
@@ -252,6 +256,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         sorted.sort_unstable_by(f64::total_cmp);
         let median_gradient_value = sorted[gradient.len() / 2];
         println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}, avg is {avg_gradient_value}, median is {median_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
+        save_gradient(&gradient);
 
         // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
         let m = calc_m(&gradient);
@@ -421,6 +426,22 @@ fn save_params(params: &EvalParams) {
             writeln!(f, "{v},").unwrap();
         } else {
             write!(f, "{v},").unwrap();
+        }
+    }
+}
+
+fn save_gradient(gradient: &Box<EvalGradient>) {
+    let mut f = File::create(format!(
+        "gradients/{}.txt",
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+    ))
+    .unwrap();
+
+    for (i, v) in gradient.iter().enumerate() {
+        if i % 8 == 7 {
+            writeln!(f, "{v:018.15},").unwrap();
+        } else {
+            write!(f, "{v:018.15},").unwrap();
         }
     }
 }
