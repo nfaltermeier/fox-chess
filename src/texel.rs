@@ -236,13 +236,16 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     // let mut params = [0; EVAL_PARAM_COUNT];
 
     let scaling_constant = 1.06;
-    let mut step_size = 10000000.0;
+    const DEFAULT_STEP_SIZE: f64 = 10000000.0;
+    let mut step_size = DEFAULT_STEP_SIZE;
     // The goal for how much to improve at each descent step
     let c = 0.01;
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
     let tau = 0.75;
 
-    let mut count = 0;
+    let mut iterations = 0;
+    let mut changed_since_step_size_reset = false;
+    let mut step_size_resets = 0;
     loop {
         let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
 
@@ -279,7 +282,19 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             //     panic!("Biggest change {biggest_change} could cause an overflow")
             // } else
             if biggest_change == 0 {
-                break;
+                if changed_since_step_size_reset {
+                    // Maybe the bigger derivatives have settled down now,
+                    // retry from the start to give the smaller derivatives a chance to change.
+                    // Params have not changed so reuse the gradient.
+                    step_size = DEFAULT_STEP_SIZE;
+                    changed_since_step_size_reset = false;
+                    step_size_resets += 1;
+                    println!("[{}] Resetting step size for the {step_size_resets}{} time", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
+
+                    continue;
+                } else {
+                    break;
+                }
             }
 
             updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
@@ -288,6 +303,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
                 changed_params = changes.iter().filter(|v| **v != 0).count();
+                changed_since_step_size_reset = true;
 
                 break;
             } else {
@@ -305,9 +321,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         // To find the appropriate step size we descend the gradient, so we just use that value as our next value
         params = updated_params;
 
-        count += 1;
+        iterations += 1;
         println!(
-            "[{}] Saving, error: {new_error:.8}, iterations: {count}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params",
+            "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params",
             humantime::format_rfc3339(SystemTime::now())
         );
         save_params(&params);
@@ -467,4 +483,12 @@ pub fn sum_orlp(arr: &[f64]) -> f64 {
         sum = t;
     }
     sum + (sum_block(chunks.remainder()) - c)
+}
+
+fn get_ordinal_suffix(num: i32) -> &'static str {
+    match num % 10 {
+        1 => "st",
+        2 => "nd",
+        _ => "th",
+    }
 }
