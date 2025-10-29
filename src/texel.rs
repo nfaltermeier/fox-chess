@@ -246,6 +246,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut iterations = 0;
     let mut changed_since_step_size_reset = false;
     let mut step_size_resets = 0;
+    let mut total_param_changes = 0;
     loop {
         let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
 
@@ -303,6 +304,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
                 changed_params = changes.iter().filter(|v| **v != 0).count();
+                total_param_changes += changed_params;
                 changed_since_step_size_reset = true;
 
                 break;
@@ -323,7 +325,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
         iterations += 1;
         println!(
-            "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params",
+            "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total changed params {total_param_changes}",
             humantime::format_rfc3339(SystemTime::now())
         );
         save_params(&params);
