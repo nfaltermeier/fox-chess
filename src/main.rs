@@ -71,7 +71,7 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    rayon::ThreadPoolBuilder::new().num_threads(5).build_global().unwrap();
+    // rayon::ThreadPoolBuilder::new().num_threads(5).build_global().unwrap();
 
     println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
     let positions = load_positions(r"C:\Programming\git\fox-chess\target\release\set_three_positions.epd");

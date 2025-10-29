@@ -1,12 +1,12 @@
 use array_macro::array;
 
 use crate::{
-    bitboard::{north_fill, south_fill, BIT_SQUARES, LIGHT_SQUARES},
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
     board::{Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
     texel::{
-        EvalParams, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX
+        EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EVAL_PARAM_COUNT, EvalFeatures, EvalGradient, EvalParams
     },
 };
 
@@ -201,42 +201,43 @@ static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
 #[inline]
 /// for piece_type, pawn is 0
-fn get_piece_square_value(params: &EvalParams, color: usize, piece_type: usize, square: usize) -> i16 {
+fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usize {
     if color == 0 {
-        params[piece_type * 64 + (square ^ 0b00111000)]
+        piece_type * 64 + (square ^ 0b00111000)
     } else {
-        -params[piece_type * 64 + square]
+        piece_type * 64 + square
     }
 }
 
 impl Board {
-    pub fn evaluate(&self, params: &EvalParams) -> i16 {
-        let mut material_score = 0;
-        let mut game_stage = self.game_stage;
+    pub fn evaluate(&self, params: &EvalFeatures) -> i16 {
+        params.iter().zip(self.get_eval_features()).map(|(a, b)| (*a as f32) * b).reduce(|a, b| a + b).unwrap().round() as i16
+    }
 
-        let mut position_score_midgame = 0;
-        let mut position_score_endgame = 0;
+    pub fn get_eval_features(&self) -> EvalFeatures {
+        let mut result = [0.0; EVAL_PARAM_COUNT];
+
+        let mut game_stage = self.game_stage;
+        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
+            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
+        }
+        let midgame_gamestage_coeff = game_stage as f32 / MIN_GAME_STAGE_FULLY_MIDGAME as f32;
+        let endgame_gamestage_coeff = 1.0 - midgame_gamestage_coeff;
+
         for i in 0..64 {
             let piece = self.get_piece_64(i);
             if piece != PIECE_NONE {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
+                let color_eval_contrib = if piece & COLOR_FLAG_MASK == COLOR_BLACK { -1.0 } else { 1.0 };
                 let piece_type = (piece & PIECE_MASK) as usize;
 
-                position_score_midgame += get_piece_square_value(params, color, piece_type - 1, i);
-                position_score_endgame += get_piece_square_value(params, color, piece_type - 1 + 6, i);
-                material_score += params[EP_PIECE_VALUES_IDX + piece_type] * if color == 0 { 1 } else { -1 };
+                result[get_piece_square_index(color, piece_type - 1, i)] = color_eval_contrib * midgame_gamestage_coeff;
+                result[get_piece_square_index(color, piece_type - 1 + 6, i)] = color_eval_contrib * endgame_gamestage_coeff;
+                result[EP_PIECE_VALUES_IDX + piece_type] += color_eval_contrib;
             }
         }
 
         let doubled_pawns = self.count_doubled_pawns();
-
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
-        }
-
-        let position_score_final = ((position_score_midgame * game_stage)
-            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
-            / MIN_GAME_STAGE_FULLY_MIDGAME;
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
@@ -249,12 +250,12 @@ impl Board {
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
-        material_score
-            + position_score_final
-            + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX]
-            + net_passed_pawns * params[EP_PASSED_PAWN_IDX]
-            + (w_open - b_open) * params[EP_ROOK_OPEN_FILE_IDX]
-            + (w_half_open - b_half_open) * params[EP_ROOK_HALF_OPEN_FILE_IDX]
+        result[EP_DOUBLED_PAWNS_IDX] = doubled_pawns as f32;
+        result[EP_PASSED_PAWN_IDX] = net_passed_pawns as f32;
+        result[EP_ROOK_OPEN_FILE_IDX] = (w_open - b_open) as f32;
+        result[EP_ROOK_HALF_OPEN_FILE_IDX] = (w_half_open - b_half_open) as f32;
+
+        result
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -265,7 +266,7 @@ impl Board {
         }
     }
 
-    pub fn evaluate_side_to_move_relative(&self, params: &EvalParams) -> i16 {
+    pub fn evaluate_side_to_move_relative(&self, params: &EvalFeatures) -> i16 {
         self.evaluate(params) * if self.white_to_move { 1 } else { -1 }
     }
 
