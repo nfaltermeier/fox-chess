@@ -266,10 +266,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let mut new_error = base_error;
         let mut biggest_change;
         let mut failed_on_biggest_change_one = false;
+        let mut changed_params = 0;
         loop {
             updated_params = params;
-            let changes = gradient.par_iter().map(|v| (-v * step_size).round() as i16);
-            biggest_change = changes.clone().map(|v| v.abs()).max().unwrap();
+            let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
+            gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
+            biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
 
             println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
 
@@ -280,11 +282,13 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                 break;
             }
 
-            updated_params.par_iter_mut().zip(changes).for_each(|(param, change)| *param += change);
+            updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
 
             // Searching for error will be more accurate to the true error than reusing the found quiet positions
             new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
+                changed_params = changes.iter().filter(|v| **v != 0).count();
+
                 break;
             } else {
                 println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
@@ -303,7 +307,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
         count += 1;
         println!(
-            "[{}] Saving, error: {new_error:.8}, iterations: {count}, step size: {step_size}, biggest change: {biggest_change}",
+            "[{}] Saving, error: {new_error:.8}, iterations: {count}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params",
             humantime::format_rfc3339(SystemTime::now())
         );
         save_params(&params);
