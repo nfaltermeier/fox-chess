@@ -50,20 +50,7 @@ impl UciInterface {
         for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
-                    let build_info = get_build_info();
-                    let commit;
-                    match &build_info.version_control {
-                        Some(vc) => match vc {
-                            Git(g) => {
-                                commit = format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" });
-                            }
-                        },
-                        None => {
-                            commit = "".to_string();
-                        }
-                    }
-
-                    println!("id name FoxChess {} {}", build_info.profile, commit);
+                    println!("id name FoxChess {}", UciInterface::get_version());
                     println!("id author nfaltermeier");
                     println!("uciok");
                 }
@@ -263,5 +250,21 @@ impl UciInterface {
             let typed_mem = mem.cast::<ContinuationHistoryTable>();
             Box::from_raw(typed_mem)
         }
+    }
+
+    pub fn get_version() -> String {
+        let build_info = get_build_info();
+        let commit = match &build_info.version_control {
+            Some(vc) => match vc {
+                Git(g) => {
+                    format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" })
+                }
+            },
+            None => {
+                "".to_string()
+            }
+        };
+
+        format!("{} {}", build_info.profile, commit)
     }
 }

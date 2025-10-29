@@ -48,6 +48,7 @@ enum Commands {
         moves: Option<String>,
     },
     Bench,
+    Version,
 }
 
 fn main() {
@@ -113,11 +114,14 @@ fn handle_startup_command(command: &Commands) {
                     }
                 }
 
-                error!("If the depth perft argument is provided, fen must also be provided")
+                error!("If the depth perft argument is provided, fen must also be provided");
             }
         }
         Commands::Bench => {
             bench();
+        }
+        Commands::Version => {
+            println!("{}", UciInterface::get_version());
         }
     }
 }
