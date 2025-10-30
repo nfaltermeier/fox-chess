@@ -5,7 +5,11 @@ A UCI chess engine. Intended for use with a chess GUI such as Cute Chess or Aren
 
 The program is available for challenge some of the time at [lichess](https://lichess.org/@/FoxChessBot). I run it on my own computer so availability is sporadic and is not guranteed.
 
-### Prerequisites for Building
+
+## Uci Options
+* Hash: transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2.
+
+## Prerequisites for Building
 The MSRV is currently 1.88.
 
 To create a PGO optimized build (recommended) you will need the `llvm-profdata` binary which can be installed with:

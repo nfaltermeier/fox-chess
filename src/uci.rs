@@ -20,7 +20,7 @@ use crate::{
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
-    transposition_table::TranspositionTable,
+    transposition_table::{TTEntry, TranspositionTable},
 };
 
 pub struct UciInterface {
@@ -52,6 +52,7 @@ impl UciInterface {
                 UciMessage::Uci => {
                     println!("id name FoxChess {}", UciInterface::get_version());
                     println!("id author nfaltermeier");
+                    println!("option name Hash type spin default 128 min 1 max 1048576");
                     println!("uciok");
                 }
                 UciMessage::IsReady => {
@@ -139,7 +140,37 @@ impl UciInterface {
                 UciMessage::Quit => {
                     return true;
                 }
-                UciMessage::SetOption { name, value: _ } => match name.as_str() {
+                UciMessage::SetOption { name, value } => match name.to_ascii_lowercase().as_str() {
+                    "hash" => {
+                        if let Some(value) = value {
+                            let hash_mib = value.parse::<usize>();
+                            if let Ok(hash_mib) = hash_mib {
+                                let hash_bytes = hash_mib * 1024 * 1024;
+
+                                if hash_bytes == 0 {
+                                    error!("Minimum value is 1 (MiB)");
+                                    continue;
+                                }
+
+                                let entries = hash_bytes / size_of::<TTEntry>();
+                                let entries_log2 = entries.checked_ilog2().unwrap();
+
+                                if entries_log2 > u8::MAX as u32 {
+                                    error!("Value is too big");
+                                    continue;
+                                } else if entries_log2 < 2 {
+                                    error!("Something went wrong, entries_log2 is less than 2");
+                                    continue;
+                                }
+
+                                self.transposition_table = TranspositionTable::new(entries_log2 as u8);
+                            } else {
+                                error!("Failed to parse value as an integer: {}", hash_mib.unwrap_err());
+                            }
+                        } else {
+                            error!("Expected a value for option hash");
+                        }
+                    }
                     _ => {
                         error!("Unknown UCI setoption name '{name}'");
                     }
@@ -149,7 +180,7 @@ impl UciInterface {
                         let parts = message.split(' ').collect::<Vec<_>>();
                         if parts.len() < 3 {
                             error!("Expected format: go perft [depth]");
-                            return false;
+                            continue;
                         }
 
                         if let Some(board) = &mut self.board {

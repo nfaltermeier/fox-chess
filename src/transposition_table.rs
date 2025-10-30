@@ -115,10 +115,11 @@ impl Default for TTEntry {
 }
 
 impl TranspositionTable {
+    /// Panics if size_log_2 is less than 2
     pub fn new(size_log_2: u8) -> TranspositionTable {
-        if size_log_2 == 0 {
-            error!("Size of 0 given for TranspositionTable");
-            panic!("Size of 0 given for TranspositionTable");
+        if size_log_2 < 2 {
+            error!("TranspositionTable size_log_2 must be at least 2");
+            panic!("TranspositionTable size_log_2 must be at least 2");
         }
 
         TranspositionTable {
