@@ -479,8 +479,20 @@ fn save_gradient(gradient: &Box<EvalGradient>) {
 }
 
 fn eval_position_features_algebraic(params: &EvalFeatures, features: &EvalFeatures) -> f32 {
-    // FMA or do alegraic multiplies and adds?
     params.iter().zip(features).fold(0.0, |x, y| fadd_algebraic(fmul_algebraic(*y.0, *y.1), x))
+}
+
+type SparseFeatures = [(f32, u16); 64];
+fn eval_sparse_features_algebraic(params: &EvalFeatures, features: &Vec<(f32, u16)>) -> f32 {
+    features.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a))
+}
+
+fn eval_sparse_features_algebraic_parallel(params: &EvalFeatures, features: &Vec<(f32, u16)>) -> f32 {
+    let mut chunks = features.chunks_exact(8);
+    let summed_chunks = (&mut chunks).map(|c| c.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a)));
+    let chunks_sum = summed_chunks.fold(0.0, |x, y| fadd_algebraic(x, y));
+    let summed_remainder = chunks.remainder().iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a));
+    fadd_algebraic(chunks_sum, summed_remainder)
 }
 
 // Summing floats can be surprisingly complicated. These methods are taken from https://orlp.net/blog/taming-float-sums/
