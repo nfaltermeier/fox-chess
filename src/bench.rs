@@ -5,7 +5,7 @@ use vampirc_uci::UciSearchControl;
 use crate::{
     board::Board,
     search::{DEFAULT_HISTORY_TABLE, Searcher},
-    transposition_table::TranspositionTable,
+    transposition_table::TranspositionTable, uci::UciInterface,
 };
 
 pub fn bench() {
@@ -73,7 +73,7 @@ pub fn bench() {
 
         let mut transposition_table = TranspositionTable::new(18);
         let mut history = DEFAULT_HISTORY_TABLE;
-        let mut continuation_history = [[[[[0; 64]; 6]; 64]; 6]; 2];
+        let mut continuation_history = UciInterface::alloc_zeroed_continuation_history();
 
         let (_, stop_rx) = mpsc::channel::<()>();
         let mut searcher = Searcher::new(

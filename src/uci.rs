@@ -274,7 +274,7 @@ impl UciInterface {
         (message_rx, stop_rx)
     }
 
-    fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
+    pub fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
         unsafe {
             let mem =
                 alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTable>() / size_of::<i16>()).unwrap());
