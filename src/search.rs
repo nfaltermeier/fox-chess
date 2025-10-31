@@ -468,6 +468,14 @@ impl<'a> Searcher<'a> {
             }
 
             futility_prune = (eval + 300 + 200 * (draft - 1) as i16) < alpha;
+
+            // Razoring
+            if (eval + 300 + 300 * (draft - 1) as i16) < alpha {
+                let score = self.quiescense_side_to_move_relative(alpha, beta, 255);
+                if score < alpha {
+                    return Ok(score);
+                }
+            }
         }
 
         // Null move pruning
