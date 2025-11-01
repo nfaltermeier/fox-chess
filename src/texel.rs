@@ -162,8 +162,8 @@ pub struct LoadPositionsResult {
 
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
-    let load_positions = 1;
-    let skip_positions = 0;
+    let load_positions = 2;
+    let skip_positions = 6;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -261,7 +261,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     // The goal for how much to improve at each descent step
     let c = 0.01;
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
-    let tau = 0.75;
+    let tau = 0.95;
 
     let mut iterations = 0;
     let mut changed_since_step_size_reset = false;
