@@ -1,5 +1,7 @@
 use std::fs;
 use std::io::Write;
+use std::simd::i16x8;
+use std::simd::num::SimdInt;
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -488,25 +490,9 @@ fn save_gradient(gradient: &Box<EvalGradient>) {
 
 impl FeatureData {
     pub fn evaluate(&self, params: &EvalParams) -> i16 {
-        let mut position_score_midgame = 0;
+        let position_score_midgame = FeatureData::sum_psqt_for_a_phase(&self.midgame_psqt_white, &self.midgame_psqt_black, params);
 
-        for i in self.midgame_psqt_white {
-            position_score_midgame += params[i as usize];
-        }
-        
-        for i in self.midgame_psqt_black {
-            position_score_midgame -= params[i as usize];
-        }
-
-        let mut position_score_endgame = 0;
-
-        for i in self.endgame_psqt_white {
-            position_score_endgame += params[i as usize];
-        }
-        
-        for i in self.endgame_psqt_black {
-            position_score_endgame -= params[i as usize];
-        }
+        let position_score_endgame = FeatureData::sum_psqt_for_a_phase(&self.endgame_psqt_white, &self.endgame_psqt_black, params);
 
         let position_score_final = ((position_score_midgame * self.game_stage)
             + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - self.game_stage)))
@@ -518,6 +504,23 @@ impl FeatureData {
         }
 
         position_score_final + misc_feature_score
+    }
+    
+    pub fn sum_psqt_for_a_phase(white: &[u16; 16], black: &[u16; 16], params: &EvalParams) -> i16 {
+        let mut mid_data = [0; 32];
+        for (a_i, p_i) in white.iter().enumerate() {
+            mid_data[a_i] = params[*p_i as usize];
+        }
+        for (a_i, p_i) in black.iter().enumerate() {
+            mid_data[a_i + 16] = -params[*p_i as usize];
+        }
+
+        let mut sum = i16x8::splat(0);
+        for i in (0..mid_data.len()).step_by(8) {
+            sum += i16x8::from_slice(&mid_data[i..]);
+        }
+
+        sum.reduce_sum()
     }
 }
 
