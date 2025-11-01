@@ -1,4 +1,7 @@
+use std::intrinsics::{fadd_algebraic, fmul_algebraic};
+
 use array_macro::array;
+use tinyvec::ArrayVec;
 
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
@@ -6,7 +9,7 @@ use crate::{
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
     texel::{
-        EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EVAL_PARAM_COUNT, EvalFeatures, EvalGradient, EvalParams
+        EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EVAL_PARAM_COUNT, EvalFeatures, EvalGradient, EvalParams, POSITON_MAX_FEATURES, eval_sparse_features_algebraic_parallel
     },
 };
 
@@ -201,7 +204,7 @@ static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
 #[inline]
 /// for piece_type, pawn is 0
-fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usize {
+fn get_piece_square_index(color: u16, piece_type: u16, square: u16) -> u16 {
     if color == 0 {
         piece_type * 64 + (square ^ 0b00111000)
     } else {
@@ -211,11 +214,12 @@ fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usi
 
 impl Board {
     pub fn evaluate(&self, params: &EvalFeatures) -> i16 {
-        params.iter().zip(self.get_eval_features()).map(|(a, b)| (*a as f32) * b).reduce(|a, b| a + b).unwrap().round() as i16
+        // self.get_eval_features().iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a)).round() as i16
+        eval_sparse_features_algebraic_parallel(params, &self.get_eval_features()).round() as i16
     }
 
-    pub fn get_eval_features(&self) -> EvalFeatures {
-        let mut result = [0.0; EVAL_PARAM_COUNT];
+    pub fn get_eval_features(&self) -> ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]> {
+        let mut result = ArrayVec::new();
 
         let mut game_stage = self.game_stage;
         if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
@@ -224,16 +228,23 @@ impl Board {
         let midgame_gamestage_coeff = game_stage as f32 / MIN_GAME_STAGE_FULLY_MIDGAME as f32;
         let endgame_gamestage_coeff = 1.0 - midgame_gamestage_coeff;
 
+        let mut piece_counts = [0.0; 7];
         for i in 0..64 {
             let piece = self.get_piece_64(i);
             if piece != PIECE_NONE {
-                let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
+                let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK);
                 let color_eval_contrib = if piece & COLOR_FLAG_MASK == COLOR_BLACK { -1.0 } else { 1.0 };
-                let piece_type = (piece & PIECE_MASK) as usize;
+                let piece_type = (piece & PIECE_MASK);
 
-                result[get_piece_square_index(color, piece_type - 1, i)] = color_eval_contrib * midgame_gamestage_coeff;
-                result[get_piece_square_index(color, piece_type - 1 + 6, i)] = color_eval_contrib * endgame_gamestage_coeff;
-                result[EP_PIECE_VALUES_IDX + piece_type] += color_eval_contrib;
+                result.push((color_eval_contrib * midgame_gamestage_coeff, get_piece_square_index(color as u16, (piece_type - 1) as u16, i as u16)));
+                result.push((color_eval_contrib * endgame_gamestage_coeff, get_piece_square_index(color as u16, (piece_type - 1 + 6) as u16, i as u16)));
+                piece_counts[piece_type as usize] += color_eval_contrib;
+            }
+        }
+
+        for (i, count) in piece_counts.iter().enumerate() {
+            if *count != 0.0 {
+                result.push((*count, (EP_PIECE_VALUES_IDX + i) as u16));
             }
         }
 
@@ -249,11 +260,21 @@ impl Board {
 
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
+        let net_rooks_on_open_files = w_open - b_open;
+        let net_rooks_on_half_open_files = w_half_open - b_half_open;
 
-        result[EP_DOUBLED_PAWNS_IDX] = doubled_pawns as f32;
-        result[EP_PASSED_PAWN_IDX] = net_passed_pawns as f32;
-        result[EP_ROOK_OPEN_FILE_IDX] = (w_open - b_open) as f32;
-        result[EP_ROOK_HALF_OPEN_FILE_IDX] = (w_half_open - b_half_open) as f32;
+        if doubled_pawns != 0 {
+            result.push((doubled_pawns as f32, EP_DOUBLED_PAWNS_IDX as u16));
+        }
+        if net_passed_pawns != 0 {
+            result.push((doubled_pawns as f32, EP_PASSED_PAWN_IDX as u16));
+        }
+        if net_rooks_on_open_files != 0 {
+            result.push((net_rooks_on_open_files as f32, EP_ROOK_OPEN_FILE_IDX as u16));
+        }
+        if net_rooks_on_half_open_files != 0 {
+            result.push((net_rooks_on_half_open_files as f32, EP_ROOK_HALF_OPEN_FILE_IDX as u16));
+        }
 
         result
     }

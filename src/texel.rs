@@ -11,6 +11,7 @@ use std::{
 use std::intrinsics::fadd_algebraic;
 
 use rayon::prelude::*;
+use tinyvec::ArrayVec;
 
 use crate::{
     STARTING_FEN,
@@ -24,7 +25,7 @@ pub struct TexelPosition {
 }
 
 pub struct PositionData {
-    features: EvalFeatures,
+    features: ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>,
     match_result: f32,
 }
 
@@ -32,6 +33,7 @@ pub const EVAL_PARAM_COUNT: usize = 779;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalFeatures = [f32; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
+pub const POSITON_MAX_FEATURES: usize = 128;
 
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
@@ -372,7 +374,7 @@ fn find_error_for_position_data(
     let errors = position_data
         .par_iter()
         .map(|p| {
-            let val_sqrt = p.match_result as f64 - sigmoid(eval_position_features_algebraic(params, &p.features) as f64, scaling_constant);
+            let val_sqrt = p.match_result as f64 - sigmoid(eval_sparse_features_algebraic_parallel(params, &p.features) as f64, scaling_constant);
             val_sqrt * val_sqrt
         })
         .collect::<Vec<f64>>();
@@ -482,12 +484,11 @@ fn eval_position_features_algebraic(params: &EvalFeatures, features: &EvalFeatur
     params.iter().zip(features).fold(0.0, |x, y| fadd_algebraic(fmul_algebraic(*y.0, *y.1), x))
 }
 
-type SparseFeatures = [(f32, u16); 64];
-fn eval_sparse_features_algebraic(params: &EvalFeatures, features: &Vec<(f32, u16)>) -> f32 {
+fn eval_sparse_features_algebraic(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
     features.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a))
 }
 
-fn eval_sparse_features_algebraic_parallel(params: &EvalFeatures, features: &Vec<(f32, u16)>) -> f32 {
+pub fn eval_sparse_features_algebraic_parallel(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
     let mut chunks = features.chunks_exact(8);
     let summed_chunks = (&mut chunks).map(|c| c.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a)));
     let chunks_sum = summed_chunks.fold(0.0, |x, y| fadd_algebraic(x, y));
