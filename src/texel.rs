@@ -240,6 +240,12 @@ fn sigmoid(eval: f64, scaling_constant: f64) -> f64 {
     1.0 / (1.0 + 10.0_f64.powf(exp))
 }
 
+#[derive(Clone)]
+struct Improvement {
+    pub improvement: f64,
+    pub step_size: f64,
+}
+
 /// Uses gradient descent with backtracking line search
 /// https://en.wikipedia.org/wiki/Gradient_descent
 pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
@@ -259,7 +265,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     const DEFAULT_STEP_SIZE: f64 = 10000000.0;
     let mut step_size = DEFAULT_STEP_SIZE;
     // The goal for how much to improve at each descent step
-    let c = 0.01;
+    let c = 0.03;
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
     let tau = 0.95;
 
@@ -294,7 +300,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let mut new_error = base_error;
         let mut biggest_change;
         let mut changed_params = 0;
-        let mut dropped_step_size = false;
+        let mut found_improvement = false;
+        let mut best_improvement = None;
+        let mut lowest_step_size_improvement = None;
+        let mut search_up = 0;
+        let mut search_down = 0;
+        let mut final_loop = false;
         loop {
             updated_params = params;
             let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
@@ -326,25 +337,64 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
             // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
             new_error = find_error_for_features(&features, &updated_params, scaling_constant);
-            if base_error - new_error >= step_size * t {
-                println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
 
-                if !dropped_step_size {
-                    println!("[{}] Raising step size to try to maximize change", humantime::format_rfc3339(SystemTime::now()));
-                    step_size /= tau;
-                    continue;
-                }
-
+            if final_loop {
                 changed_params = changes.iter().filter(|v| **v != 0).count();
                 total_param_changes += changed_params;
                 changed_since_step_size_reset = true;
-
                 break;
+            } else if base_error - new_error >= step_size * t {
+                println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+
+                let improvement = base_error - new_error;
+                if !found_improvement {
+                    /*
+                     * Testing step size is way *way* faster than recalculating a gradient so once a step_size that improves the error is found,
+                     * do some searching around to find if a nearby step size improves it even more.
+                     */
+                    best_improvement = Some(Improvement {
+                        step_size,
+                        improvement,
+                    });
+                    lowest_step_size_improvement = best_improvement.clone();
+                    found_improvement = true;
+                    search_up = 6;
+                    search_down = 6;
+                } else {
+                    if improvement > best_improvement.as_ref().unwrap().improvement {
+                        best_improvement = Some(Improvement {
+                            step_size,
+                            improvement,
+                        });
+
+                        // Let it keep searching for an improvement
+                        if search_up > 1 {
+                            search_up += 1;
+                        } else {
+                            search_down += 1;
+                        }
+                    }
+                }
             } else {
                 println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
-
-                dropped_step_size = true;
                 step_size *= tau;
+            }
+
+            if found_improvement {
+                if search_up > 1 {
+                    step_size /= tau;
+                    search_up -= 1;
+
+                    if search_up == 0 {
+                        step_size = lowest_step_size_improvement.as_ref().unwrap().step_size;
+                    }
+                } else if search_down > 1 {
+                    step_size *= tau;
+                    search_down -= 1;
+                } else {
+                    final_loop = true;
+                    step_size = best_improvement.as_ref().unwrap().step_size;
+                }
             }
         }
 
