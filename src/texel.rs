@@ -488,12 +488,21 @@ fn eval_sparse_features_algebraic(params: &EvalFeatures, features: &ArrayVec<[(f
     features.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a))
 }
 
-pub fn eval_sparse_features_algebraic_parallel(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
+pub fn eval_sparse_features_algebraic_parallel_old(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
     let mut chunks = features.chunks_exact(8);
     let summed_chunks = (&mut chunks).map(|c| c.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a)));
     let chunks_sum = summed_chunks.fold(0.0, |x, y| fadd_algebraic(x, y));
     let summed_remainder = chunks.remainder().iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a));
     fadd_algebraic(chunks_sum, summed_remainder)
+}
+
+pub fn eval_sparse_features_algebraic_parallel(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
+    let mut gathered_data = [(0.0, 0.0); POSITON_MAX_FEATURES];
+    for (i, f) in features.iter().enumerate() {
+        gathered_data[i] = (f.0, params[f.1 as usize]);
+    }
+
+    gathered_data.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, f.1), a))
 }
 
 // Summing floats can be surprisingly complicated. These methods are taken from https://orlp.net/blog/taming-float-sums/
