@@ -290,6 +290,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let mut new_error = base_error;
         let mut biggest_change;
         let mut changed_params = 0;
+        let mut dropped_step_size = false;
         loop {
             updated_params = params;
             let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
@@ -322,6 +323,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
             new_error = find_error_for_features(&features, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
+                if !dropped_step_size {
+                    println!("[{}] Raising step size to try to maximize change", humantime::format_rfc3339(SystemTime::now()));
+                    step_size /= tau;
+                    continue;
+                }
+
                 changed_params = changes.iter().filter(|v| **v != 0).count();
                 total_param_changes += changed_params;
                 changed_since_step_size_reset = true;
@@ -330,6 +337,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             } else {
                 println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
 
+                dropped_step_size = true;
                 step_size *= tau;
             }
         }
