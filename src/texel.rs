@@ -1,5 +1,4 @@
 use std::fs;
-use std::intrinsics::fmul_algebraic;
 use std::io::Write;
 use std::{
     fs::File,
@@ -11,7 +10,6 @@ use std::{
 use std::intrinsics::fadd_algebraic;
 
 use rayon::prelude::*;
-use tinyvec::ArrayVec;
 
 use crate::{
     STARTING_FEN,
@@ -21,19 +19,12 @@ use crate::{
 
 pub struct TexelPosition {
     pub board: Board,
-    pub result: f32,
-}
-
-pub struct PositionData {
-    features: ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>,
-    match_result: f32,
+    pub result: f64,
 }
 
 pub const EVAL_PARAM_COUNT: usize = 779;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
-pub type EvalFeatures = [f32; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
-pub const POSITON_MAX_FEATURES: usize = 128;
 
 pub const EP_PIECE_VALUES_IDX: usize = 768;
 pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
@@ -42,105 +33,105 @@ pub const EP_ROOK_OPEN_FILE_IDX: usize = 777;
 pub const EP_ROOK_HALF_OPEN_FILE_IDX: usize = 778;
 
 #[rustfmt::skip]
-pub static DEFAULT_PARAMS: EvalFeatures = [
-        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
-        164.0,147.0,136.0,128.0,85.0,59.0,16.0,55.0,
-        37.0,53.0,50.0,46.0,50.0,62.0,74.0,30.0,
-        0.0,11.0,-2.0,11.0,20.0,16.0,14.0,-2.0,
-        -12.0,4.0,-5.0,1.0,-1.0,10.0,6.0,-13.0,
-        -13.0,2.0,-9.0,-7.0,2.0,5.0,21.0,-4.0,
-        -18.0,-5.0,-18.0,-16.0,-8.0,19.0,29.0,-14.0,
-        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
-        -124.0,-21.0,-7.0,-15.0,24.0,-46.0,-39.0,-118.0,
-        -10.0,4.0,23.0,36.0,43.0,38.0,-35.0,-10.0,
-        6.0,27.0,42.0,60.0,76.0,81.0,36.0,6.0,
-        1.0,13.0,32.0,51.0,22.0,53.0,17.0,26.0,
-        -7.0,7.0,21.0,8.0,20.0,18.0,26.0,-8.0,
-        -23.0,-8.0,-1.0,10.0,25.0,2.0,5.0,-11.0,
-        -49.0,-22.0,-15.0,-5.0,-4.0,-1.0,-13.0,-33.0,
-        -81.0,-24.0,-35.0,-25.0,-24.0,-15.0,-16.0,-66.0,
-        -13.0,-29.0,-36.0,-18.0,-37.0,-57.0,-14.0,20.0,
-        -7.0,-1.0,7.0,-10.0,9.0,4.0,-8.0,-17.0,
-        0.0,16.0,27.0,34.0,37.0,63.0,34.0,25.0,
-        3.0,2.0,17.0,38.0,30.0,25.0,-4.0,-3.0,
-        -10.0,11.0,6.0,30.0,19.0,5.0,0.0,1.0,
-        -9.0,8.0,10.0,9.0,10.0,6.0,6.0,1.0,
-        -11.0,-2.0,1.0,-5.0,2.0,-3.0,11.0,-16.0,
-        -37.0,-25.0,-18.0,-19.0,-17.0,-18.0,-23.0,-25.0,
-        50.0,47.0,43.0,37.0,35.0,34.0,47.0,39.0,
-        24.0,27.0,45.0,55.0,46.0,67.0,54.0,53.0,
-        11.0,24.0,28.0,35.0,39.0,65.0,50.0,22.0,
-        -4.0,-2.0,9.0,12.0,14.0,20.0,13.0,-7.0,
-        -22.0,-15.0,-8.0,-4.0,-5.0,-5.0,0.0,-22.0,
-        -29.0,-20.0,-20.0,-20.0,-18.0,-19.0,-3.0,-23.0,
-        -31.0,-27.0,-15.0,-17.0,-15.0,-8.0,-20.0,-49.0,
-        -14.0,-14.0,-7.0,-3.0,-4.0,-5.0,-36.0,-16.0,
-        4.0,21.0,28.0,39.0,67.0,78.0,71.0,61.0,
-        -1.0,-8.0,21.0,30.0,35.0,73.0,48.0,66.0,
-        4.0,8.0,22.0,34.0,54.0,98.0,86.0,41.0,
-        -5.0,0.0,11.0,23.0,30.0,31.0,41.0,18.0,
-        0.0,5.0,4.0,10.0,11.0,10.0,17.0,6.0,
-        -4.0,3.0,2.0,4.0,4.0,7.0,12.0,-4.0,
-        -17.0,-3.0,6.0,2.0,7.0,-4.0,-16.0,-37.0,
-        -5.0,-8.0,-9.0,3.0,-9.0,-37.0,-49.0,-27.0,
-        -28.0,52.0,32.0,-40.0,65.0,-14.0,51.0,-46.0,
-        13.0,-4.0,58.0,-15.0,-39.0,35.0,-7.0,18.0,
-        -28.0,8.0,0.0,-5.0,-28.0,-32.0,-43.0,-40.0,
-        27.0,45.0,11.0,7.0,15.0,21.0,43.0,29.0,
-        16.0,40.0,37.0,30.0,26.0,26.0,5.0,-2.0,
-        6.0,24.0,18.0,17.0,19.0,7.0,7.0,-13.0,
-        21.0,13.0,8.0,-10.0,-4.0,-2.0,19.0,18.0,
-        -34.0,21.0,-2.0,-41.0,-4.0,-34.0,29.0,14.0,
-        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
-        82.0,111.0,109.0,71.0,102.0,128.0,171.0,128.0,
-        109.0,103.0,79.0,63.0,54.0,46.0,63.0,63.0,
-        70.0,54.0,47.0,14.0,12.0,20.0,40.0,30.0,
-        50.0,44.0,23.0,7.0,14.0,26.0,38.0,25.0,
-        48.0,35.0,28.0,22.0,21.0,24.0,28.0,19.0,
-        60.0,51.0,41.0,24.0,32.0,29.0,33.0,33.0,
-        0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
-        -4.0,-34.0,-34.0,-37.0,-68.0,-18.0,-31.0,-60.0,
-        -64.0,-40.0,-52.0,-53.0,-56.0,-72.0,-39.0,-80.0,
-        -49.0,-65.0,-36.0,-51.0,-75.0,-78.0,-53.0,-68.0,
-        -72.0,-45.0,-28.0,-51.0,-25.0,-46.0,-48.0,-90.0,
-        -60.0,-37.0,-25.0,-19.0,-38.0,-41.0,-75.0,-66.0,
-        -85.0,-50.0,-31.0,-38.0,-43.0,-44.0,-72.0,-95.0,
-        -58.0,-61.0,-55.0,-53.0,-58.0,-59.0,-71.0,-117.0,
-        -105.0,-104.0,-67.0,-72.0,-91.0,-83.0,-118.0,-109.0,
-        -14.0,-10.0,-18.0,-25.0,-30.0,-28.0,-47.0,-58.0,
-        -37.0,-34.0,-37.0,-38.0,-39.0,-51.0,-49.0,-48.0,
-        -41.0,-44.0,-47.0,-63.0,-60.0,-65.0,-58.0,-71.0,
-        -50.0,-38.0,-48.0,-47.0,-45.0,-58.0,-35.0,-45.0,
-        -46.0,-43.0,-35.0,-41.0,-42.0,-34.0,-38.0,-66.0,
-        -81.0,-48.0,-37.0,-46.0,-29.0,-51.0,-74.0,-79.0,
-        -71.0,-72.0,-62.0,-47.0,-59.0,-56.0,-85.0,-148.0,
-        -68.0,-48.0,-81.0,-55.0,-71.0,-81.0,-65.0,-66.0,
-        3.0,25.0,27.0,32.0,47.0,55.0,41.0,29.0,
-        40.0,39.0,30.0,23.0,28.0,20.0,26.0,11.0,
-        38.0,29.0,27.0,22.0,24.0,14.0,20.0,24.0,
-        40.0,42.0,30.0,27.0,25.0,24.0,25.0,37.0,
-        46.0,40.0,37.0,30.0,29.0,35.0,24.0,31.0,
-        12.0,15.0,18.0,21.0,15.0,20.0,4.0,10.0,
-        4.0,7.0,9.0,6.0,4.0,2.0,1.0,4.0,
-        13.0,8.0,20.0,22.0,3.0,9.0,46.0,-5.0,
-        15.0,60.0,53.0,55.0,2.0,5.0,-17.0,-20.0,
-        44.0,76.0,74.0,95.0,86.0,26.0,55.0,1.0,
-        14.0,37.0,55.0,75.0,73.0,1.0,-20.0,-4.0,
-        51.0,33.0,81.0,72.0,75.0,82.0,54.0,23.0,
-        29.0,45.0,62.0,64.0,65.0,67.0,56.0,4.0,
-        -7.0,18.0,56.0,20.0,31.0,36.0,6.0,-10.0,
-        -9.0,-7.0,10.0,-10.0,-7.0,-28.0,-50.0,-10.0,
-        -22.0,-29.0,-11.0,-62.0,-5.0,-13.0,-10.0,-20.0,
-        -69.0,-36.0,-2.0,23.0,-11.0,22.0,2.0,-64.0,
-        -9.0,11.0,24.0,47.0,47.0,-9.0,36.0,21.0,
-        13.0,28.0,43.0,41.0,45.0,57.0,48.0,39.0,
-        -5.0,10.0,25.0,29.0,28.0,27.0,14.0,6.0,
-        -28.0,-10.0,2.0,11.0,19.0,17.0,13.0,1.0,
-        -37.0,-17.0,-1.0,5.0,7.0,14.0,2.0,-8.0,
-        -44.0,-12.0,-9.0,2.0,2.0,5.0,-6.0,-29.0,
-        6.0,-37.0,-16.0,-11.0,-28.0,-6.0,-50.0,-56.0,
-        0.0,79.0,286.0,313.0,443.0,901.0,20000.0,23.0,
-        8.0,21.0,18.0,
+pub static DEFAULT_PARAMS: EvalParams = [
+        0,0,0,0,0,0,0,0,
+        164,147,136,128,85,59,16,55,
+        37,53,50,46,50,62,74,30,
+        0,11,-2,11,20,16,14,-2,
+        -12,4,-5,1,-1,10,6,-13,
+        -13,2,-9,-7,2,5,21,-4,
+        -18,-5,-18,-16,-8,19,29,-14,
+        0,0,0,0,0,0,0,0,
+        -124,-21,-7,-15,24,-46,-39,-118,
+        -10,4,23,36,43,38,-35,-10,
+        6,27,42,60,76,81,36,6,
+        1,13,32,51,22,53,17,26,
+        -7,7,21,8,20,18,26,-8,
+        -23,-8,-1,10,25,2,5,-11,
+        -49,-22,-15,-5,-4,-1,-13,-33,
+        -81,-24,-35,-25,-24,-15,-16,-66,
+        -13,-29,-36,-18,-37,-57,-14,20,
+        -7,-1,7,-10,9,4,-8,-17,
+        0,16,27,34,37,63,34,25,
+        3,2,17,38,30,25,-4,-3,
+        -10,11,6,30,19,5,0,1,
+        -9,8,10,9,10,6,6,1,
+        -11,-2,1,-5,2,-3,11,-16,
+        -37,-25,-18,-19,-17,-18,-23,-25,
+        50,47,43,37,35,34,47,39,
+        24,27,45,55,46,67,54,53,
+        11,24,28,35,39,65,50,22,
+        -4,-2,9,12,14,20,13,-7,
+        -22,-15,-8,-4,-5,-5,0,-22,
+        -29,-20,-20,-20,-18,-19,-3,-23,
+        -31,-27,-15,-17,-15,-8,-20,-49,
+        -14,-14,-7,-3,-4,-5,-36,-16,
+        4,21,28,39,67,78,71,61,
+        -1,-8,21,30,35,73,48,66,
+        4,8,22,34,54,98,86,41,
+        -5,0,11,23,30,31,41,18,
+        0,5,4,10,11,10,17,6,
+        -4,3,2,4,4,7,12,-4,
+        -17,-3,6,2,7,-4,-16,-37,
+        -5,-8,-9,3,-9,-37,-49,-27,
+        -28,52,32,-40,65,-14,51,-46,
+        13,-4,58,-15,-39,35,-7,18,
+        -28,8,0,-5,-28,-32,-43,-40,
+        27,45,11,7,15,21,43,29,
+        16,40,37,30,26,26,5,-2,
+        6,24,18,17,19,7,7,-13,
+        21,13,8,-10,-4,-2,19,18,
+        -34,21,-2,-41,-4,-34,29,14,
+        0,0,0,0,0,0,0,0,
+        82,111,109,71,102,128,171,128,
+        109,103,79,63,54,46,63,63,
+        70,54,47,14,12,20,40,30,
+        50,44,23,7,14,26,38,25,
+        48,35,28,22,21,24,28,19,
+        60,51,41,24,32,29,33,33,
+        0,0,0,0,0,0,0,0,
+        -4,-34,-34,-37,-68,-18,-31,-60,
+        -64,-40,-52,-53,-56,-72,-39,-80,
+        -49,-65,-36,-51,-75,-78,-53,-68,
+        -72,-45,-28,-51,-25,-46,-48,-90,
+        -60,-37,-25,-19,-38,-41,-75,-66,
+        -85,-50,-31,-38,-43,-44,-72,-95,
+        -58,-61,-55,-53,-58,-59,-71,-117,
+        -105,-104,-67,-72,-91,-83,-118,-109,
+        -14,-10,-18,-25,-30,-28,-47,-58,
+        -37,-34,-37,-38,-39,-51,-49,-48,
+        -41,-44,-47,-63,-60,-65,-58,-71,
+        -50,-38,-48,-47,-45,-58,-35,-45,
+        -46,-43,-35,-41,-42,-34,-38,-66,
+        -81,-48,-37,-46,-29,-51,-74,-79,
+        -71,-72,-62,-47,-59,-56,-85,-148,
+        -68,-48,-81,-55,-71,-81,-65,-66,
+        3,25,27,32,47,55,41,29,
+        40,39,30,23,28,20,26,11,
+        38,29,27,22,24,14,20,24,
+        40,42,30,27,25,24,25,37,
+        46,40,37,30,29,35,24,31,
+        12,15,18,21,15,20,4,10,
+        4,7,9,6,4,2,1,4,
+        13,8,20,22,3,9,46,-5,
+        15,60,53,55,2,5,-17,-20,
+        44,76,74,95,86,26,55,1,
+        14,37,55,75,73,1,-20,-4,
+        51,33,81,72,75,82,54,23,
+        29,45,62,64,65,67,56,4,
+        -7,18,56,20,31,36,6,-10,
+        -9,-7,10,-10,-7,-28,-50,-10,
+        -22,-29,-11,-62,-5,-13,-10,-20,
+        -69,-36,-2,23,-11,22,2,-64,
+        -9,11,24,47,47,-9,36,21,
+        13,28,43,41,45,57,48,39,
+        -5,10,25,29,28,27,14,6,
+        -28,-10,2,11,19,17,13,1,
+        -37,-17,-1,5,7,14,2,-8,
+        -44,-12,-9,2,2,5,-6,-29,
+        6,-37,-16,-11,-28,-6,-50,-56,
+        0,79,286,313,443,901,20000,23,
+        8,21,18,
     ];
 
 pub struct LoadPositionsResult {
@@ -257,12 +248,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut step_size_resets = 0;
     let mut total_param_changes = 0;
     loop {
-        let quiet_position_features = find_quiet_position_features(&mut nonquiet_positions, &params);
+        let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
 
-        let base_error = find_error_for_position_data(&quiet_position_features, &params, scaling_constant);
+        let base_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
-        let gradient = search_gradient(&quiet_position_features, &mut params, scaling_constant);
+        let gradient = search_gradient(&quiet_positions, &mut params, scaling_constant, base_error);
         let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
         let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
         let mut sorted = gradient.clone();
@@ -283,15 +274,15 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         loop {
             updated_params = params;
             let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
-            gradient.par_iter().map(|v| (-v * step_size).round() as f32).collect_into_vec(&mut changes);
-            biggest_change = changes.iter().map(|v| v.abs()).reduce(f32::max).unwrap();
+            gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
+            biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
 
             println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
 
             // if biggest_change >= 100 {
             //     panic!("Biggest change {biggest_change} could cause an overflow")
             // } else
-            if biggest_change == 0.0 {
+            if biggest_change == 0 {
                 if changed_since_step_size_reset {
                     // Maybe the bigger derivatives have settled down now,
                     // retry from the start to give the smaller derivatives a chance to change.
@@ -309,10 +300,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
             updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
 
-            // TODO: Searching for error shold be more accurate to the true error than reusing the found quiet positions, maybe do that? Would use a lot of memory.
-            new_error = find_error_for_position_data(&quiet_position_features, &updated_params, scaling_constant);
+            // Searching for error will be more accurate to the true error than reusing the found quiet positions
+            new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
-                changed_params = changes.iter().filter(|v| **v != 0.0).count();
+                changed_params = changes.iter().filter(|v| **v != 0).count();
                 total_param_changes += changed_params;
                 changed_since_step_size_reset = true;
 
@@ -320,7 +311,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             } else {
                 println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
 
-                if biggest_change == 1.0 {
+                if biggest_change == 1 {
                     failed_on_biggest_change_one = true;
                     break;
                 }
@@ -337,9 +328,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total changed params {total_param_changes}",
             humantime::format_rfc3339(SystemTime::now())
         );
-        save_features(&params);
+        save_params(&params);
 
-        if failed_on_biggest_change_one || biggest_change == 0.0 {
+        if failed_on_biggest_change_one || biggest_change == 0 {
             break;
         }
     }
@@ -347,34 +338,47 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     println!("Regression done");
 }
 
-fn find_quiet_position_features(positions: &mut Vec<TexelPosition>, params: &EvalFeatures) -> Vec<PositionData> {
-    let mut result = Vec::with_capacity(positions.len());
+fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f64) -> f64 {
+    let errors = positions
+        .par_iter_mut()
+        .map_with(MoveRollback::default(), |r, p| {
+            let result = p
+                .board
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r).0;
 
+            let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f64;
+            let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+            val_sqrt * val_sqrt
+        })
+        .collect::<Vec<f64>>();
+
+    sum_orlp(&errors[..]) / positions.len() as f64
+}
+
+fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<TexelPosition> {
     positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
             let result = p
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
-            PositionData {
-                features: result.1.get_eval_features(),
-                match_result: p.result
+            TexelPosition {
+                board: result.1,
+                result: p.result,
             }
         })
-        .collect_into_vec(&mut result);
-
-    result
+        .collect()
 }
 
-fn find_error_for_position_data(
-    position_data: &Vec<PositionData>,
-    params: &EvalFeatures,
+fn find_error_for_quiet_positions(
+    quiet_positions: &Vec<TexelPosition>,
+    params: &EvalParams,
     scaling_constant: f64,
 ) -> f64 {
-    let errors = position_data
+    let errors = quiet_positions
         .par_iter()
         .map(|p| {
-            let val_sqrt = p.match_result as f64 - sigmoid(eval_sparse_features_algebraic_parallel(params, &p.features) as f64, scaling_constant);
+            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f64, scaling_constant);
             val_sqrt * val_sqrt
         })
         .collect::<Vec<f64>>();
@@ -384,7 +388,7 @@ fn find_error_for_position_data(
 }
 
 /// params should be unchanged when this method returns
-fn search_gradient(positions: &Vec<PositionData>, params: &mut EvalFeatures, scaling_constant: f64) -> Box<EvalGradient> {
+fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f64, base_error: f64) -> Box<EvalGradient> {
     let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in 0..params.len() {
@@ -404,18 +408,18 @@ fn search_gradient(positions: &Vec<PositionData>, params: &mut EvalFeatures, sca
             continue;
         }
 
-        params[i] += 0.01;
+        params[i] += 1;
 
-        let positive_error = find_error_for_position_data(positions, params, scaling_constant);
+        let positive_error = find_error_for_quiet_positions(positions, params, scaling_constant);
 
-        params[i] -= 0.02;
+        params[i] -= 2;
 
-        let negative_error = find_error_for_position_data(positions, params, scaling_constant);
+        let negative_error = find_error_for_quiet_positions(positions, params, scaling_constant);
 
-        params[i] += 0.01;
+        params[i] += 1;
 
         // Approximate the derivative with symmetrical difference quotient numerical differentiation
-        result[i] = (positive_error - negative_error) / 0.02;
+        result[i] = (positive_error - negative_error) / 2.0;
 
         if i % 100 == 0 {
             println!("[{}] Calculated derivative for {i} elements of gradient", humantime::format_rfc3339(SystemTime::now()))
@@ -448,22 +452,6 @@ fn save_params(params: &EvalParams) {
     }
 }
 
-fn save_features(params: &EvalFeatures) {
-    let mut f = File::create(format!(
-        "params/{}.txt",
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
-    ))
-    .unwrap();
-
-    for (i, v) in params.iter().enumerate() {
-        if i % 8 == 7 {
-            writeln!(f, "{v},").unwrap();
-        } else {
-            write!(f, "{v},").unwrap();
-        }
-    }
-}
-
 fn save_gradient(gradient: &Box<EvalGradient>) {
     let mut f = File::create(format!(
         "gradients/{}.txt",
@@ -478,31 +466,6 @@ fn save_gradient(gradient: &Box<EvalGradient>) {
             write!(f, "{v:018.15},").unwrap();
         }
     }
-}
-
-fn eval_position_features_algebraic(params: &EvalFeatures, features: &EvalFeatures) -> f32 {
-    params.iter().zip(features).fold(0.0, |x, y| fadd_algebraic(fmul_algebraic(*y.0, *y.1), x))
-}
-
-fn eval_sparse_features_algebraic(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
-    features.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a))
-}
-
-pub fn eval_sparse_features_algebraic_parallel_old(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
-    let mut chunks = features.chunks_exact(8);
-    let summed_chunks = (&mut chunks).map(|c| c.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a)));
-    let chunks_sum = summed_chunks.fold(0.0, |x, y| fadd_algebraic(x, y));
-    let summed_remainder = chunks.remainder().iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, params[f.1 as usize]), a));
-    fadd_algebraic(chunks_sum, summed_remainder)
-}
-
-pub fn eval_sparse_features_algebraic_parallel(params: &EvalFeatures, features: &ArrayVec<[(f32, u16); POSITON_MAX_FEATURES]>) -> f32 {
-    let mut gathered_data = [(0.0, 0.0); POSITON_MAX_FEATURES];
-    for (i, f) in features.iter().enumerate() {
-        gathered_data[i] = (f.0, params[f.1 as usize]);
-    }
-
-    gathered_data.iter().fold(0.0, |a, f| fadd_algebraic(fmul_algebraic(f.0, f.1), a))
 }
 
 // Summing floats can be surprisingly complicated. These methods are taken from https://orlp.net/blog/taming-float-sums/

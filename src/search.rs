@@ -19,7 +19,7 @@ use crate::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
     repetition_tracker::RepetitionTracker,
-    texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalFeatures, EvalParams},
+    texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalParams},
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
 };
@@ -806,7 +806,7 @@ impl Board {
         mut alpha: i16,
         beta: i16,
         draft: u8,
-        params: &EvalFeatures,
+        params: &EvalParams,
         rollback: &mut MoveRollback,
     ) -> (i16, Board) {
         if self.is_insufficient_material() {
@@ -821,11 +821,11 @@ impl Board {
 
         if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
             && stand_pat
-                + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] as i16
+                + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize]
                 + 100
                 // maybe this shouldn't include quiet promotions because those would already be covered under the standard margin
                 + if self.can_probably_promote() {
-                    params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] as i16 - 100
+                    params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] - 100
                 } else {
                     0
                 }
