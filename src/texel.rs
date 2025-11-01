@@ -266,12 +266,12 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut step_size_resets = 0;
     let mut total_param_changes = 0;
     loop {
-        let quiet_positions = find_quiet_positions(&mut nonquiet_positions, &params);
+        let features = qsearch_for_features(&mut nonquiet_positions, &params);
 
-        let base_error = find_error_for_quiet_positions(&quiet_positions, &params, scaling_constant);
+        let base_error = find_error_for_features(&features, &params, scaling_constant);
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
-        let gradient = search_gradient(&quiet_positions, &mut params, scaling_constant, base_error);
+        let gradient = eval_gradient(&features, &mut params, scaling_constant);
         let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
         let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
         let mut sorted = gradient.clone();
@@ -318,8 +318,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
             updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
 
-            // Searching for error will be more accurate to the true error than reusing the found quiet positions
-            new_error = search_error_for_params(&mut nonquiet_positions, &updated_params, scaling_constant);
+            // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
+            new_error = find_error_for_features(&features, &updated_params, scaling_constant);
             if base_error - new_error >= step_size * t {
                 changed_params = changes.iter().filter(|v| **v != 0).count();
                 total_param_changes += changed_params;
@@ -373,30 +373,30 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
     sum_orlp(&errors[..]) / positions.len() as f64
 }
 
-fn find_quiet_positions(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<TexelPosition> {
+fn qsearch_for_features(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<PositionFeatures> {
     positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
             let result = p
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
-            TexelPosition {
-                board: result.1,
+            PositionFeatures {
+                features: result.1.get_eval_features(),
                 result: p.result,
             }
         })
         .collect()
 }
 
-fn find_error_for_quiet_positions(
-    quiet_positions: &Vec<TexelPosition>,
+fn find_error_for_features(
+    features: &Vec<PositionFeatures>,
     params: &EvalParams,
     scaling_constant: f64,
 ) -> f64 {
-    let errors = quiet_positions
+    let errors = features
         .par_iter()
         .map(|p| {
-            let val_sqrt = p.result - sigmoid(p.board.evaluate(params) as f64, scaling_constant);
+            let val_sqrt = p.result - sigmoid(p.features.evaluate(params) as f64, scaling_constant);
             val_sqrt * val_sqrt
         })
         .collect::<Vec<f64>>();
@@ -406,7 +406,7 @@ fn find_error_for_quiet_positions(
 }
 
 /// params should be unchanged when this method returns
-fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scaling_constant: f64, base_error: f64) -> Box<EvalGradient> {
+fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scaling_constant: f64) -> Box<EvalGradient> {
     let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in 0..params.len() {
@@ -428,11 +428,11 @@ fn search_gradient(positions: &Vec<TexelPosition>, params: &mut EvalParams, scal
 
         params[i] += 1;
 
-        let positive_error = find_error_for_quiet_positions(positions, params, scaling_constant);
+        let positive_error = find_error_for_features(features, params, scaling_constant);
 
         params[i] -= 2;
 
-        let negative_error = find_error_for_quiet_positions(positions, params, scaling_constant);
+        let negative_error = find_error_for_features(features, params, scaling_constant);
 
         params[i] += 1;
 
