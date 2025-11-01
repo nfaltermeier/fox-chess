@@ -163,7 +163,7 @@ pub struct LoadPositionsResult {
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
     let load_positions = 2;
-    let skip_positions = 6;
+    let skip_positions = 3;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -182,9 +182,14 @@ pub fn load_positions(filename: &str) -> LoadPositionsResult {
             let c2 = &line[c2_index..];
 
             // If forced mate was found or evaluation was skipped because only one move was possible (which may indicate the player is being mated)
-            if c2.contains("M") || c2.contains("/1;") || c2.contains("/1 ") {
+            if c2.contains("M") || c2.contains("/1;") || c2.contains("/1 ")
+                // Skip book moves
+                || c2.contains("book") {
                 continue;
             }
+        } else {
+            // The initial position will have no comment
+            continue;
         }
 
         let c0_index = line.find("c0");
