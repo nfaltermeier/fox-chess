@@ -273,7 +273,7 @@ impl Board {
             misc_features_idx += 1;
         }
         if net_passed_pawns != 0 {
-            result.misc_features[misc_features_idx] = (doubled_pawns as i8, EP_PASSED_PAWN_IDX as u16);
+            result.misc_features[misc_features_idx] = (net_passed_pawns as i8, EP_PASSED_PAWN_IDX as u16);
             misc_features_idx += 1;
         }
         if net_rooks_on_open_files != 0 {
