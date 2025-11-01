@@ -11,6 +11,7 @@ use std::intrinsics::fadd_algebraic;
 
 use rayon::prelude::*;
 
+use crate::evaluate::MIN_GAME_STAGE_FULLY_MIDGAME;
 use crate::{
     STARTING_FEN,
     board::{Board, PIECE_KING},
@@ -19,6 +20,23 @@ use crate::{
 
 pub struct TexelPosition {
     pub board: Board,
+    pub result: f64,
+}
+
+pub const MAX_MISC_FEATURES: usize = 16;
+
+#[derive(Default)]
+pub struct FeatureData {
+    pub midgame_psqt_white: [u16; 16],
+    pub midgame_psqt_black: [u16; 16],
+    pub endgame_psqt_white: [u16; 16],
+    pub endgame_psqt_black: [u16; 16],
+    pub game_stage: i16,
+    pub misc_features: [(i8, u16); MAX_MISC_FEATURES],
+}
+
+pub struct PositionFeatures {
+    pub features: FeatureData,
     pub result: f64,
 }
 
@@ -465,6 +483,41 @@ fn save_gradient(gradient: &Box<EvalGradient>) {
         } else {
             write!(f, "{v:018.15},").unwrap();
         }
+    }
+}
+
+impl FeatureData {
+    pub fn evaluate(&self, params: &EvalParams) -> i16 {
+        let mut position_score_midgame = 0;
+
+        for i in self.midgame_psqt_white {
+            position_score_midgame += params[i as usize];
+        }
+        
+        for i in self.midgame_psqt_black {
+            position_score_midgame -= params[i as usize];
+        }
+
+        let mut position_score_endgame = 0;
+
+        for i in self.endgame_psqt_white {
+            position_score_endgame += params[i as usize];
+        }
+        
+        for i in self.endgame_psqt_black {
+            position_score_endgame -= params[i as usize];
+        }
+
+        let position_score_final = ((position_score_midgame * self.game_stage)
+            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - self.game_stage)))
+            / MIN_GAME_STAGE_FULLY_MIDGAME;
+
+        let mut misc_feature_score = 0;
+        for (w, i) in self.misc_features {
+            misc_feature_score += w as i16 * params[i as usize];
+        }
+
+        position_score_final + misc_feature_score
     }
 }
 

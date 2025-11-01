@@ -1,12 +1,12 @@
 use array_macro::array;
 
 use crate::{
-    bitboard::{north_fill, south_fill, BIT_SQUARES, LIGHT_SQUARES},
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
     board::{Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
     texel::{
-        EvalParams, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX
+        EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData
     },
 };
 
@@ -201,42 +201,59 @@ static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
 #[inline]
 /// for piece_type, pawn is 0
-fn get_piece_square_value(params: &EvalParams, color: usize, piece_type: usize, square: usize) -> i16 {
+fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usize {
     if color == 0 {
-        params[piece_type * 64 + (square ^ 0b00111000)]
+        piece_type * 64 + (square ^ 0b00111000)
     } else {
-        -params[piece_type * 64 + square]
+        piece_type * 64 + square
     }
 }
 
 impl Board {
     pub fn evaluate(&self, params: &EvalParams) -> i16 {
-        let mut material_score = 0;
-        let mut game_stage = self.game_stage;
+        self.get_eval_features().evaluate(params)
+    }
 
-        let mut position_score_midgame = 0;
-        let mut position_score_endgame = 0;
+    pub fn get_eval_features(&self) -> FeatureData {
+        let mut result = FeatureData::default();
+
+        let mut piece_counts = [0; 7];
+        let mut white_idx = 0;
+        let mut black_idx = 0;
         for i in 0..64 {
             let piece = self.get_piece_64(i);
             if piece != PIECE_NONE {
                 let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
                 let piece_type = (piece & PIECE_MASK) as usize;
 
-                position_score_midgame += get_piece_square_value(params, color, piece_type - 1, i);
-                position_score_endgame += get_piece_square_value(params, color, piece_type - 1 + 6, i);
-                material_score += params[EP_PIECE_VALUES_IDX + piece_type] * if color == 0 { 1 } else { -1 };
+                if piece & COLOR_FLAG_MASK == COLOR_BLACK {
+                    result.midgame_psqt_black[black_idx] = get_piece_square_index(color, piece_type - 1, i) as u16;
+                    result.endgame_psqt_black[black_idx] = get_piece_square_index(color, piece_type - 1 + 6, i) as u16;
+                    black_idx += 1;
+                } else {
+                    result.midgame_psqt_white[white_idx] = get_piece_square_index(color, piece_type - 1, i) as u16;
+                    result.endgame_psqt_white[white_idx] = get_piece_square_index(color, piece_type - 1 + 6, i) as u16;
+                    white_idx += 1;
+                }
+                piece_counts[piece_type as usize] += if piece & COLOR_FLAG_MASK == COLOR_BLACK { -1 } else { 1 };
+            }
+        }
+
+        if self.game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
+            result.game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
+        } else {
+            result.game_stage = self.game_stage;
+        }
+
+        let mut misc_features_idx = 0;
+        for (i, c) in piece_counts.iter().enumerate() {
+            if *c != 0 {
+                result.misc_features[misc_features_idx] = (*c, (EP_PIECE_VALUES_IDX + i) as u16);
+                misc_features_idx += 1;
             }
         }
 
         let doubled_pawns = self.count_doubled_pawns();
-
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
-        }
-
-        let position_score_final = ((position_score_midgame * game_stage)
-            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
-            / MIN_GAME_STAGE_FULLY_MIDGAME;
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
@@ -248,13 +265,27 @@ impl Board {
 
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
+        let net_rooks_on_open_files = w_open - b_open;
+        let net_rooks_on_half_open_files = w_half_open - b_half_open;
 
-        material_score
-            + position_score_final
-            + doubled_pawns * params[EP_DOUBLED_PAWNS_IDX]
-            + net_passed_pawns * params[EP_PASSED_PAWN_IDX]
-            + (w_open - b_open) * params[EP_ROOK_OPEN_FILE_IDX]
-            + (w_half_open - b_half_open) * params[EP_ROOK_HALF_OPEN_FILE_IDX]
+        if doubled_pawns != 0 {
+            result.misc_features[misc_features_idx] = (doubled_pawns as i8, EP_DOUBLED_PAWNS_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_passed_pawns != 0 {
+            result.misc_features[misc_features_idx] = (doubled_pawns as i8, EP_PASSED_PAWN_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_rooks_on_open_files != 0 {
+            result.misc_features[misc_features_idx] = (net_rooks_on_open_files as i8, EP_ROOK_OPEN_FILE_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_rooks_on_half_open_files != 0 {
+            result.misc_features[misc_features_idx] = (net_rooks_on_half_open_files as i8, EP_ROOK_HALF_OPEN_FILE_IDX as u16);
+            misc_features_idx += 1;
+        }
+
+        result
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
