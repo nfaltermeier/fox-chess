@@ -267,11 +267,15 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut changed_since_step_size_reset = false;
     let mut step_size_resets = 0;
     let mut total_param_changes = 0;
+    let mut starting_error = None;
     loop {
         let features = qsearch_for_features(&mut nonquiet_positions, &params);
 
         let base_error = find_error_for_features(&features, &params, scaling_constant);
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
+        if starting_error.is_none() {
+            starting_error = Some(base_error);
+        }
 
         let gradient = eval_gradient(&features, &mut params, scaling_constant);
         let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
@@ -347,8 +351,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
         iterations += 1;
         println!(
-            "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total changed params {total_param_changes}",
-            humantime::format_rfc3339(SystemTime::now())
+            "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total changed params {total_param_changes}, total error reduction {:.8}",
+            humantime::format_rfc3339(SystemTime::now()),
+            starting_error.unwrap() - new_error
         );
         save_params(&params);
 
