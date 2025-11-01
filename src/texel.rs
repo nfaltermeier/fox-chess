@@ -162,8 +162,8 @@ pub struct LoadPositionsResult {
 
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
-    let load_positions = 3;
-    let skip_positions = 97;
+    let load_positions = 1;
+    let skip_positions = 0;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
@@ -273,7 +273,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let base_error = find_error_for_features(&features, &params, scaling_constant);
         println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
 
-        let gradient = eval_gradient(&features, &mut params, scaling_constant);
+        let gradient = eval_gradient(&features, &mut params, scaling_constant, base_error);
         let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
         let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
         let mut sorted = gradient.clone();
@@ -408,7 +408,7 @@ fn find_error_for_features(
 }
 
 /// params should be unchanged when this method returns
-fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scaling_constant: f64) -> Box<EvalGradient> {
+fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scaling_constant: f64, base_error: f64) -> Box<EvalGradient> {
     let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in 0..params.len() {
@@ -432,14 +432,10 @@ fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scal
 
         let positive_error = find_error_for_features(features, params, scaling_constant);
 
-        params[i] -= 2;
+        params[i] -= 1;
 
-        let negative_error = find_error_for_features(features, params, scaling_constant);
-
-        params[i] += 1;
-
-        // Approximate the derivative with symmetrical difference quotient numerical differentiation
-        result[i] = (positive_error - negative_error) / 2.0;
+        // Approximate the derivative with quotient numerical differentiation
+        result[i] = positive_error - base_error;
 
         if i % 100 == 0 {
             println!("[{}] Calculated derivative for {i} elements of gradient", humantime::format_rfc3339(SystemTime::now()))
