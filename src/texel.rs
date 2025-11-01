@@ -289,7 +289,6 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         let mut updated_params;
         let mut new_error = base_error;
         let mut biggest_change;
-        let mut failed_on_biggest_change_one = false;
         let mut changed_params = 0;
         loop {
             updated_params = params;
@@ -331,11 +330,6 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             } else {
                 println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
 
-                if biggest_change == 1 {
-                    failed_on_biggest_change_one = true;
-                    break;
-                }
-
                 step_size *= tau;
             }
         }
@@ -350,7 +344,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         );
         save_params(&params);
 
-        if failed_on_biggest_change_one || biggest_change == 0 {
+        if biggest_change == 0 {
             break;
         }
     }
