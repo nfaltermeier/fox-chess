@@ -5,7 +5,8 @@ use vampirc_uci::UciSearchControl;
 use crate::{
     board::Board,
     search::{DEFAULT_HISTORY_TABLE, Searcher},
-    transposition_table::TranspositionTable, uci::UciInterface,
+    transposition_table::TranspositionTable,
+    uci::UciInterface,
 };
 
 pub fn bench() {

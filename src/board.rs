@@ -4,7 +4,7 @@ use log::error;
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{BIT_SQUARES, pretty_print_bitboard},
+    bitboard::{BIT_SQUARES, DARK_SQUARES, pretty_print_bitboard},
     evaluate::{GAME_STAGE_VALUES, PIECE_SQUARE_TABLES},
     repetition_tracker::RepetitionTracker,
 };
@@ -54,6 +54,9 @@ pub const HASH_VALUES_CASTLE_BLACK_KING_IDX: usize = HASH_VALUES_CASTLE_WHITE_QU
 pub const HASH_VALUES_CASTLE_BLACK_QUEEN_IDX: usize = HASH_VALUES_CASTLE_BLACK_KING_IDX + 1;
 pub const HASH_VALUES_EP_FILE_IDX: usize = HASH_VALUES_CASTLE_BLACK_QUEEN_IDX + 1;
 
+pub const BISHOP_COLORS_LIGHT: u8 = 1;
+pub const BISHOP_COLORS_DARK: u8 = 2;
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [u8; 64],
@@ -73,6 +76,7 @@ pub struct Board {
     pub occupancy: u64,
     pub piecesquare_midgame: i16,
     pub piecesquare_endgame: i16,
+    pub bishop_colors: [u8; 2],
 }
 
 impl Board {
@@ -135,6 +139,7 @@ impl Board {
             occupancy: 0,
             piecesquare_midgame: 0,
             piecesquare_endgame: 0,
+            bishop_colors: [0; 2],
         };
         let mut board_index: usize = 56;
         let hash_values = &*HASH_VALUES;
@@ -161,6 +166,11 @@ impl Board {
                 }
                 'B' => {
                     place_piece_init(&mut board, PIECE_BISHOP, true, board_index, hash_values);
+                    board.bishop_colors[0] |= if BIT_SQUARES[board_index] & DARK_SQUARES != 0 {
+                        BISHOP_COLORS_DARK
+                    } else {
+                        BISHOP_COLORS_LIGHT
+                    };
                     board_index += 1;
                 }
                 'R' => {
@@ -185,6 +195,11 @@ impl Board {
                 }
                 'b' => {
                     place_piece_init(&mut board, PIECE_BISHOP, false, board_index, hash_values);
+                    board.bishop_colors[1] |= if BIT_SQUARES[board_index] & DARK_SQUARES != 0 {
+                        BISHOP_COLORS_DARK
+                    } else {
+                        BISHOP_COLORS_LIGHT
+                    };
                     board_index += 1;
                 }
                 'r' => {
@@ -437,6 +452,7 @@ impl Debug for Board {
             .field("piece_bitboards", &"See end value")
             .field("side_occupancy", &"See end value")
             .field("occupancy", &"See end value")
+            .field("bishop_colors", &self.bishop_colors)
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")

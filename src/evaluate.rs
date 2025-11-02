@@ -2,13 +2,16 @@ use array_macro::array;
 
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
-    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    board::{
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
+        PIECE_QUEEN, PIECE_ROOK,
+    },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
 };
 
 /// Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES: [i16; 7] = [0, 79, 286, 313, 443, 901, 20000];
+pub static CENTIPAWN_VALUES: [i16; 7] = [0, 79, 288, 310, 443, 901, 20000];
 
 /// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
@@ -32,10 +35,10 @@ const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
  164, 147, 136, 128,  85,  59,  16,  55,
   37,  53,  50,  46,  50,  62,  74,  30,
-   0,  11,  -2,  11,  20,  16,  14,  -2,
- -12,   4,  -5,   1,  -1,  10,   6, -13,
- -13,   2,  -9,  -7,   2,   5,  21,  -4,
- -18,  -5, -18, -16,  -8,  19,  29, -14,
+   0,  11,  -2,  12,  20,  15,  14,  -2,
+ -11,   5,  -5,   1,  -1,   9,   7, -13,
+ -13,   2,  -9,  -6,   3,   4,  23,  -4,
+ -17,  -4, -17, -16,  -8,  18,  30, -14,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
@@ -44,10 +47,10 @@ const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
   82, 111, 109,  71, 102, 128, 171, 128,
  109, 103,  79,  63,  54,  46,  63,  63,
-  70,  54,  47,  14,  12,  20,  40,  30,
-  50,  44,  23,   7,  14,  26,  38,  25,
-  48,  35,  28,  22,  21,  24,  28,  19,
-  60,  51,  41,  24,  32,  29,  33,  33,
+  70,  54,  47,  14,  12,  20,  40,  29,
+  50,  44,  23,   7,  14,  26,  37,  24,
+  49,  35,  29,  22,  21,  24,  28,  19,
+  61,  51,  41,  24,  32,  29,  32,  34,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
@@ -56,11 +59,11 @@ const KNIGHT_MIDGAME_SQUARE_TABLE: [i16; 64] = [
 -124, -21,  -7, -15,  24, -46, -39,-118,
  -10,   4,  23,  36,  43,  38, -35, -10,
    6,  27,  42,  60,  76,  81,  36,   6,
-   1,  13,  32,  51,  22,  53,  17,  26,
-  -7,   7,  21,   8,  20,  18,  26,  -8,
- -23,  -8,  -1,  10,  25,   2,   5, -11,
- -49, -22, -15,  -5,  -4,  -1, -13, -33,
- -81, -24, -35, -25, -24, -15, -16, -66,
+   1,  14,  33,  52,  25,  53,  18,  26,
+  -6,   7,  22,  10,  22,  19,  26,  -7,
+ -22,  -7,   3,  11,  26,   6,   7, -11,
+ -49, -22, -14,  -1,   0,  -1, -13, -33,
+ -81, -21, -35, -25, -24, -15, -13, -66,
 ];
 
 #[rustfmt::skip]
@@ -79,12 +82,12 @@ const KNIGHT_ENDGAME_SQUARE_TABLE: [i16; 64] = [
 const BISHOP_MIDGAME_SQUARE_TABLE: [i16; 64] = [
  -13, -29, -36, -18, -37, -57, -14,  20,
   -7,  -1,   7, -10,   9,   4,  -8, -17,
-   0,  16,  27,  34,  37,  63,  34,  25,
-   3,   2,  17,  38,  30,  25,  -4,  -3,
- -10,  11,   6,  30,  19,   5,   0,   1,
-  -9,   8,  10,   9,  10,   6,   6,   1,
- -11,  -2,   1,  -5,   2,  -3,  11, -16,
- -37, -25, -18, -19, -17, -18, -23, -25,
+   0,  16,  27,  34,  37,  63,  34,  24,
+   3,   0,  17,  37,  29,  25,  -6,  -3,
+ -10,  10,   4,  29,  18,   2,  -1,   0,
+ -11,   7,   8,   7,   6,   3,   5,   0,
+ -11,  -5,   0,  -9,  -1,  -3,   7, -16,
+ -37, -25, -22, -19, -17, -22, -23, -25,
 ];
 
 #[rustfmt::skip]
@@ -108,7 +111,7 @@ const ROOK_MIDGAME_SQUARE_TABLE: [i16; 64] = [
  -22, -15,  -8,  -4,  -5,  -5,   0, -22,
  -29, -20, -20, -20, -18, -19,  -3, -23,
  -31, -27, -15, -17, -15,  -8, -20, -49,
- -14, -14,  -7,  -3,  -4,  -5, -36, -16,
+ -14, -15,  -7,  -3,  -2,  -4, -36, -15,
 ];
 
 #[rustfmt::skip]
@@ -130,8 +133,8 @@ const QUEEN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    4,   8,  22,  34,  54,  98,  86,  41,
   -5,   0,  11,  23,  30,  31,  41,  18,
    0,   5,   4,  10,  11,  10,  17,   6,
-  -4,   3,   2,   4,   4,   7,  12,  -4,
- -17,  -3,   6,   2,   7,  -4, -16, -37,
+  -4,   3,   2,   5,   5,   7,  12,  -4,
+ -17,  -3,   6,   2,   8,  -4, -16, -37,
   -5,  -8,  -9,   3,  -9, -37, -49, -27,
 ];
 
@@ -156,8 +159,8 @@ const KING_MIDGAME_SQUARE_TABLE: [i16; 64] = [
   27,  45,  11,   7,  15,  21,  43,  29,
   16,  40,  37,  30,  26,  26,   5,  -2,
    6,  24,  18,  17,  19,   7,   7, -13,
-  21,  13,   8, -10,  -4,  -2,  19,  18,
- -34,  21,  -2, -41,  -4, -34,  29,  14,
+  21,  13,   8, -10,  -4,  -2,  18,  18,
+ -34,  21,  -2, -41,  -4, -34,  30,  14,
 ];
 
 #[rustfmt::skip]
@@ -167,9 +170,9 @@ const KING_ENDGAME_SQUARE_TABLE: [i16; 64] = [
   13,  28,  43,  41,  45,  57,  48,  39,
   -5,  10,  25,  29,  28,  27,  14,   6,
  -28, -10,   2,  11,  19,  17,  13,   1,
- -37, -17,  -1,   5,   7,  14,   2,  -8,
- -44, -12,  -9,   2,   2,   5,  -6, -29,
-   6, -37, -16, -11, -28,  -6, -50, -56,
+ -37, -17,  -1,   5,   7,  13,   2,  -8,
+ -44, -12,  -9,   2,   2,   5,  -7, -29,
+   6, -37, -16, -11, -28,  -6, -49, -56,
 ];
 
 const ALL_PIECE_SQUARE_TABLES: [[i16; 64]; 12] = [
@@ -195,6 +198,11 @@ pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 ];
 
 static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
+
+static BISHOP_GUARDED_PROMOTION_FILES: [[u64; 4]; 2] = [
+    [0, 0xAAAAAAAAAAAAAAAA, 0x5555555555555555, 0xFFFFFFFFFFFFFFFF],
+    [0, 0x5555555555555555, 0xAAAAAAAAAAAAAAAA, 0xFFFFFFFFFFFFFFFF],
+];
 
 impl Board {
     pub fn evaluate(&self) -> i16 {
@@ -226,12 +234,25 @@ impl Board {
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
+        let bishop_pair = if self.bishop_colors[0] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+            && self.bishop_colors[1] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+        {
+            1
+        } else if self.bishop_colors[0] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+            && self.bishop_colors[1] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+        {
+            -1
+        } else {
+            0
+        };
+
         material_score
             + position_score_final
             + doubled_pawns * 23
             + net_passed_pawns * 8
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
+            + bishop_pair * 19
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -426,7 +447,7 @@ mod eval_tests {
 
                     initialize_magic_bitboards();
 
-                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m));
+                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m, 0));
 
                     assert_eq!(expected_eval, see_result);
                 }
