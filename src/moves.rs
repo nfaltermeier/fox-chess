@@ -2,10 +2,12 @@ use log::error;
 use regex::Regex;
 
 use crate::{
+    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES},
     board::{
-        Board, COLOR_BLACK, CastlingValue, HASH_VALUES, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
-        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value,
-        index_8x8_to_pos_str, piece_to_name, rank_8x8,
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES,
+        HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_BISHOP, PIECE_KING,
+        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name,
+        rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
 };
@@ -143,7 +145,7 @@ impl Move {
         }
     }
 
-    pub fn from_simple_long_algebraic_notation(m: &str) -> Self {
+    pub fn from_simple_long_algebraic_notation(m: &str, extra_flags: u16) -> Self {
         if !Regex::new("^[a-h][1-8][a-h][1-8][qrbnQRBN]?$").unwrap().is_match(m) {
             error!("Invalid move notation {m}");
             panic!("Invalid move notation {m}");
@@ -168,7 +170,7 @@ impl Move {
             0
         };
 
-        Move::new(from, to, flags)
+        Move::new(from, to, flags | extra_flags)
     }
 }
 
@@ -225,6 +227,19 @@ impl Board {
             // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
             // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][(capture_target_piece & PIECE_MASK) as usize] |= BIT_SQUARES[to];
             self.write_piece(PIECE_NONE, to);
+
+            if capture_target_piece & PIECE_MASK == PIECE_BISHOP {
+                if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize] & DARK_SQUARES
+                    == 0
+                {
+                    self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_DARK;
+                }
+                if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize] & LIGHT_SQUARES
+                    == 0
+                {
+                    self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_LIGHT;
+                }
+            }
         }
 
         rollback.ep_index.push(self.en_passant_target_square_index);
@@ -270,6 +285,14 @@ impl Board {
             self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
             self.piece_counts[if self.white_to_move { 0 } else { 1 }][PIECE_PAWN as usize] -= 1;
             self.piece_counts[if self.white_to_move { 0 } else { 1 }][(promo_value + 2) as usize] += 1;
+
+            if promo_value + 2 == PIECE_BISHOP {
+                self.bishop_colors[if self.white_to_move { 0 } else { 1 }] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
+                    BISHOP_COLORS_DARK
+                } else {
+                    BISHOP_COLORS_LIGHT
+                };
+            }
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
@@ -372,6 +395,14 @@ impl Board {
             self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
             self.piece_counts[if self.white_to_move { 0 } else { 1 }][(captured_piece & PIECE_MASK) as usize] += 1;
 
+            if captured_piece & PIECE_MASK == PIECE_BISHOP {
+                self.bishop_colors[if self.white_to_move { 0 } else { 1 }] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
+                    BISHOP_COLORS_DARK
+                } else {
+                    BISHOP_COLORS_LIGHT
+                };
+            }
+
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
                 self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
@@ -379,10 +410,25 @@ impl Board {
                 let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
                 self.write_piece(PIECE_PAWN | color_flag, from);
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
-                self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
+                self.game_stage -= GAME_STAGE_VALUES[moved_piece_val as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
                 self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] -= 1;
+
+                if moved_piece_val == PIECE_BISHOP {
+                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
+                        & DARK_SQUARES
+                        == 0
+                    {
+                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_DARK;
+                    }
+                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
+                        & LIGHT_SQUARES
+                        == 0
+                    {
+                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_LIGHT;
+                    }
+                }
             }
         } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from;
@@ -434,10 +480,25 @@ impl Board {
                 let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
                 self.write_piece(PIECE_PAWN | color_flag, from);
                 self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
-                self.game_stage -= GAME_STAGE_VALUES[(moved_piece & PIECE_MASK) as usize];
+                self.game_stage -= GAME_STAGE_VALUES[moved_piece_val as usize];
                 self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
                 self.piece_counts[if self.white_to_move { 1 } else { 0 }][PIECE_PAWN as usize] += 1;
-                self.piece_counts[if self.white_to_move { 1 } else { 0 }][(moved_piece & PIECE_MASK) as usize] -= 1;
+                self.piece_counts[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] -= 1;
+
+                if moved_piece_val == PIECE_BISHOP {
+                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
+                        & DARK_SQUARES
+                        == 0
+                    {
+                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_DARK;
+                    }
+                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
+                        & LIGHT_SQUARES
+                        == 0
+                    {
+                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_LIGHT;
+                    }
+                }
             }
         }
 
@@ -629,8 +690,9 @@ mod moves_tests {
     use vampirc_uci::parse_with_unknown;
 
     use crate::{
-        board::{Board, HASH_VALUES},
+        board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, HASH_VALUES},
         magic_bitboard::initialize_magic_bitboards,
+        moves::MOVE_FLAG_CAPTURE,
         uci::UciInterface,
     };
 
@@ -692,6 +754,7 @@ mod moves_tests {
             assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
             assert_eq!(from_fen.piecesquare_midgame, from_uci.piecesquare_midgame);
             assert_eq!(from_fen.piecesquare_endgame, from_uci.piecesquare_endgame);
+            assert_eq!(from_fen.bishop_colors, from_uci.bishop_colors);
         }
     }
 
@@ -727,5 +790,151 @@ mod moves_tests {
         assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
         assert_eq!(from_fen.piecesquare_midgame, from_repetitions.piecesquare_midgame);
         assert_eq!(from_fen.piecesquare_endgame, from_repetitions.piecesquare_endgame);
+        assert_eq!(from_fen.bishop_colors, from_repetitions.bishop_colors);
+    }
+
+    #[test]
+    pub fn proper_bishop_colors_are_set_when_taking() {
+        let mut board = Board::from_fen("1n1qk1nr/pppppppp/8/r2bb3/3BB3/8/PPPPPPPP/RN1QK1NR w KQk -").unwrap();
+        let mut rollback = MoveRollback::default();
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+
+        board.make_move(
+            &Move::from_simple_long_algebraic_notation("e4d5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.make_move(
+            &Move::from_simple_long_algebraic_notation("a5d5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.make_move(
+            &Move::from_simple_long_algebraic_notation("d4e5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.make_move(
+            &Move::from_simple_long_algebraic_notation("d5e5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], 0);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.unmake_move(
+            &Move::from_simple_long_algebraic_notation("d5e5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.unmake_move(
+            &Move::from_simple_long_algebraic_notation("d4e5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.unmake_move(
+            &Move::from_simple_long_algebraic_notation("a5d5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.unmake_move(
+            &Move::from_simple_long_algebraic_notation("e4d5", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+    }
+
+    #[test]
+    pub fn taking_a_doubled_bishop_does_not_affect_board_bishop_colors() {
+        let mut board = Board::from_fen("8/8/8/8/2rB4/2B4k/8/7K b - -").unwrap();
+        let mut rollback = MoveRollback::default();
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.make_move(
+            &Move::from_simple_long_algebraic_notation("c4d4", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], 0);
+    }
+
+    #[test]
+    pub fn proper_bishop_colors_are_set_when_promoting() {
+        let mut board = Board::from_fen("K3n3/3P1P2/8/8/8/8/4pp2/7k w - -").unwrap();
+        let mut rollback = MoveRollback::default();
+
+        assert_eq!(board.bishop_colors[0], 0);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.make_move(
+            &Move::from_simple_long_algebraic_notation("d7e8b", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.make_move(&Move::from_simple_long_algebraic_notation("e2e1b", 0), &mut rollback);
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.make_move(&Move::from_simple_long_algebraic_notation("f7f8b", 0), &mut rollback);
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.make_move(&Move::from_simple_long_algebraic_notation("f2f1b", 0), &mut rollback);
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
+
+        board.unmake_move(&Move::from_simple_long_algebraic_notation("f2f1b", 0), &mut rollback);
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.unmake_move(&Move::from_simple_long_algebraic_notation("f7f8b", 0), &mut rollback);
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
+
+        board.unmake_move(&Move::from_simple_long_algebraic_notation("e2e1b", 0), &mut rollback);
+
+        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
+        assert_eq!(board.bishop_colors[1], 0);
+
+        board.unmake_move(
+            &Move::from_simple_long_algebraic_notation("d7e8b", MOVE_FLAG_CAPTURE),
+            &mut rollback,
+        );
+
+        assert_eq!(board.bishop_colors[0], 0);
+        assert_eq!(board.bishop_colors[1], 0);
     }
 }

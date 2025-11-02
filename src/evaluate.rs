@@ -196,6 +196,11 @@ pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 
 static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
+static BISHOP_GUARDED_PROMOTION_FILES: [[u64; 4]; 2] = [
+    [0, 0xAAAAAAAAAAAAAAAA, 0x5555555555555555, 0xFFFFFFFFFFFFFFFF],
+    [0, 0x5555555555555555, 0xAAAAAAAAAAAAAAAA, 0xFFFFFFFFFFFFFFFF],
+];
+
 impl Board {
     pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
@@ -223,6 +228,11 @@ impl Board {
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
 
+        let white_guarded_passers =
+            (white_passed & BISHOP_GUARDED_PROMOTION_FILES[0][self.bishop_colors[0] as usize]).count_ones() as i16;
+        let black_guarded_passers =
+            (black_passed & BISHOP_GUARDED_PROMOTION_FILES[1][self.bishop_colors[1] as usize]).count_ones() as i16;
+
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
@@ -232,6 +242,7 @@ impl Board {
             + net_passed_pawns * 8
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
+            + (white_guarded_passers - black_guarded_passers) * 10
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -426,7 +437,7 @@ mod eval_tests {
 
                     initialize_magic_bitboards();
 
-                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m));
+                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m, 0));
 
                     assert_eq!(expected_eval, see_result);
                 }
