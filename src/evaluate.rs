@@ -228,11 +228,6 @@ impl Board {
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
 
-        let white_guarded_passers =
-            (white_passed & BISHOP_GUARDED_PROMOTION_FILES[0][self.bishop_colors[0] as usize]).count_ones() as i16;
-        let black_guarded_passers =
-            (black_passed & BISHOP_GUARDED_PROMOTION_FILES[1][self.bishop_colors[1] as usize]).count_ones() as i16;
-
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
@@ -242,7 +237,6 @@ impl Board {
             + net_passed_pawns * 8
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
-            + (white_guarded_passers - black_guarded_passers) * 2
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
