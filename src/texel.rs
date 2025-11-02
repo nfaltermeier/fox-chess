@@ -51,7 +51,7 @@ pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
 pub const EP_PASSED_PAWN_IDX: usize = 776;
 pub const EP_ROOK_OPEN_FILE_IDX: usize = 777;
 pub const EP_ROOK_HALF_OPEN_FILE_IDX: usize = 778;
-pub const EP_BISHOP_SUPPORTED_PASSER_IDX: usize = 779;
+pub const EP_BISHOP_PAIR_IDX: usize = 779;
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
@@ -152,7 +152,7 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -44,-12,-9,2,2,5,-6,-29,
         6,-37,-16,-11,-28,-6,-50,-56,
         0,79,286,313,443,901,20000,23,
-        8,21,18,2,
+        8,21,18,20,
     ];
 
 pub struct LoadPositionsResult {

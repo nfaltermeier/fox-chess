@@ -2,11 +2,11 @@ use array_macro::array;
 
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
-    board::{Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
     texel::{
-        EP_BISHOP_SUPPORTED_PASSER_IDX, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData
+        EP_BISHOP_PAIR_IDX, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData
     },
 };
 
@@ -268,16 +268,19 @@ impl Board {
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
 
-        let white_guarded_passers =
-            (white_passed & BISHOP_GUARDED_PROMOTION_FILES[0][self.bishop_colors[0] as usize]).count_ones() as i16;
-        let black_guarded_passers =
-            (black_passed & BISHOP_GUARDED_PROMOTION_FILES[1][self.bishop_colors[1] as usize]).count_ones() as i16;
-        let net_bishop_supported_passers = white_guarded_passers - black_guarded_passers;
-
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
         let net_rooks_on_open_files = w_open - b_open;
         let net_rooks_on_half_open_files = w_half_open - b_half_open;
+
+        
+        let bishop_pair = if self.bishop_colors[0] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK && self.bishop_colors[1] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK {
+            1
+        } else if self.bishop_colors[0] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK && self.bishop_colors[1] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK {
+            -1
+        } else {
+            0
+        };
 
         if doubled_pawns != 0 {
             result.misc_features[misc_features_idx] = (doubled_pawns as i8, EP_DOUBLED_PAWNS_IDX as u16);
@@ -295,8 +298,8 @@ impl Board {
             result.misc_features[misc_features_idx] = (net_rooks_on_half_open_files as i8, EP_ROOK_HALF_OPEN_FILE_IDX as u16);
             misc_features_idx += 1;
         }
-        if net_bishop_supported_passers != 0 {
-            result.misc_features[misc_features_idx] = (net_bishop_supported_passers as i8, EP_BISHOP_SUPPORTED_PASSER_IDX as u16);
+        if bishop_pair != 0 {
+            result.misc_features[misc_features_idx] = (bishop_pair as i8, EP_BISHOP_PAIR_IDX as u16);
             misc_features_idx += 1;
         }
 
