@@ -2,9 +2,12 @@ use array_macro::array;
 
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
-    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    board::{Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
+    texel::{
+        EP_BISHOP_SUPPORTED_PASSER_IDX, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData
+    },
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -201,24 +204,61 @@ static BISHOP_GUARDED_PROMOTION_FILES: [[u64; 4]; 2] = [
     [0, 0x5555555555555555, 0xAAAAAAAAAAAAAAAA, 0xFFFFFFFFFFFFFFFF],
 ];
 
-impl Board {
-    pub fn evaluate(&self) -> i16 {
-        let mut material_score = 0;
-        let mut game_stage = self.game_stage;
+#[inline]
+/// for piece_type, pawn is 0
+fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usize {
+    if color == 0 {
+        piece_type * 64 + (square ^ 0b00111000)
+    } else {
+        piece_type * 64 + square
+    }
+}
 
-        for i in 1..7 {
-            material_score += CENTIPAWN_VALUES[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
+impl Board {
+    pub fn evaluate(&self, params: &EvalParams) -> i16 {
+        self.get_eval_features().evaluate(params)
+    }
+
+    pub fn get_eval_features(&self) -> FeatureData {
+        let mut result = FeatureData::default();
+
+        let mut piece_counts = [0; 7];
+        let mut white_idx = 0;
+        let mut black_idx = 0;
+        for i in 0..64 {
+            let piece = self.get_piece_64(i);
+            if piece != PIECE_NONE {
+                let color = (piece & COLOR_FLAG_MASK == COLOR_BLACK) as usize;
+                let piece_type = (piece & PIECE_MASK) as usize;
+
+                if piece & COLOR_FLAG_MASK == COLOR_BLACK {
+                    result.midgame_psqt_black[black_idx] = get_piece_square_index(color, piece_type - 1, i) as u16;
+                    result.endgame_psqt_black[black_idx] = get_piece_square_index(color, piece_type - 1 + 6, i) as u16;
+                    black_idx += 1;
+                } else {
+                    result.midgame_psqt_white[white_idx] = get_piece_square_index(color, piece_type - 1, i) as u16;
+                    result.endgame_psqt_white[white_idx] = get_piece_square_index(color, piece_type - 1 + 6, i) as u16;
+                    white_idx += 1;
+                }
+                piece_counts[piece_type as usize] += if piece & COLOR_FLAG_MASK == COLOR_BLACK { -1 } else { 1 };
+            }
+        }
+
+        if self.game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
+            result.game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
+        } else {
+            result.game_stage = self.game_stage;
+        }
+
+        let mut misc_features_idx = 0;
+        for (i, c) in piece_counts.iter().enumerate() {
+            if *c != 0 {
+                result.misc_features[misc_features_idx] = (*c, (EP_PIECE_VALUES_IDX + i) as u16);
+                misc_features_idx += 1;
+            }
         }
 
         let doubled_pawns = self.count_doubled_pawns();
-
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
-        }
-
-        let position_score_final = ((self.piecesquare_midgame * game_stage)
-            + (self.piecesquare_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
-            / (MIN_GAME_STAGE_FULLY_MIDGAME);
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
@@ -232,17 +272,35 @@ impl Board {
             (white_passed & BISHOP_GUARDED_PROMOTION_FILES[0][self.bishop_colors[0] as usize]).count_ones() as i16;
         let black_guarded_passers =
             (black_passed & BISHOP_GUARDED_PROMOTION_FILES[1][self.bishop_colors[1] as usize]).count_ones() as i16;
+        let net_bishop_supported_passers = white_guarded_passers - black_guarded_passers;
 
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
+        let net_rooks_on_open_files = w_open - b_open;
+        let net_rooks_on_half_open_files = w_half_open - b_half_open;
 
-        material_score
-            + position_score_final
-            + doubled_pawns * 23
-            + net_passed_pawns * 8
-            + (w_open - b_open) * 21
-            + (w_half_open - b_half_open) * 18
-            + (white_guarded_passers - black_guarded_passers) * 10
+        if doubled_pawns != 0 {
+            result.misc_features[misc_features_idx] = (doubled_pawns as i8, EP_DOUBLED_PAWNS_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_passed_pawns != 0 {
+            result.misc_features[misc_features_idx] = (net_passed_pawns as i8, EP_PASSED_PAWN_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_rooks_on_open_files != 0 {
+            result.misc_features[misc_features_idx] = (net_rooks_on_open_files as i8, EP_ROOK_OPEN_FILE_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_rooks_on_half_open_files != 0 {
+            result.misc_features[misc_features_idx] = (net_rooks_on_half_open_files as i8, EP_ROOK_HALF_OPEN_FILE_IDX as u16);
+            misc_features_idx += 1;
+        }
+        if net_bishop_supported_passers != 0 {
+            result.misc_features[misc_features_idx] = (net_bishop_supported_passers as i8, EP_BISHOP_SUPPORTED_PASSER_IDX as u16);
+            misc_features_idx += 1;
+        }
+
+        result
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
@@ -253,8 +311,8 @@ impl Board {
         }
     }
 
-    pub fn evaluate_side_to_move_relative(&self) -> i16 {
-        self.evaluate() * if self.white_to_move { 1 } else { -1 }
+    pub fn evaluate_side_to_move_relative(&self, params: &EvalParams) -> i16 {
+        self.evaluate(params) * if self.white_to_move { 1 } else { -1 }
     }
 
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
@@ -263,32 +321,6 @@ impl Board {
 
     /// Returns true if this position will be called a draw by the arbiter
     pub fn is_insufficient_material(&self) -> bool {
-        if self.piece_counts[0][PIECE_QUEEN as usize] == 0
-            && self.piece_counts[0][PIECE_ROOK as usize] == 0
-            && self.piece_counts[0][PIECE_PAWN as usize] == 0
-            && self.piece_counts[1][PIECE_QUEEN as usize] == 0
-            && self.piece_counts[1][PIECE_ROOK as usize] == 0
-            && self.piece_counts[1][PIECE_PAWN as usize] == 0
-        {
-            let white_minor_pieces =
-                self.piece_counts[0][PIECE_BISHOP as usize] + self.piece_counts[0][PIECE_KNIGHT as usize];
-            let black_minor_pieces =
-                self.piece_counts[1][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_KNIGHT as usize];
-
-            if white_minor_pieces == 1
-                && black_minor_pieces == 1
-                && self.piece_counts[0][PIECE_BISHOP as usize] == 1
-                && self.piece_counts[1][PIECE_BISHOP as usize] == 1
-            {
-                let bishops =
-                    self.piece_bitboards[0][PIECE_BISHOP as usize] | self.piece_bitboards[1][PIECE_BISHOP as usize];
-                return (bishops & LIGHT_SQUARES).count_ones() != 1;
-            }
-
-            return (white_minor_pieces == 0 && black_minor_pieces == 0)
-                || (white_minor_pieces == 0 && black_minor_pieces == 1)
-                || (white_minor_pieces == 1 && black_minor_pieces == 0);
-        }
         false
     }
 
@@ -303,8 +335,8 @@ impl Board {
             }
         }
 
-        (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1])
-            - (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
+        (self.piece_bitboards[1][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[1])
+            - (self.piece_bitboards[0][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[0])
     }
 
     // Algorithm from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
@@ -366,7 +398,7 @@ impl Board {
 
 #[cfg(test)]
 mod eval_tests {
-    use crate::STARTING_FEN;
+    use crate::{STARTING_FEN, texel::DEFAULT_PARAMS};
     use crate::magic_bitboard::initialize_magic_bitboards;
 
     use super::*;
@@ -392,8 +424,11 @@ mod eval_tests {
         let b1 = Board::from_fen("8/8/8/1k6/8/8/8/4K3 w - - 0 1").unwrap();
         let b2 = Board::from_fen("4k3/8/8/8/1K6/8/8/8 b - - 0 1").unwrap();
 
-        assert_eq!(b1.evaluate(), -b2.evaluate());
-        assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
+        assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
+        assert_eq!(
+            b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS),
+            b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS)
+        );
     }
 
     #[test]
@@ -401,15 +436,18 @@ mod eval_tests {
         let b1 = Board::from_fen("4k3/8/8/8/2P5/1PB2N2/6Q1/2R1K3 w - - 0 1").unwrap();
         let b2 = Board::from_fen("2r1k3/6q1/1pb2n2/2p5/8/8/8/4K3 b - - 0 1").unwrap();
 
-        assert_eq!(b1.evaluate(), -b2.evaluate());
-        assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
+        assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
+        assert_eq!(
+            b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS),
+            b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS)
+        );
     }
 
     #[test]
     pub fn starting_position_is_even() {
         let b = Board::from_fen(STARTING_FEN).unwrap();
 
-        assert_eq!(0, b.evaluate());
+        assert_eq!(0, b.evaluate(&DEFAULT_PARAMS));
     }
 
     doubled_pawns_test! {

@@ -1,3 +1,6 @@
+#![feature(core_intrinsics)]
+#![feature(portable_simd)]
+
 use std::{
     cmp::Reverse,
     sync::mpsc::{self, TryRecvError},
@@ -13,6 +16,7 @@ use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 use moves::{Move, MoveRollback};
 use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
+use texel::{find_best_params, load_positions};
 use transposition_table::TranspositionTable;
 use uci::UciInterface;
 use vampirc_uci::{UciSearchControl, parse_with_unknown};
@@ -26,6 +30,7 @@ mod move_generator;
 mod moves;
 mod repetition_tracker;
 mod search;
+mod texel;
 mod transposition_table;
 mod uci;
 
@@ -68,12 +73,19 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    if let Some(command) = &args.command {
-        handle_startup_command(command);
-        return;
-    }
+    // rayon::ThreadPoolBuilder::new().num_threads(5).build_global().unwrap();
 
-    run_uci();
+    println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
+    let positions = load_positions(r"C:\Programming\git\fox-chess\target\release\set_four_no_threefold.epd");
+    println!(
+        "[{}] {} Positions loaded, take to skip ratio: {}/{}",
+        humantime::format_rfc3339(SystemTime::now()),
+        positions.positions.len(),
+        positions.loaded_ratio,
+        positions.skipped_ratio
+    );
+    // find_scaling_constant(positions.positions);
+    find_best_params(positions.positions);
 
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
@@ -229,8 +241,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         } else {
             result = SearchResult {
                 best_move: r#move.m,
-                score: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255)
-                    * if board.white_to_move { 1 } else { -1 },
+                score: 0,
             };
         }
 

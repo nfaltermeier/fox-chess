@@ -83,6 +83,8 @@ impl UciInterface {
                         }
                     }
 
+                    println!("board size is {}", size_of_val(self.board.as_ref().unwrap()));
+
                     if !moves.is_empty() && self.board.is_some() {
                         trace!("running {} moves", moves.len());
                         let mapped = moves.iter().map(|m| {
@@ -180,7 +182,7 @@ impl UciInterface {
                         let parts = message.split(' ').collect::<Vec<_>>();
                         if parts.len() < 3 {
                             error!("Expected format: go perft [depth]");
-                            continue;
+                            return false;
                         }
 
                         if let Some(board) = &mut self.board {

@@ -6,9 +6,9 @@ use tinyvec::{TinyVec, tiny_vec};
 
 use crate::{
     bitboard::{
-        BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack,
-        lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
-        south_west_one,
+        BIT_SQUARES, RANK_1, RANK_2, RANK_3, RANK_6, RANK_7, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset,
+        lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one,
+        south_east_one, south_one, south_west_one,
     },
     board::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
@@ -77,6 +77,45 @@ impl Board {
     #[inline]
     pub fn generate_pseudo_legal_capture_moves(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
         let moves = self.generate_moves_pseudo_legal::<false, true>(&DEFAULT_HISTORY_TABLE);
+
+        self.do_make_unmake_move_test(&moves);
+
+        moves
+    }
+
+    pub fn generate_pseudo_legal_captures_and_queen_promos(
+        &mut self,
+        history_table: &HistoryTable,
+    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
+        let mut moves = self.generate_moves_pseudo_legal::<false, true>(history_table);
+
+        let mut promos;
+        // offset from ending position to starting position
+        let offset;
+        let side;
+        if self.white_to_move {
+            promos = north_one(self.piece_bitboards[0][PIECE_PAWN as usize] & RANK_7) & !self.occupancy;
+            offset = -8;
+            side = 0;
+        } else {
+            promos = south_one(self.piece_bitboards[1][PIECE_PAWN as usize] & RANK_2) & !self.occupancy;
+            offset = 8;
+            side = 1;
+        }
+
+        while promos != 0 {
+            let to = bitscan_forward_and_reset(&mut promos) as u8;
+            let from = to.checked_add_signed(offset).unwrap();
+
+            moves.push(ScoredMove::new(
+                from,
+                to,
+                MOVE_PROMO_QUEEN,
+                MOVE_SCORE_QUIET
+                    + history_table[side][PIECE_PAWN as usize - 1][to as usize]
+                    + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+            ));
+        }
 
         self.do_make_unmake_move_test(&moves);
 
@@ -326,39 +365,6 @@ impl Board {
             history_table,
             lookup_king_attack,
         );
-
-        // Castling
-        if !ONLY_CAPTURES && self.castling_rights != 0 {
-            if self.white_to_move {
-                if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
-                    && (self.occupancy & 0x1f) == 0x11
-                    && (self.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
-                {
-                    result.push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
-
-                if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0
-                    && (self.occupancy & 0xf0) == 0x90
-                    && (self.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
-                {
-                    result.push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            } else {
-                if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
-                    && (self.occupancy & 0x1f00000000000000) == 0x1100000000000000
-                    && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
-                {
-                    result.push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
-
-                if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0
-                    && (self.occupancy & 0xf000000000000000) == 0x9000000000000000
-                    && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
-                {
-                    result.push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            }
-        }
 
         result
     }
@@ -920,6 +926,14 @@ impl ScoredMove {
             m: Move::new(from_square_index, to_square_index, flags),
             score,
         }
+    }
+
+    pub fn pretty_print(&self, board: Option<&Board>) -> String {
+        self.m.pretty_print(board)
+    }
+
+    pub fn simple_long_algebraic_notation(&self) -> String {
+        self.m.simple_long_algebraic_notation()
     }
 }
 

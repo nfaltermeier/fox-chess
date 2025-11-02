@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     sync::mpsc::Receiver,
     time::{Duration, Instant},
 };
@@ -18,6 +19,7 @@ use crate::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
     repetition_tracker::RepetitionTracker,
+    texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalParams},
     transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
     uci::UciInterface,
 };
@@ -86,7 +88,7 @@ impl<'a> Searcher<'a> {
         stop_rx: &'a Receiver<()>,
         continuation_history: &'a mut ContinuationHistoryTable,
     ) -> Self {
-        let starting_halfmove = board.halfmove_clock;
+        let starting_halfmove = 0;
 
         let starting_in_check = board.is_in_check(false);
 
@@ -140,13 +142,7 @@ impl<'a> Searcher<'a> {
                         panic!("No time left value provided when searching");
                     }
 
-                    let divisor = if self.board.fullmove_counter < 15 {
-                        25
-                    } else if self.board.fullmove_counter < 25 {
-                        20
-                    } else {
-                        30
-                    };
+                    let divisor = 30;
 
                     let time_left = time_left.as_ref().unwrap().to_std().unwrap();
                     target_dur = Some(time_left.checked_div(divisor).unwrap());
@@ -368,8 +364,7 @@ impl<'a> Searcher<'a> {
         self.stats.total_nodes += 1;
 
         if ply != 0
-            && (self.board.halfmove_clock >= 100
-                || RepetitionTracker::test_repetition(self.board)
+            && (RepetitionTracker::test_repetition(self.board)
                 || self.board.is_insufficient_material())
         {
             parent_pv.clear();
@@ -398,8 +393,10 @@ impl<'a> Searcher<'a> {
             }
 
             parent_pv.clear();
-
-            return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
+            return Ok(self
+                .board
+                .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback)
+                .0);
         }
 
         let mut best_score = -i16::MAX;
@@ -460,7 +457,7 @@ impl<'a> Searcher<'a> {
 
         let mut futility_prune = false;
         if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 {
-            let eval = self.board.evaluate_side_to_move_relative();
+            let eval = self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS);
 
             // Reverse futility pruning
             if eval - 150 * (draft as i16) >= beta {
@@ -471,7 +468,7 @@ impl<'a> Searcher<'a> {
 
             // Razoring
             if (eval + 300 + 300 * (draft - 1) as i16) < alpha {
-                let score = self.quiescense_side_to_move_relative(alpha, beta, 255);
+                let score = self.board.quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback).0;
                 if score < alpha {
                     return Ok(score);
                 }
@@ -558,12 +555,19 @@ impl<'a> Searcher<'a> {
                 has_legal_move = true;
                 let gives_check = self.board.is_in_check(false);
 
+                // limit to avoid underflow
+                let limited_draft = draft.min(21) as i16;
+
                 // Futility pruning and late move pruning
-                if (futility_prune
-                    || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -750 - 50 * draft as i16))
-                    && searched_moves >= 1
+                if searched_moves >= 1
                     && !gives_check
                     && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+                    && (futility_prune
+                        || (!is_pv
+                            && !in_check
+                            && searched_moves >= 6
+                            // LMP will not happen at all for I think draft 14 and above
+                            && r#move.score < -1.6f32.powi(limited_draft as i32) as i16 - 70 * limited_draft - 700))
                 {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
                     continue;
@@ -788,165 +792,6 @@ impl<'a> Searcher<'a> {
         Ok(best_score)
     }
 
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
-        self.stats.total_nodes += 1;
-
-        if self.board.is_insufficient_material() {
-            return 0;
-        }
-
-        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
-        let tt_entry =
-            self.transposition_table
-                .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
-        if let Some(tt_data) = tt_entry {
-            let tt_eval = tt_data.get_score(0);
-
-            match tt_data.get_move_type() {
-                transposition_table::MoveType::FailHigh => {
-                    if tt_eval >= beta {
-                        return tt_eval;
-                    }
-                }
-                transposition_table::MoveType::Best => {
-                    return tt_eval;
-                }
-                transposition_table::MoveType::FailLow => {
-                    if tt_eval < alpha {
-                        return tt_eval;
-                    }
-                }
-            }
-
-            moves = tiny_vec!(ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            });
-        } else {
-            moves = tiny_vec!();
-        }
-
-        let stand_pat = self.board.evaluate_side_to_move_relative();
-
-        if stand_pat >= beta {
-            return stand_pat;
-        }
-
-        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-            && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
-        {
-            return stand_pat;
-        }
-
-        if alpha < stand_pat {
-            alpha = stand_pat;
-        }
-
-        let mut best_score = stand_pat;
-        let mut best_move = None;
-        let mut improved_alpha = false;
-
-        // Round 0 is the tt move, round 1 is regular move gen
-        for round in 0..2 {
-            for move_index in 0..moves.len() {
-                {
-                    // Perform one iteration of selection sort every time another move needs to be evaluated
-                    let mut best_move_score = moves[move_index].score;
-                    let mut best_move_index = move_index;
-
-                    for sort_index in (move_index + 1)..moves.len() {
-                        if moves[sort_index].score > best_move_score {
-                            best_move_score = moves[sort_index].score;
-                            best_move_index = sort_index;
-                        }
-                    }
-
-                    moves.swap(move_index, best_move_index);
-                }
-                let r#move = &moves[move_index];
-
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
-                    continue;
-                }
-
-                // SEE is coded to be run before the move is made so have to do it before testing legality
-                // Typical implementations also only check if the score is better than a threshold instead of calculating the whole thing.
-                if self.board.static_exchange_eval(r#move.m) < 0 {
-                    continue;
-                }
-
-                let (legal, move_made) = self
-                    .board
-                    .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
-                if !legal {
-                    if move_made {
-                        self.board.unmake_move(&r#move.m, &mut self.rollback);
-                    }
-
-                    continue;
-                }
-
-                // Only doing captures right now so not checking halfmove or threefold repetition here
-                let score = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1);
-
-                self.board.unmake_move(&r#move.m, &mut self.rollback);
-
-                if score >= beta {
-                    self.transposition_table.store_entry(
-                        TTEntry::new(
-                            self.board.hash,
-                            r#move.m,
-                            MoveType::FailHigh,
-                            score,
-                            draft,
-                            0,
-                            self.starting_halfmove,
-                        ),
-                        TableType::Quiescense,
-                    );
-
-                    return score;
-                }
-
-                if best_score < score {
-                    best_score = score;
-                    best_move = Some(r#move.m);
-
-                    if alpha < score {
-                        alpha = score;
-                        improved_alpha = true;
-                    }
-                }
-            }
-
-            if round == 0 {
-                moves = self.board.generate_pseudo_legal_capture_moves();
-            }
-        }
-
-        if let Some(bm) = best_move {
-            let entry_type = if improved_alpha {
-                MoveType::Best
-            } else {
-                MoveType::FailLow
-            };
-            self.transposition_table.store_entry(
-                TTEntry::new(
-                    self.board.hash,
-                    bm,
-                    entry_type,
-                    best_score,
-                    0,
-                    0,
-                    self.starting_halfmove,
-                ),
-                TableType::Quiescense,
-            );
-        }
-
-        best_score
-    }
-
     fn apply_history_to_move_scores(&mut self, moves: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>) {
         if let Some(relevant_cont_hist) =
             get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history)
@@ -960,6 +805,92 @@ impl<'a> Searcher<'a> {
                 m.score += relevant_cont_hist[((piece_to_move & PIECE_MASK) - 1) as usize][m.m.to() as usize];
             }
         }
+    }
+}
+
+impl Board {
+    pub fn quiescense_side_to_move_relative(
+        &mut self,
+        mut alpha: i16,
+        beta: i16,
+        draft: u8,
+        params: &EvalParams,
+        rollback: &mut MoveRollback,
+    ) -> (i16, Board) {
+        if self.is_insufficient_material() {
+            return (0, self.clone());
+        }
+
+        let stand_pat = self.evaluate_side_to_move_relative(params);
+
+        if stand_pat >= beta {
+            return (stand_pat, self.clone());
+        }
+
+        if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+            && stand_pat
+                + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize]
+                + 100
+                // maybe this shouldn't include quiet promotions because those would already be covered under the standard margin
+                + if self.can_probably_promote() {
+                    params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] - 100
+                } else {
+                    0
+                }
+                < alpha
+        {
+            return (stand_pat, self.clone());
+        }
+
+        if alpha < stand_pat {
+            alpha = stand_pat;
+        }
+
+        let mut best_score = stand_pat;
+        let mut best_position = None;
+
+        let mut moves = self.generate_pseudo_legal_captures_and_queen_promos(&DEFAULT_HISTORY_TABLE);
+
+        moves.sort_unstable_by_key(|m| Reverse(m.score));
+
+        for r#move in moves {
+            let (legal, move_made) = self.test_legality_and_maybe_make_move(r#move.m, rollback);
+            if !legal {
+                if move_made {
+                    self.unmake_move(&r#move.m, rollback);
+                }
+
+                continue;
+            }
+
+            // Only doing captures right now so not checking halfmove or threefold repetition here
+            let (result, pos) = self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1, params, rollback);
+            let result = -result;
+
+            self.unmake_move(&r#move.m, rollback);
+
+            if result >= beta {
+                return (result, pos);
+            }
+
+            if best_score < result {
+                best_score = result;
+                best_position = Some(pos);
+
+                if alpha < result {
+                    alpha = result;
+                }
+            }
+        }
+
+        (
+            best_score,
+            if best_position.is_some() {
+                best_position.unwrap()
+            } else {
+                self.clone()
+            },
+        )
     }
 }
 

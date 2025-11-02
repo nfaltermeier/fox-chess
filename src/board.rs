@@ -61,21 +61,13 @@ pub const BISHOP_COLORS_DARK: u8 = 2;
 pub struct Board {
     squares: [u8; 64],
     pub white_to_move: bool,
-    pub castling_rights: u8,
     pub en_passant_target_square_index: Option<u8>,
-    pub halfmove_clock: u8,
-    pub fullmove_counter: u16,
     pub hash: u64,
     pub game_stage: i16,
-    pub repetitions: RepetitionTracker,
-    /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
-    pub piece_counts: [[u8; 7]; 2],
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_bitboards: [[u64; 7]; 2],
     pub side_occupancy: [u64; 2],
     pub occupancy: u64,
-    pub piecesquare_midgame: i16,
-    pub piecesquare_endgame: i16,
     pub bishop_colors: [u8; 2],
 }
 
@@ -94,8 +86,6 @@ impl Board {
                 self.piece_bitboards[side][piece_type] &= !bit_square;
                 self.side_occupancy[side] &= !bit_square;
                 self.occupancy &= !bit_square;
-                self.piecesquare_midgame -= PIECE_SQUARE_TABLES[side][piece_type - 1][square_index];
-                self.piecesquare_endgame -= PIECE_SQUARE_TABLES[side][piece_type - 1 + 6][square_index];
             }
         } else {
             let side = if piece & COLOR_BLACK != 0 { 1 } else { 0 };
@@ -103,8 +93,6 @@ impl Board {
             self.piece_bitboards[side][piece_type] |= bit_square;
             self.side_occupancy[side] |= bit_square;
             self.occupancy |= bit_square;
-            self.piecesquare_midgame += PIECE_SQUARE_TABLES[side][piece_type - 1][square_index];
-            self.piecesquare_endgame += PIECE_SQUARE_TABLES[side][piece_type - 1 + 6][square_index];
         }
 
         self.squares[square_index] = piece;
@@ -126,19 +114,12 @@ impl Board {
         let mut board = Board {
             squares: [0; 64],
             white_to_move: true,
-            castling_rights: 0,
             en_passant_target_square_index: None,
-            halfmove_clock: 0,
-            fullmove_counter: 1,
             hash: 0,
             game_stage: 0,
-            repetitions: RepetitionTracker::default(),
-            piece_counts: [[0; 7]; 2],
             piece_bitboards: [[0; 7]; 2],
             side_occupancy: [0; 2],
             occupancy: 0,
-            piecesquare_midgame: 0,
-            piecesquare_endgame: 0,
             bishop_colors: [0; 2],
         };
         let mut board_index: usize = 56;
@@ -216,8 +197,7 @@ impl Board {
                 }
                 _ => {
                     return Err(format!(
-                        "Encountered unexpected character {} while processing piece placement",
-                        c
+                        "Encountered unexpected character {c} while processing piece placement"
                     ));
                 }
             }
@@ -230,35 +210,6 @@ impl Board {
             board.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
         } else {
             return Err(format!("Encountered unexpected Side to move value '{}'", fen_pieces[1]));
-        }
-
-        if fen_pieces[2] != "-" {
-            for c in fen_pieces[2].chars() {
-                match c {
-                    'K' => {
-                        board.castling_rights |= CASTLE_WHITE_KING_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_WHITE_KING_IDX];
-                    }
-                    'Q' => {
-                        board.castling_rights |= CASTLE_WHITE_QUEEN_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_WHITE_QUEEN_IDX];
-                    }
-                    'k' => {
-                        board.castling_rights |= CASTLE_BLACK_KING_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_BLACK_KING_IDX];
-                    }
-                    'q' => {
-                        board.castling_rights |= CASTLE_BLACK_QUEEN_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
-                    }
-                    _ => {
-                        return Err(format!(
-                            "Encountered unexpected character {} while processing castling rights",
-                            c
-                        ));
-                    }
-                }
-            }
         }
 
         if fen_pieces[3] != "-" {
@@ -300,38 +251,6 @@ impl Board {
             board.en_passant_target_square_index = Some(ep_square_index);
         }
 
-        if fen_pieces.len() > 4 {
-            let hmc_result = fen_pieces[4].parse::<u8>();
-            match hmc_result {
-                Ok(hmc) => {
-                    board.halfmove_clock = hmc;
-                }
-                Err(e) => {
-                    return Err(format!(
-                        "Encountered error while parsing halfmove counter value '{}' as u8: {}",
-                        fen_pieces[4], e
-                    ));
-                }
-            }
-
-            if fen_pieces.len() > 5 {
-                let fmc_result = fen_pieces[5].parse::<u16>();
-                match fmc_result {
-                    Ok(fmc) => {
-                        board.fullmove_counter = fmc;
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "Encountered error while parsing fullmove counter value '{}' as u16: {}",
-                            fen_pieces[5], e
-                        ));
-                    }
-                }
-            }
-        }
-
-        board.repetitions.add_start_position(board.hash);
-
         Ok(board)
     }
 
@@ -345,7 +264,7 @@ impl Board {
             // Reverse so it prints with a1 in the bottom left like viewing the board as white
             .rev()
             // Join the sets of 8 with newlines
-            .reduce(|acc, x| format!("{}\n{}", acc, x))
+            .reduce(|acc, x| format!("{acc}\n{x}"))
             .unwrap()
     }
 
@@ -391,28 +310,7 @@ impl Board {
             result += " b ";
         }
 
-        // Castling
-        if self.castling_rights != 0 {
-            if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
-                result += "K";
-            }
-
-            if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 {
-                result += "Q";
-            }
-
-            if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
-                result += "k";
-            }
-
-            if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 {
-                result += "q";
-            }
-
-            result += " ";
-        } else {
-            result += "- ";
-        }
+        result += "castling_unknown ";
 
         // En passant
         if let Some(ep_index) = self.en_passant_target_square_index {
@@ -424,13 +322,6 @@ impl Board {
             result += "- ";
         }
 
-        // Half move clock
-        result += self.halfmove_clock.to_string().as_str();
-        result += " ";
-
-        // Full move count
-        result += self.fullmove_counter.to_string().as_str();
-
         result
     }
 }
@@ -441,14 +332,9 @@ impl Debug for Board {
             .debug_struct("Board")
             .field("squares", &"See end value")
             .field("white_to_move", &self.white_to_move)
-            .field("castling_rights", &self.castling_rights)
             .field("en_passant_target_square_index", &self.en_passant_target_square_index)
-            .field("halfmove_clock", &self.halfmove_clock)
-            .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
             .field("game_stage", &self.game_stage)
-            .field("repetitions", &self.repetitions)
-            .field("piece_counts", &self.piece_counts)
             .field("piece_bitboards", &"See end value")
             .field("side_occupancy", &"See end value")
             .field("occupancy", &"See end value")
@@ -461,16 +347,16 @@ impl Debug for Board {
         let pretty_squares = self
             .squares
             // Convert everything to hex
-            .map(|v| format!("{:#04x}", v))
+            .map(|v| format!("{v:#04x}"))
             // Make sets of 10 squares joined with commas
             .chunks_exact(10)
             .map(|chunk| chunk.join(", "))
             // Reverse so it prints with a1 in the bottom left like viewing the board as white
             .rev()
             // Join the sets of 10 with newlines
-            .reduce(|acc, x| format!("{}\n{}", acc, x))
+            .reduce(|acc, x| format!("{acc}\n{x}"))
             .unwrap();
-        writeln!(f, "\nsquares:\n{}", pretty_squares).unwrap();
+        writeln!(f, "\nsquares:\n{pretty_squares}").unwrap();
         writeln!(f, "pretty version:\n{}", self.pretty_print()).unwrap();
 
         write!(f, "Piece bitboards:\nWhite:").unwrap();
@@ -537,5 +423,4 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
     board.hash ^= get_hash_value(piece_code, white, index, hash_values);
     board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
-    board.piece_counts[if white { 0 } else { 1 }][piece_code as usize] += 1;
 }
