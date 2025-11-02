@@ -152,7 +152,7 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -44,-12,-9,2,2,5,-6,-29,
         6,-37,-16,-11,-28,-6,-50,-56,
         0,79,286,313,443,901,20000,23,
-        8,21,18,10
+        8,21,18,2,
     ];
 
 pub struct LoadPositionsResult {
@@ -163,8 +163,8 @@ pub struct LoadPositionsResult {
 
 pub fn load_positions(filename: &str) -> LoadPositionsResult {
     let mut result = vec![];
-    let load_positions = 2;
-    let skip_positions = 3;
+    let load_positions = 3;
+    let skip_positions = 7;
     let load_skip_cycle_size = load_positions + skip_positions;
     let mut considered_to_load = -1;
 
