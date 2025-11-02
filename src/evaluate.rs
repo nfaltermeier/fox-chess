@@ -242,7 +242,7 @@ impl Board {
             + net_passed_pawns * 8
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
-            + (white_guarded_passers - black_guarded_passers) * 10
+            + (white_guarded_passers - black_guarded_passers) * 2
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
