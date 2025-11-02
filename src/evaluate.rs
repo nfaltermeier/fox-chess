@@ -2,7 +2,7 @@ use array_macro::array;
 
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
-    board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
+    board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
 };
@@ -231,12 +231,21 @@ impl Board {
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
 
+        let bishop_pair = if self.bishop_colors[0] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK && self.bishop_colors[1] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK {
+            1
+        } else if self.bishop_colors[0] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK && self.bishop_colors[1] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK {
+            -1
+        } else {
+            0
+        };
+
         material_score
             + position_score_final
             + doubled_pawns * 23
             + net_passed_pawns * 8
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
+            + bishop_pair * 20
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
