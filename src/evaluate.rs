@@ -273,9 +273,13 @@ impl Board {
         let net_rooks_on_open_files = w_open - b_open;
         let net_rooks_on_half_open_files = w_half_open - b_half_open;
 
-        let bishop_pair = if self.bishop_colors[0] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK && self.bishop_colors[1] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK {
+        let bishop_pair = if self.bishop_colors[0] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+            && self.bishop_colors[1] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+        {
             1
-        } else if self.bishop_colors[0] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK && self.bishop_colors[1] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK {
+        } else if self.bishop_colors[0] != BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+            && self.bishop_colors[1] == BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK
+        {
             -1
         } else {
             0

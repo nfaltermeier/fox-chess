@@ -367,6 +367,14 @@ impl Board {
                 };
             }
 
+            if captured_piece & PIECE_MASK == PIECE_BISHOP {
+                self.bishop_colors[if self.white_to_move { 0 } else { 1 }] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
+                    BISHOP_COLORS_DARK
+                } else {
+                    BISHOP_COLORS_LIGHT
+                };
+            }
+
             if flags & MOVE_FLAG_PROMOTION == 0 {
                 self.write_piece(moved_piece, from);
                 self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
