@@ -291,9 +291,7 @@ impl UciInterface {
                     format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" })
                 }
             },
-            None => {
-                "".to_string()
-            }
+            None => "".to_string(),
         };
 
         format!("{} {}", build_info.profile, commit)
