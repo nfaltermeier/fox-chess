@@ -326,7 +326,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     step_size = DEFAULT_STEP_SIZE;
                     changed_since_step_size_reset = false;
                     step_size_resets += 1;
-                    println!("[{}] Resetting step size for the {step_size_resets}{} time", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
+                    println!("[{}] ##### Resetting step size for the {step_size_resets}{} time #####", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
 
                     continue;
                 } else {
@@ -339,13 +339,15 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
             // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
             new_error = find_error_for_features(&features, &updated_params, scaling_constant);
 
-            if final_loop {
-                changed_params = changes.iter().filter(|v| **v != 0).count();
-                total_param_changes += changed_params;
-                changed_since_step_size_reset = true;
-                break;
-            } else if base_error - new_error >= step_size * t {
+            if base_error - new_error >= step_size * t {
                 println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+
+                if final_loop {
+                    changed_params = changes.iter().filter(|v| **v != 0).count();
+                    total_param_changes += changed_params;
+                    changed_since_step_size_reset = true;
+                    break;
+                }
 
                 let improvement = base_error - new_error;
                 if !found_improvement {
@@ -607,6 +609,7 @@ fn get_ordinal_suffix(num: i32) -> &'static str {
     match num % 10 {
         1 => "st",
         2 => "nd",
+        3 => "rd",
         _ => "th",
     }
 }
