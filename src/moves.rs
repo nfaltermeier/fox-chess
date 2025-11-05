@@ -343,7 +343,9 @@ impl Board {
                 check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
             } else if from == 7 || to == 7 {
                 check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
-            } else if from == 56 || to == 56 {
+            }
+            
+            if from == 56 || to == 56 {
                 check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
             } else if from == 60 {
                 check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
@@ -936,5 +938,18 @@ mod moves_tests {
 
         assert_eq!(board.bishop_colors[0], 0);
         assert_eq!(board.bishop_colors[1], 0);
+    }
+
+    #[test]
+    pub fn castle_disable_test() {
+        let mut board = Board::from_fen("4k2r/8/8/8/8/8/8/4K3 w k - 0 1").unwrap();
+        let mut rollback = MoveRollback::default();
+
+        let moves = ["e1d1", "h8h1", "d1c2", "h1h8"];
+        for m in moves {
+            board.make_move(&Move::from_simple_long_algebraic_notation(m, 0), &mut rollback);
+        }
+
+        assert_eq!(board.castling_rights, 0);
     }
 }
