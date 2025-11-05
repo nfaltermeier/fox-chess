@@ -45,6 +45,8 @@ pub const MOVE_SCORE_HISTORY_MAX: i32 = 1400;
 pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 800;
 const MOVE_SCORE_QUIET: i16 = 0;
 
+const MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR: i16 = 10;
+
 pub const MOVE_ARRAY_SIZE: usize = 64;
 
 impl Board {
@@ -162,11 +164,11 @@ impl Board {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
                         score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES[PIECE_PAWN as usize],
+                            - CENTIPAWN_VALUES[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                     });
                 } else {
                     let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES[PIECE_PAWN as usize];
+                        - CENTIPAWN_VALUES[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
                     result.push(ScoredMove::new(
                         from,
                         to,
@@ -403,7 +405,7 @@ impl Board {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
                         score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES[piece_type as usize],
+                            - CENTIPAWN_VALUES[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                     });
                 }
             }
@@ -641,7 +643,7 @@ impl Board {
             } else {
                 let target_piece = self.get_piece_64(to as usize);
                 MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                    - CENTIPAWN_VALUES[PIECE_PAWN as usize]
+                    - CENTIPAWN_VALUES[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR
             };
 
             if !PROMOS {
