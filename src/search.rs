@@ -515,6 +515,22 @@ impl<'a> Searcher<'a> {
             }
         }
 
+        // Internal Iterative Deepening
+        if moves.is_empty() && is_pv && draft > 5 {
+            let mut iid_pv = tiny_vec!();
+            self.alpha_beta_recurse(alpha, beta, draft - 2, ply, killers, in_check, can_null_move, &mut iid_pv)?;
+
+            let tt_entry = self
+                .transposition_table
+                .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            if let Some(tt_data) = tt_entry {
+                moves.push(ScoredMove {
+                    m: tt_data.important_move,
+                    score: 1,
+                });
+            }
+        }
+
         let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
         let mut has_legal_move = false;

@@ -344,7 +344,7 @@ impl Board {
             } else if from == 7 || to == 7 {
                 check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
             }
-            
+
             if from == 56 || to == 56 {
                 check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
             } else if from == 60 {
