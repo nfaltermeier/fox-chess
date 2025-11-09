@@ -416,7 +416,7 @@ impl<'a> Searcher<'a> {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
 
-                match tt_data.get_move_type() {
+                match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
                             // should history be updated here?
@@ -818,7 +818,7 @@ impl<'a> Searcher<'a> {
         if let Some(tt_data) = tt_entry {
             let tt_eval = tt_data.get_score(0);
 
-            match tt_data.get_move_type() {
+            match tt_data.move_type {
                 transposition_table::MoveType::FailHigh => {
                     if tt_eval >= beta {
                         return tt_eval;
