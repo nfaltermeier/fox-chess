@@ -7,7 +7,8 @@ use std::{
 
 use crate::bench::bench;
 use board::{Board, HASH_VALUES};
-use clap::{Parser, Subcommand};
+use build_info::build_info;
+use clap::{ArgAction, Parser, Subcommand};
 use log::{debug, error, info, warn};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
@@ -24,6 +25,7 @@ mod evaluate;
 mod magic_bitboard;
 mod move_generator;
 mod moves;
+mod perft;
 mod repetition_tracker;
 mod search;
 mod transposition_table;
@@ -31,12 +33,18 @@ mod uci;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+build_info!(fn get_build_info);
+
 #[derive(Parser)]
 struct CliArgs {
     #[command(subcommand)]
     command: Option<Commands>,
-    #[arg(short, long, default_value_t = log::LevelFilter::Debug)]
-    log_level: log::LevelFilter,
+    /// Controls what level of debugging information is logged. Defaults to Error.
+    #[arg(long)]
+    log_level: Option<log::LevelFilter>,
+    /// Controls if debugging information will be logged to the file output.log
+    #[arg(long)]
+    log_to_file: bool,
 }
 
 #[derive(Subcommand)]
@@ -47,7 +55,9 @@ enum Commands {
         fen: Option<String>,
         moves: Option<String>,
     },
+    /// Runs a benchmark test for the user to verify node count and nodes per second on a new device/build
     Bench,
+    /// Prints the version of the program
     Version,
 }
 
@@ -79,6 +89,56 @@ fn main() {
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
     // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // hash_values_edit_distance();
+}
+
+fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
+    let mut logger = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(args.log_level.unwrap_or_else(|| {
+            if get_build_info().profile.eq_ignore_ascii_case("debug") {
+                log::LevelFilter::Debug
+            } else {
+                log::LevelFilter::Error
+            }
+        }))
+        .level_for("fox_chess::perft", log::LevelFilter::Info)
+        .chain(std::io::stderr());
+
+    if args.log_to_file || get_build_info().profile.eq_ignore_ascii_case("debug") {
+        logger = logger.chain(fern::log_file("output.log")?);
+    }
+
+    logger.apply()?;
+    Ok(())
+}
+
+fn run_uci() {
+    // 2^23 entries -> 128MiB
+    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
+    let mut uci = UciInterface::new(23, stop_rx);
+    loop {
+        match message_rx.try_recv() {
+            Ok(val) => {
+                if uci.process_command(val) {
+                    return;
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                error!("stdin channel disconnected");
+                panic!("stdin channel disconnected")
+            }
+        }
+        sleep(Duration::from_millis(10));
+    }
 }
 
 fn handle_startup_command(command: &Commands) {
@@ -276,46 +336,6 @@ fn make_moves(moves: Vec<Move>, fen: &str) {
 
     for r#move in final_pos_moves {
         info!("{}", r#move.m.pretty_print(Some(&board)));
-    }
-}
-
-fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{} {} {}] {}",
-                humantime::format_rfc3339_seconds(SystemTime::now()),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .level(args.log_level)
-        // .level_for("fox_chess::move_generator", log::LevelFilter::Trace)
-        .chain(std::io::stderr())
-        .chain(fern::log_file("output.log")?)
-        .apply()?;
-    Ok(())
-}
-
-fn run_uci() {
-    // 2^23 entries -> 128MiB
-    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
-    let mut uci = UciInterface::new(23, stop_rx);
-    loop {
-        match message_rx.try_recv() {
-            Ok(val) => {
-                if uci.process_command(val) {
-                    return;
-                }
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                error!("stdin channel disconnected");
-                panic!("stdin channel disconnected")
-            }
-        }
-        sleep(Duration::from_millis(10));
     }
 }
 
