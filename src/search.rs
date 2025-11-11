@@ -463,14 +463,14 @@ impl<'a> Searcher<'a> {
             let eval = self.board.evaluate_side_to_move_relative();
 
             // Reverse futility pruning
-            if eval - 150 * (draft as i16) >= beta {
+            if eval - 120 - 128 * (draft - 1) as i16 >= beta {
                 return Ok((eval + beta) / 2);
             }
 
-            futility_prune = (eval + 300 + 200 * (draft - 1) as i16) < alpha;
+            futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
 
             // Razoring
-            if (eval + 300 + 300 * (draft - 1) as i16) < alpha {
+            if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
                 let score = self.quiescense_side_to_move_relative(alpha, beta, 255);
                 if score < alpha {
                     return Ok(score);
