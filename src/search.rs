@@ -413,7 +413,7 @@ impl<'a> Searcher<'a> {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
 
-                match tt_data.get_move_type() {
+                match tt_data.move_type {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
                             // should history be updated here?
@@ -460,14 +460,14 @@ impl<'a> Searcher<'a> {
             let eval = self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS);
 
             // Reverse futility pruning
-            if eval - 150 * (draft as i16) >= beta {
+            if eval - 120 - 128 * (draft - 1) as i16 >= beta {
                 return Ok((eval + beta) / 2);
             }
 
-            futility_prune = (eval + 300 + 200 * (draft - 1) as i16) < alpha;
+            futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
 
             // Razoring
-            if (eval + 300 + 300 * (draft - 1) as i16) < alpha {
+            if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
                 let score = self.board.quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback).0;
                 if score < alpha {
                     return Ok(score);
@@ -509,6 +509,22 @@ impl<'a> Searcher<'a> {
 
             if nmp_score >= beta {
                 return Ok(nmp_score);
+            }
+        }
+
+        // Internal Iterative Deepening
+        if moves.is_empty() && is_pv && draft > 5 {
+            let mut iid_pv = tiny_vec!();
+            self.alpha_beta_recurse(alpha, beta, draft - 2, ply, killers, in_check, can_null_move, &mut iid_pv)?;
+
+            let tt_entry = self
+                .transposition_table
+                .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            if let Some(tt_data) = tt_entry {
+                moves.push(ScoredMove {
+                    m: tt_data.important_move,
+                    score: 1,
+                });
             }
         }
 

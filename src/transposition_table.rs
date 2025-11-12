@@ -31,8 +31,8 @@ struct TwoTierEntry {
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
-    /// Bottom 2 bits: age, top 2 bits: MoveType
-    packed: u8,
+    age: u8,
+    pub move_type: MoveType,
     score: i16,
     pub draft: u8,
     pub empty: bool,
@@ -56,13 +56,11 @@ impl TTEntry {
             tt_score -= 10 * ply as i16;
         }
 
-        let mut packed = search_starting_halfmove % 4;
-        packed |= (move_type as u8) << 6;
-
         Self {
             hash,
             important_move,
-            packed,
+            age: search_starting_halfmove % 4,
+            move_type,
             score: tt_score,
             draft,
             empty: false,
@@ -81,24 +79,6 @@ impl TTEntry {
 
         score
     }
-
-    #[inline]
-    pub fn get_move_type(&self) -> MoveType {
-        MoveType::from(self.packed >> 6)
-    }
-
-    #[inline]
-    pub fn get_age(&self) -> u8 {
-        self.packed & 0b11
-    }
-
-    /// Age should be 0..3
-    pub fn set_age(&mut self, age: u8) {
-        debug_assert!(age <= 3);
-
-        self.packed &= !0b11;
-        self.packed |= age;
-    }
 }
 
 impl Default for TTEntry {
@@ -106,7 +86,8 @@ impl Default for TTEntry {
         TTEntry {
             hash: 0,
             important_move: Move { data: 0 },
-            packed: 0xFF,
+            age: 0,
+            move_type: MoveType::FailHigh,
             score: 0,
             draft: 0,
             empty: true,
@@ -139,7 +120,7 @@ impl TranspositionTable {
         if let Some(entry) = table.get_mut(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
             if !entry.depth_first.empty && entry.depth_first.hash == key {
-                entry.depth_first.set_age(search_starting_halfmove % 4);
+                entry.depth_first.age = search_starting_halfmove % 4;
                 return Some(entry.depth_first);
             }
 
@@ -160,7 +141,7 @@ impl TranspositionTable {
 
         if let Some(entry) = table.get_mut(index) {
             if entry.depth_first.empty
-                || entry.depth_first.get_age() != val.get_age()
+                || entry.depth_first.age != val.age
                 || entry.depth_first.draft <= val.draft
             {
                 entry.depth_first = val;

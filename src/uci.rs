@@ -1,14 +1,12 @@
 use std::{
     alloc::{Layout, alloc_zeroed},
     io,
-    process::exit,
     sync::mpsc::{self, Receiver},
     thread,
     time::{Duration, Instant},
 };
 
 use build_info::VersionControl::Git;
-use build_info::build_info;
 use log::{debug, error, trace};
 use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
@@ -18,6 +16,7 @@ use crate::{
     bench::bench,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
+    get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
     transposition_table::{TTEntry, TranspositionTable},
@@ -30,8 +29,6 @@ pub struct UciInterface {
     stop_rx: Receiver<()>,
     continuation_history: Box<ContinuationHistoryTable>,
 }
-
-build_info!(fn get_build_info);
 
 impl UciInterface {
     pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
