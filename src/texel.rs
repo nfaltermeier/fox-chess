@@ -11,6 +11,8 @@ use std::{
 #[allow(internal_features)]
 use std::intrinsics::fadd_algebraic;
 
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 
 use crate::evaluate::MIN_GAME_STAGE_FULLY_MIDGAME;
@@ -262,6 +264,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut params = DEFAULT_PARAMS;
     // let mut params = [0; EVAL_PARAM_COUNT];
 
+    // perturb(&mut params);
+
     let scaling_constant = 1.06;
     const DEFAULT_STEP_SIZE: f64 = 10000000.0;
     let mut step_size = DEFAULT_STEP_SIZE;
@@ -420,6 +424,25 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     println!("Regression done");
 }
 
+pub fn change_param_at_index(i: usize) -> bool {
+    if i < 8
+        // midgame pawns on last row
+        || (i >= 56 && i < 64)
+        // endgame pawns on first row
+        || (i >= 6 * 64 && i < 8 + 6 * 64)
+        // endgame pawns on last row
+        || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
+        // None piece centipawn value midgame
+        || i == EP_PIECE_VALUES_IDX
+        // King centipawn value midgame
+        || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
+    {
+        return false;
+    }
+
+    return true;
+}
+
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f64) -> f64 {
     let errors = positions
         .par_iter_mut()
@@ -488,18 +511,7 @@ fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scal
 
     for i in 0..params.len() {
         // midgame pawns on first row
-        if i < 8
-            // midgame pawns on last row
-            || (i >= 56 && i < 64)
-            // endgame pawns on first row
-            || (i >= 6 * 64 && i < 8 + 6 * 64)
-            // endgame pawns on last row
-            || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
-            // None piece centipawn value
-            || i == EP_PIECE_VALUES_IDX
-            // King centipawn value
-            || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
-        {
+        if !change_param_at_index(i) {
             continue;
         }
 
@@ -596,6 +608,15 @@ impl FeatureData {
         }
 
         sum.reduce_sum()
+    }
+}
+
+fn perturb(params: &mut EvalParams) {
+    let mut rand = StdRng::from_entropy();
+    for i in 0..params.len() {
+        if change_param_at_index(i) {
+            params[i] += rand.gen_range(-50..=50);
+        }
     }
 }
 
