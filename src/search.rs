@@ -399,7 +399,7 @@ impl<'a> Searcher<'a> {
                 .0);
         }
 
-        let mut best_score = -i16::MAX;
+        let mut best_score = i16::MIN;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
@@ -837,35 +837,46 @@ impl Board {
             return (0, self.clone());
         }
 
-        let stand_pat = self.evaluate_side_to_move_relative(params);
+        let mut best_score;
+        let in_check = self.is_in_check(false);
+        if !in_check {
+            let stand_pat = self.evaluate_side_to_move_relative(params);
 
-        if stand_pat >= beta {
-            return (stand_pat, self.clone());
+            if stand_pat >= beta {
+                return (stand_pat, self.clone());
+            }
+
+            if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+                && stand_pat
+                    + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize]
+                    + 100
+                    // maybe this shouldn't include quiet promotions because those would already be covered under the standard margin
+                    + if self.can_probably_promote() {
+                        params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] - 100
+                    } else {
+                        0
+                    }
+                    < alpha
+            {
+                return (stand_pat, self.clone());
+            }
+
+            if alpha < stand_pat {
+                alpha = stand_pat;
+            }
+
+            best_score = stand_pat;
+        } else {
+            best_score = -i16::MAX;
         }
 
-        if self.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-            && stand_pat
-                + params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize]
-                + 100
-                // maybe this shouldn't include quiet promotions because those would already be covered under the standard margin
-                + if self.can_probably_promote() {
-                    params[EP_PIECE_VALUES_IDX + PIECE_QUEEN as usize] - 100
-                } else {
-                    0
-                }
-                < alpha
-        {
-            return (stand_pat, self.clone());
-        }
-
-        if alpha < stand_pat {
-            alpha = stand_pat;
-        }
-
-        let mut best_score = stand_pat;
         let mut best_position = None;
 
-        let mut moves = self.generate_pseudo_legal_captures_and_queen_promos(&DEFAULT_HISTORY_TABLE);
+        let mut moves = if in_check {
+            self.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE)
+        } else {
+            self.generate_pseudo_legal_capture_moves()
+        };
 
         moves.sort_unstable_by_key(|m| Reverse(m.score));
 

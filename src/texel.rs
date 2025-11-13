@@ -428,9 +428,13 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r).0;
 
-            let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f64;
-            let val_sqrt = p.result - sigmoid(eval, scaling_constant);
-            val_sqrt * val_sqrt
+            if result == -i16::MAX {
+                0.0
+            } else {
+                let eval = (result * if p.board.white_to_move { 1 } else { -1 }) as f64;
+                let val_sqrt = p.result - sigmoid(eval, scaling_constant);
+                val_sqrt * val_sqrt
+            }
         })
         .collect::<Vec<f64>>();
 
@@ -444,9 +448,18 @@ fn qsearch_for_features(positions: &mut Vec<TexelPosition>, params: &EvalParams)
             let result = p
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
-            PositionFeatures {
-                features: result.1.get_eval_features(),
-                result: p.result,
+
+            // if all positions were in check for stm
+            if result.0 == -i16::MAX {
+                PositionFeatures {
+                    features: FeatureData::default(),
+                    result: 0.5
+                }
+            } else {
+                PositionFeatures {
+                    features: result.1.get_eval_features(),
+                    result: p.result,
+                }
             }
         })
         .collect()
