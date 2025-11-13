@@ -402,7 +402,7 @@ impl<'a> Searcher<'a> {
             return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
         }
 
-        let mut best_score = -i16::MAX;
+        let mut best_score = i16::MIN;
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
@@ -842,23 +842,29 @@ impl<'a> Searcher<'a> {
             moves = tiny_vec!();
         }
 
-        let stand_pat = self.board.evaluate_side_to_move_relative();
+        let mut best_score;
+        let in_check = self.board.is_in_check(false);
+        if !in_check {
+            let stand_pat = self.board.evaluate_side_to_move_relative();
 
-        if stand_pat >= beta {
-            return stand_pat;
+            if stand_pat >= beta {
+                return stand_pat;
+            }
+
+            if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+                && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
+            {
+                return stand_pat;
+            }
+
+            if alpha < stand_pat {
+                alpha = stand_pat;
+            }
+    
+            best_score = stand_pat;
+        } else {
+            best_score = -i16::MAX;
         }
-
-        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-            && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
-        {
-            return stand_pat;
-        }
-
-        if alpha < stand_pat {
-            alpha = stand_pat;
-        }
-
-        let mut best_score = stand_pat;
         let mut best_move = None;
         let mut improved_alpha = false;
 
@@ -936,7 +942,11 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
-                moves = self.board.generate_pseudo_legal_capture_moves();
+                if in_check {
+                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
+                } else {
+                    moves = self.board.generate_pseudo_legal_capture_moves();
+                }
             }
         }
 
@@ -958,6 +968,8 @@ impl<'a> Searcher<'a> {
                 ),
                 TableType::Quiescense,
             );
+        } else if best_score == -i16::MAX {
+            best_score = alpha.max(-4000);
         }
 
         best_score
