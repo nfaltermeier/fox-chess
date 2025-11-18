@@ -18,7 +18,7 @@ use crate::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
     repetition_tracker::RepetitionTracker,
-    transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
+    transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
 };
 
@@ -399,7 +399,7 @@ impl<'a> Searcher<'a> {
 
             parent_pv.clear();
 
-            return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
+            return Ok(self.quiescense_side_to_move_relative(alpha, beta, ply + 1));
         }
 
         let mut best_score = i16::MIN;
@@ -411,7 +411,7 @@ impl<'a> Searcher<'a> {
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
-            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            .get_entry(self.board.hash, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
@@ -471,7 +471,7 @@ impl<'a> Searcher<'a> {
 
             // Razoring
             if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
-                let score = self.quiescense_side_to_move_relative(alpha, beta, 255);
+                let score = self.quiescense_side_to_move_relative(alpha, beta, ply + 1);
                 if score < alpha {
                     return Ok(score);
                 }
@@ -518,11 +518,20 @@ impl<'a> Searcher<'a> {
         // Internal Iterative Deepening
         if moves.is_empty() && is_pv && draft > 5 {
             let mut iid_pv = tiny_vec!();
-            self.alpha_beta_recurse(alpha, beta, draft - 2, ply, killers, in_check, can_null_move, &mut iid_pv)?;
+            self.alpha_beta_recurse(
+                alpha,
+                beta,
+                draft - 2,
+                ply,
+                killers,
+                in_check,
+                can_null_move,
+                &mut iid_pv,
+            )?;
 
             let tt_entry = self
                 .transposition_table
-                .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                .get_entry(self.board.hash, self.starting_halfmove);
             if let Some(tt_data) = tt_entry {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
@@ -693,18 +702,15 @@ impl<'a> Searcher<'a> {
                         );
                     }
 
-                    self.transposition_table.store_entry(
-                        TTEntry::new(
-                            self.board.hash,
-                            r#move.m,
-                            MoveType::FailHigh,
-                            score,
-                            draft,
-                            ply,
-                            self.starting_halfmove,
-                        ),
-                        TableType::Main,
-                    );
+                    self.transposition_table.store_entry(TTEntry::new(
+                        self.board.hash,
+                        r#move.m,
+                        MoveType::FailHigh,
+                        score,
+                        draft,
+                        ply,
+                        self.starting_halfmove,
+                    ));
 
                     return Ok(score);
                 }
@@ -788,23 +794,20 @@ impl<'a> Searcher<'a> {
         } else {
             MoveType::FailLow
         };
-        self.transposition_table.store_entry(
-            TTEntry::new(
-                self.board.hash,
-                best_move.unwrap(),
-                entry_type,
-                best_score,
-                draft,
-                ply,
-                self.starting_halfmove,
-            ),
-            TableType::Main,
-        );
+        self.transposition_table.store_entry(TTEntry::new(
+            self.board.hash,
+            best_move.unwrap(),
+            entry_type,
+            best_score,
+            draft,
+            ply,
+            self.starting_halfmove,
+        ));
 
         Ok(best_score)
     }
 
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
+    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, ply: u8) -> i16 {
         self.stats.total_nodes += 1;
 
         if self.board.is_insufficient_material() {
@@ -812,11 +815,11 @@ impl<'a> Searcher<'a> {
         }
 
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
-        let tt_entry =
-            self.transposition_table
-                .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
+        let tt_entry = self
+            .transposition_table
+            .get_entry(self.board.hash, self.starting_halfmove);
         if let Some(tt_data) = tt_entry {
-            let tt_eval = tt_data.get_score(0);
+            let tt_eval = tt_data.get_score(ply);
 
             match tt_data.move_type {
                 transposition_table::MoveType::FailHigh => {
@@ -834,10 +837,14 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves = tiny_vec!(ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            });
+            if tt_data.important_move.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+                moves = tiny_vec!(ScoredMove {
+                    m: tt_data.important_move,
+                    score: 1,
+                });
+            } else {
+                moves = tiny_vec!();
+            }
         } else {
             moves = tiny_vec!();
         }
@@ -860,7 +867,7 @@ impl<'a> Searcher<'a> {
             if alpha < stand_pat {
                 alpha = stand_pat;
             }
-    
+
             best_score = stand_pat;
         } else {
             best_score = -i16::MAX;
@@ -909,23 +916,20 @@ impl<'a> Searcher<'a> {
                 }
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                let score = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1);
+                let score = -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
                 if score >= beta {
-                    self.transposition_table.store_entry(
-                        TTEntry::new(
-                            self.board.hash,
-                            r#move.m,
-                            MoveType::FailHigh,
-                            score,
-                            draft,
-                            0,
-                            self.starting_halfmove,
-                        ),
-                        TableType::Quiescense,
-                    );
+                    self.transposition_table.store_entry(TTEntry::new(
+                        self.board.hash,
+                        r#move.m,
+                        MoveType::FailHigh,
+                        score,
+                        0,
+                        0,
+                        self.starting_halfmove,
+                    ));
 
                     return score;
                 }
@@ -956,18 +960,15 @@ impl<'a> Searcher<'a> {
             } else {
                 MoveType::FailLow
             };
-            self.transposition_table.store_entry(
-                TTEntry::new(
-                    self.board.hash,
-                    bm,
-                    entry_type,
-                    best_score,
-                    0,
-                    0,
-                    self.starting_halfmove,
-                ),
-                TableType::Quiescense,
-            );
+            self.transposition_table.store_entry(TTEntry::new(
+                self.board.hash,
+                bm,
+                entry_type,
+                best_score,
+                0,
+                ply,
+                self.starting_halfmove,
+            ));
         } else if best_score == -i16::MAX {
             best_score = alpha.max(-4000);
         }

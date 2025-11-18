@@ -289,7 +289,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
         } else {
             result = SearchResult {
                 best_move: r#move.m,
-                score: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255)
+                score: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 0)
                     * if board.white_to_move { 1 } else { -1 },
             };
         }
