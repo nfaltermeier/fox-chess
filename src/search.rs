@@ -67,7 +67,7 @@ pub struct Searcher<'a> {
     pub stats: SearchStats,
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
-    starting_halfmove: u8,
+    starting_fullmove: u8,
     cancel_search_at: Option<Instant>,
     end_search: bool,
     starting_in_check: bool,
@@ -86,7 +86,7 @@ impl<'a> Searcher<'a> {
         stop_rx: &'a Receiver<()>,
         continuation_history: &'a mut ContinuationHistoryTable,
     ) -> Self {
-        let starting_halfmove = board.halfmove_clock;
+        let starting_fullmove = board.fullmove_counter as u8;
 
         let starting_in_check = board.is_in_check(false);
 
@@ -96,7 +96,7 @@ impl<'a> Searcher<'a> {
             stats: SearchStats::default(),
             transposition_table,
             history_table,
-            starting_halfmove,
+            starting_fullmove,
             cancel_search_at: None,
             end_search: false,
             starting_in_check,
@@ -411,7 +411,7 @@ impl<'a> Searcher<'a> {
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
-            .get_entry(self.board.hash, self.starting_halfmove);
+            .get_entry(self.board.hash, self.starting_fullmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
@@ -531,7 +531,7 @@ impl<'a> Searcher<'a> {
 
             let tt_entry = self
                 .transposition_table
-                .get_entry(self.board.hash, self.starting_halfmove);
+                .get_entry(self.board.hash, self.starting_fullmove);
             if let Some(tt_data) = tt_entry {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
@@ -709,7 +709,7 @@ impl<'a> Searcher<'a> {
                         score,
                         draft,
                         ply,
-                        self.starting_halfmove,
+                        self.starting_fullmove,
                     ));
 
                     return Ok(score);
@@ -801,7 +801,7 @@ impl<'a> Searcher<'a> {
             best_score,
             draft,
             ply,
-            self.starting_halfmove,
+            self.starting_fullmove,
         ));
 
         Ok(best_score)
@@ -817,7 +817,7 @@ impl<'a> Searcher<'a> {
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
-            .get_entry(self.board.hash, self.starting_halfmove);
+            .get_entry(self.board.hash, self.starting_fullmove);
         if let Some(tt_data) = tt_entry {
             let tt_eval = tt_data.get_score(ply);
 
@@ -928,7 +928,7 @@ impl<'a> Searcher<'a> {
                         score,
                         0,
                         0,
-                        self.starting_halfmove,
+                        self.starting_fullmove,
                     ));
 
                     return score;
@@ -967,7 +967,7 @@ impl<'a> Searcher<'a> {
                 best_score,
                 0,
                 ply,
-                self.starting_halfmove,
+                self.starting_fullmove,
             ));
         } else if best_score == -i16::MAX {
             best_score = alpha.max(-4000);

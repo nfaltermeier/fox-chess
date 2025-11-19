@@ -41,7 +41,7 @@ impl TTEntry {
         score: i16,
         draft: u8,
         ply: u8,
-        search_starting_halfmove: u8,
+        search_starting_fullmove: u8,
     ) -> Self {
         let mut tt_score = score;
         if tt_score >= MATE_THRESHOLD {
@@ -53,7 +53,7 @@ impl TTEntry {
         Self {
             hash,
             important_move,
-            age: search_starting_halfmove % 4,
+            age: search_starting_fullmove % 4,
             move_type,
             score: tt_score,
             draft,
@@ -103,13 +103,13 @@ impl TranspositionTable {
         }
     }
 
-    pub fn get_entry(&mut self, key: u64, search_starting_halfmove: u8) -> Option<TTEntry> {
+    pub fn get_entry(&mut self, key: u64, search_starting_fullmove: u8) -> Option<TTEntry> {
         let index = key as usize & self.key_mask;
 
         if let Some(entry) = self.table.get_mut(index) {
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
             if !entry.depth_first.empty && entry.depth_first.hash == key {
-                entry.depth_first.age = search_starting_halfmove % 4;
+                entry.depth_first.age = search_starting_fullmove % 4;
                 return Some(entry.depth_first);
             }
 
