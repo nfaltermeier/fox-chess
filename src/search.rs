@@ -233,7 +233,14 @@ impl<'a> Searcher<'a> {
 
                 let elapsed = start_time.elapsed();
 
-                UciInterface::print_search_info(search_result.score, &self.stats, &elapsed, &result.pv);
+                UciInterface::print_search_info(
+                    search_result.score,
+                    &self.stats,
+                    &elapsed,
+                    &self.transposition_table,
+                    &result.pv,
+                    self.starting_fullmove,
+                );
 
                 self.stats.aspiration_researches = 0;
 

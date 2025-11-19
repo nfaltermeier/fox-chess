@@ -92,9 +92,9 @@ impl Default for TTEntry {
 impl TranspositionTable {
     /// Panics if size_log_2 is less than 2
     pub fn new(size_log_2: u8) -> TranspositionTable {
-        if size_log_2 < 1 {
-            error!("TranspositionTable size_log_2 must be at least 1");
-            panic!("TranspositionTable size_log_2 must be at least 1");
+        if size_log_2 < 10 {
+            error!("TranspositionTable size_log_2 must be at least 10");
+            panic!("TranspositionTable size_log_2 must be at least 10");
         }
 
         TranspositionTable {
@@ -114,6 +114,7 @@ impl TranspositionTable {
             }
 
             if !entry.always_replace.empty && entry.always_replace.hash == key {
+                entry.always_replace.age = search_starting_fullmove % 4;
                 return Some(entry.always_replace);
             }
         }
@@ -136,6 +137,23 @@ impl TranspositionTable {
     pub fn clear(&mut self) {
         let default_entry = TwoTierEntry::default();
         self.table.iter_mut().for_each(|e| *e = default_entry);
+    }
+
+    pub fn hashfull(&self, search_starting_fullmove: u8) -> u16 {
+        let target_age = search_starting_fullmove % 4;
+        let mut count = 0;
+
+        for entry in &self.table[0..500] {
+            if !entry.depth_first.empty && entry.depth_first.age == target_age {
+                count += 1;
+            }
+
+            if !entry.always_replace.empty && entry.always_replace.age == target_age {
+                count += 1;
+            }
+        }
+
+        count
     }
 }
 
