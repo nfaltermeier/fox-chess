@@ -821,6 +821,7 @@ impl<'a> Searcher<'a> {
             return 0;
         }
 
+        let is_pv = alpha + 1 != beta;
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
@@ -828,18 +829,20 @@ impl<'a> Searcher<'a> {
         if let Some(tt_data) = tt_entry {
             let tt_eval = tt_data.get_score(ply);
 
-            match tt_data.move_type {
-                transposition_table::MoveType::FailHigh => {
-                    if tt_eval >= beta {
+            if !is_pv {
+                match tt_data.move_type {
+                    transposition_table::MoveType::FailHigh => {
+                        if tt_eval >= beta {
+                            return tt_eval;
+                        }
+                    }
+                    transposition_table::MoveType::Best => {
                         return tt_eval;
                     }
-                }
-                transposition_table::MoveType::Best => {
-                    return tt_eval;
-                }
-                transposition_table::MoveType::FailLow => {
-                    if tt_eval < alpha {
-                        return tt_eval;
+                    transposition_table::MoveType::FailLow => {
+                        if tt_eval < alpha {
+                            return tt_eval;
+                        }
                     }
                 }
             }
