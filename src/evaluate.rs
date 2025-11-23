@@ -206,21 +206,20 @@ static BISHOP_GUARDED_PROMOTION_FILES: [[u64; 4]; 2] = [
 impl Board {
     pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
-        let mut game_stage = self.game_stage;
-
         for i in 1..7 {
             material_score += CENTIPAWN_VALUES[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
         }
 
-        let doubled_pawns = self.count_doubled_pawns();
-
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
+        let mut capped_game_stage = self.game_stage;
+        if capped_game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
+            capped_game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
         }
 
-        let position_score_final = ((self.piecesquare_midgame * game_stage)
-            + (self.piecesquare_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
+        let position_score_final = ((self.piecesquare_midgame * capped_game_stage)
+            + (self.piecesquare_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - capped_game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
+
+        let doubled_pawns = self.count_doubled_pawns();
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
