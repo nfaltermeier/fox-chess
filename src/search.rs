@@ -20,7 +20,7 @@ use crate::{
     },
     repetition_tracker::RepetitionTracker,
     texel::{DEFAULT_PARAMS, EP_PIECE_VALUES_IDX, EvalParams},
-    transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
+    transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
 };
 
@@ -69,7 +69,7 @@ pub struct Searcher<'a> {
     pub stats: SearchStats,
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
-    starting_halfmove: u8,
+    starting_fullmove: u8,
     cancel_search_at: Option<Instant>,
     end_search: bool,
     starting_in_check: bool,
@@ -88,7 +88,7 @@ impl<'a> Searcher<'a> {
         stop_rx: &'a Receiver<()>,
         continuation_history: &'a mut ContinuationHistoryTable,
     ) -> Self {
-        let starting_halfmove = 0;
+        let starting_fullmove = 0;
 
         let starting_in_check = board.is_in_check(false);
 
@@ -98,7 +98,7 @@ impl<'a> Searcher<'a> {
             stats: SearchStats::default(),
             transposition_table,
             history_table,
-            starting_halfmove,
+            starting_fullmove,
             cancel_search_at: None,
             end_search: false,
             starting_in_check,
@@ -229,7 +229,14 @@ impl<'a> Searcher<'a> {
 
                 let elapsed = start_time.elapsed();
 
-                UciInterface::print_search_info(search_result.score, &self.stats, &elapsed, &result.pv);
+                UciInterface::print_search_info(
+                    search_result.score,
+                    &self.stats,
+                    &elapsed,
+                    &self.transposition_table,
+                    &result.pv,
+                    self.starting_fullmove,
+                );
 
                 self.stats.aspiration_researches = 0;
 
@@ -408,7 +415,7 @@ impl<'a> Searcher<'a> {
         let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
         let tt_entry = self
             .transposition_table
-            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            .get_entry(self.board.hash, self.starting_fullmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
@@ -515,11 +522,20 @@ impl<'a> Searcher<'a> {
         // Internal Iterative Deepening
         if moves.is_empty() && is_pv && draft > 5 {
             let mut iid_pv = tiny_vec!();
-            self.alpha_beta_recurse(alpha, beta, draft - 2, ply, killers, in_check, can_null_move, &mut iid_pv)?;
+            self.alpha_beta_recurse(
+                alpha,
+                beta,
+                draft - 2,
+                ply,
+                killers,
+                in_check,
+                can_null_move,
+                &mut iid_pv,
+            )?;
 
             let tt_entry = self
                 .transposition_table
-                .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+                .get_entry(self.board.hash, self.starting_fullmove);
             if let Some(tt_data) = tt_entry {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
@@ -697,18 +713,15 @@ impl<'a> Searcher<'a> {
                         );
                     }
 
-                    self.transposition_table.store_entry(
-                        TTEntry::new(
-                            self.board.hash,
-                            r#move.m,
-                            MoveType::FailHigh,
-                            score,
-                            draft,
-                            ply,
-                            self.starting_halfmove,
-                        ),
-                        TableType::Main,
-                    );
+                    self.transposition_table.store_entry(TTEntry::new(
+                        self.board.hash,
+                        r#move.m,
+                        MoveType::FailHigh,
+                        score,
+                        draft,
+                        ply,
+                        self.starting_fullmove,
+                    ));
 
                     return Ok(score);
                 }
@@ -792,18 +805,15 @@ impl<'a> Searcher<'a> {
         } else {
             MoveType::FailLow
         };
-        self.transposition_table.store_entry(
-            TTEntry::new(
-                self.board.hash,
-                best_move.unwrap(),
-                entry_type,
-                best_score,
-                draft,
-                ply,
-                self.starting_halfmove,
-            ),
-            TableType::Main,
-        );
+        self.transposition_table.store_entry(TTEntry::new(
+            self.board.hash,
+            best_move.unwrap(),
+            entry_type,
+            best_score,
+            draft,
+            ply,
+            self.starting_fullmove,
+        ));
 
         Ok(best_score)
     }

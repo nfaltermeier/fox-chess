@@ -19,7 +19,7 @@ use crate::{
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
-    transposition_table::{TTEntry, TranspositionTable},
+    transposition_table::{self, TTEntry, TranspositionTable},
 };
 
 pub struct UciInterface {
@@ -215,7 +215,14 @@ impl UciInterface {
         false
     }
 
-    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &TinyVec<[Move; 32]>) {
+    pub fn print_search_info(
+        eval: i16,
+        stats: &SearchStats,
+        elapsed: &Duration,
+        transposition_table: &TranspositionTable,
+        pv: &TinyVec<[Move; 32]>,
+        search_starting_fullmove: u8,
+    ) {
         let abs_cp = eval.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
@@ -227,7 +234,7 @@ impl UciInterface {
 
         let nps = stats.total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} str aspiration_researches {}",
+            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} hashfull {} string aspiration_researches {}",
             stats.total_nodes,
             stats.depth,
             nps,
@@ -237,6 +244,7 @@ impl UciInterface {
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),
+            transposition_table.hashfull(search_starting_fullmove),
             stats.aspiration_researches,
         );
     }
