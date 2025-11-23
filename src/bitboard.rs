@@ -327,4 +327,31 @@ mod bitboard_tests {
         assert_eq!(1, board.white_passed_pawns().count_ones());
         assert_eq!(1, board.black_passed_pawns().count_ones());
     }
+
+    macro_rules! pawn_shield_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_white_score, expected_black_score) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white_score = board.score_pawn_shield(0);
+                    let black_score = board.score_pawn_shield(1);
+
+                    assert_eq!(expected_white_score, white_score);
+                    assert_eq!(expected_black_score, black_score);
+                }
+            )*
+        }
+    }
+
+    pawn_shield_test! {
+        single_close_pawn: ("1k6/1p6/8/8/8/8/6P1/6K1 w - - 0 1", 2, 2),
+        single_far_pawn: ("1k6/8/1p6/8/8/6P1/8/6K1 w - - 0 1", 1, 1),
+        full_close_shields: ("1k6/ppp5/8/8/8/8/5PPP/6K1 w - - 0 1", 6, 6),
+        mixed_shields: ("1k6/1pp5/p7/8/8/6PP/5P2/6K1 w - - 0 1", 4, 5),
+        completely_full_shields: ("1k6/ppp5/ppp5/8/8/5PPP/5PPP/6K1 w - - 0 1", 9, 9),
+        shield_not_position_dependent: ("8/4k3/3ppp2/5P2/4P3/4K3/8/8 w - - 0 1", 3, 6),
+    }
 }
