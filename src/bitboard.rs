@@ -292,13 +292,10 @@ impl Board {
     }
 
     pub fn score_pawn_shield(&self, color: usize) -> i16 {
-        let pawn_advance = if color == 0 {
-            north_one
-        } else {
-            south_one
-        };
+        let pawn_advance = if color == 0 { north_one } else { south_one };
 
-        let shield_row = generate_pawn_attack(self.piece_bitboards[color][PIECE_KING as usize], color == 0) | pawn_advance(self.piece_bitboards[color][PIECE_KING as usize]);
+        let shield_row = generate_pawn_attack(self.piece_bitboards[color][PIECE_KING as usize], color == 0)
+            | pawn_advance(self.piece_bitboards[color][PIECE_KING as usize]);
 
         let close_pawns = (shield_row & self.piece_bitboards[color][PIECE_PAWN as usize]).count_ones();
         let far_pawns = (pawn_advance(shield_row) & self.piece_bitboards[color][PIECE_PAWN as usize]).count_ones();

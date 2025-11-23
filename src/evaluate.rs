@@ -3,7 +3,8 @@ use array_macro::array;
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
     board::{
-        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
+        PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
@@ -245,11 +246,16 @@ impl Board {
         };
 
         let mut pawn_shield_eval = 0;
-        let game_stage_for_pawn_shield = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE { 0 } else { self.game_stage - ENDGAME_GAME_STAGE_FOR_QUIESCENSE };
+        let game_stage_for_pawn_shield = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+            0
+        } else {
+            self.game_stage - ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+        };
         if game_stage_for_pawn_shield > 0 {
             // How much pawn shield each side is missing. Positive: white is missing more
             let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
-            pawn_shield_eval = (game_stage_for_pawn_shield * net_pawn_shield_penalty * -15) / ENDGAME_GAME_STAGE_FOR_QUIESCENSE;
+            pawn_shield_eval =
+                (game_stage_for_pawn_shield * net_pawn_shield_penalty * -15) / ENDGAME_GAME_STAGE_FOR_QUIESCENSE;
         }
 
         material_score
