@@ -29,6 +29,15 @@ pub struct TexelPosition {
 
 pub const MAX_MISC_FEATURES: usize = 16;
 
+
+#[derive(Default)]
+pub struct TaperedFeature {
+    pub weight: i16,
+    pub idx: u16,
+    pub taper_amount: i16,
+    pub max_amount: i16,
+}
+
 #[derive(Default)]
 pub struct FeatureData {
     pub midgame_psqt_white: [u16; 16],
@@ -37,6 +46,7 @@ pub struct FeatureData {
     pub endgame_psqt_black: [u16; 16],
     pub game_stage: i16,
     pub misc_features: [(i8, u16); MAX_MISC_FEATURES],
+    pub pawn_shield: TaperedFeature,
 }
 
 pub struct PositionFeatures {
@@ -44,7 +54,7 @@ pub struct PositionFeatures {
     pub result: f64,
 }
 
-pub const EVAL_PARAM_COUNT: usize = 780;
+pub const EVAL_PARAM_COUNT: usize = 781;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
@@ -54,6 +64,7 @@ pub const EP_PASSED_PAWN_IDX: usize = 776;
 pub const EP_ROOK_OPEN_FILE_IDX: usize = 777;
 pub const EP_ROOK_HALF_OPEN_FILE_IDX: usize = 778;
 pub const EP_BISHOP_PAIR_IDX: usize = 779;
+pub const EP_PAWN_SHIELD_IDX: usize = 780;
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
@@ -154,7 +165,7 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -44,-12,-9,2,2,5,-7,-29,
         6,-37,-16,-11,-28,-6,-49,-56,
         0,79,288,310,443,901,20000,23,
-        8,21,18,19,
+        8,21,18,19,-15
     ];
 
 pub struct LoadPositionsResult {
@@ -590,7 +601,9 @@ impl FeatureData {
             misc_feature_score += w as i16 * params[i as usize];
         }
 
-        position_score_final + misc_feature_score
+        let pawn_shield = (self.pawn_shield.taper_amount * self.pawn_shield.weight * params[self.pawn_shield.idx as usize]) / self.pawn_shield.max_amount;
+
+        position_score_final + misc_feature_score + pawn_shield
     }
     
     pub fn sum_psqt_for_a_phase(white: &[u16; 16], black: &[u16; 16], params: &EvalParams) -> i16 {

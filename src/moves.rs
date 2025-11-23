@@ -631,7 +631,7 @@ mod moves_tests {
         initialize_magic_bitboards();
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let mut uci = UciInterface::new(2, stop_rx);
+        let mut uci = UciInterface::new(10, stop_rx);
         let mut uci_command = String::from("position startpos moves");
         let moves = vec![
             "d2d4", "d7d5", "g1f3", "c8f5", "c2c4", "e7e6", "d1b3", "b8c6", "c1d2", "d5c4", "b3b7", "g8e7", "b7b5",

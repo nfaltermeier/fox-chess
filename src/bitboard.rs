@@ -312,6 +312,18 @@ impl Board {
 
         (0, 0)
     }
+
+    pub fn score_pawn_shield(&self, color: usize) -> i16 {
+        let pawn_advance = if color == 0 { north_one } else { south_one };
+
+        let shield_row = generate_pawn_attack(self.piece_bitboards[color][PIECE_KING as usize], color == 0)
+            | pawn_advance(self.piece_bitboards[color][PIECE_KING as usize]);
+
+        let close_pawns = (shield_row & self.piece_bitboards[color][PIECE_PAWN as usize]).count_ones();
+        let far_pawns = (pawn_advance(shield_row) & self.piece_bitboards[color][PIECE_PAWN as usize]).count_ones();
+
+        (2 * close_pawns + far_pawns) as i16
+    }
 }
 
 #[cfg(test)]
@@ -362,5 +374,32 @@ mod bitboard_tests {
         white_opponent_blocked: ("4k3/4P3/3K4/8/8/8/8/8 w - - 0 1", false),
         black_self_blocked: ("8/8/K5k1/8/8/8/4p3/4r3 w - - 0 1", false),
         black_opponent_blocked: ("8/8/8/8/8/3k4/4p3/4K3 b - - 0 1", false),
+    }
+
+    macro_rules! pawn_shield_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_white_score, expected_black_score) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white_score = board.score_pawn_shield(0);
+                    let black_score = board.score_pawn_shield(1);
+
+                    assert_eq!(expected_white_score, white_score);
+                    assert_eq!(expected_black_score, black_score);
+                }
+            )*
+        }
+    }
+
+    pawn_shield_test! {
+        single_close_pawn: ("1k6/1p6/8/8/8/8/6P1/6K1 w - - 0 1", 2, 2),
+        single_far_pawn: ("1k6/8/1p6/8/8/6P1/8/6K1 w - - 0 1", 1, 1),
+        full_close_shields: ("1k6/ppp5/8/8/8/8/5PPP/6K1 w - - 0 1", 6, 6),
+        mixed_shields: ("1k6/1pp5/p7/8/8/6PP/5P2/6K1 w - - 0 1", 4, 5),
+        completely_full_shields: ("1k6/ppp5/ppp5/8/8/5PPP/5PPP/6K1 w - - 0 1", 9, 9),
+        shield_not_position_dependent: ("8/4k3/3ppp2/5P2/4P3/4K3/8/8 w - - 0 1", 3, 6),
     }
 }

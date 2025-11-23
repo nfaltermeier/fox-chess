@@ -6,7 +6,7 @@ use crate::{
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
     texel::{
-        EP_BISHOP_PAIR_IDX, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData
+        EP_BISHOP_PAIR_IDX, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PAWN_SHIELD_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData, TaperedFeature
     },
 };
 
@@ -283,6 +283,21 @@ impl Board {
             -1
         } else {
             0
+        };
+
+        let game_stage_for_pawn_shield = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+            0
+        } else {
+            self.game_stage - ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+        };
+        // How much pawn shield each side is missing. Positive: white is missing more
+        let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
+        
+        result.pawn_shield = TaperedFeature {
+            weight: net_pawn_shield_penalty,
+            idx: EP_PAWN_SHIELD_IDX as u16,
+            taper_amount: game_stage_for_pawn_shield,
+            max_amount: MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
         };
 
         if doubled_pawns != 0 {
