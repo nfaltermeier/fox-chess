@@ -3,8 +3,7 @@ use array_macro::array;
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
     board::{
-        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
-        PIECE_QUEEN, PIECE_ROOK,
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
@@ -246,6 +245,8 @@ impl Board {
             0
         };
 
+        let net_pawn_shield = self.score_pawn_shield(0) - self.score_pawn_shield(1);
+
         material_score
             + position_score_final
             + doubled_pawns * 23
@@ -253,6 +254,7 @@ impl Board {
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
             + bishop_pair * 19
+            + net_pawn_shield * 15
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
