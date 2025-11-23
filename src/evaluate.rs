@@ -244,7 +244,8 @@ impl Board {
             0
         };
 
-        let net_pawn_shield = self.score_pawn_shield(0) - self.score_pawn_shield(1);
+        // How much pawn shield each side is missing. Positive: white is missing more
+        let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
 
         material_score
             + position_score_final
@@ -253,7 +254,7 @@ impl Board {
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
             + bishop_pair * 19
-            + net_pawn_shield * 15
+            + net_pawn_shield_penalty * -15
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
