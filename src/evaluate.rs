@@ -244,8 +244,13 @@ impl Board {
             0
         };
 
-        // How much pawn shield each side is missing. Positive: white is missing more
-        let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
+        let mut pawn_shield_eval = 0;
+        let game_stage_for_pawn_shield = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE { 0 } else { self.game_stage - ENDGAME_GAME_STAGE_FOR_QUIESCENSE };
+        if game_stage_for_pawn_shield > 0 {
+            // How much pawn shield each side is missing. Positive: white is missing more
+            let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
+            pawn_shield_eval = (game_stage_for_pawn_shield * net_pawn_shield_penalty * -15) / ENDGAME_GAME_STAGE_FOR_QUIESCENSE;
+        }
 
         material_score
             + position_score_final
@@ -254,7 +259,7 @@ impl Board {
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
             + bishop_pair * 19
-            + net_pawn_shield_penalty * -15
+            + pawn_shield_eval
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
