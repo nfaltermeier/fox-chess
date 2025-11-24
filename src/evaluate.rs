@@ -5,9 +5,7 @@ use crate::{
     board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
-    texel::{
-        EP_BISHOP_PAIR_IDX, EP_DOUBLED_PAWNS_IDX, EP_PASSED_PAWN_IDX, EP_PAWN_SHIELD_IDX, EP_PIECE_VALUES_IDX, EP_ROOK_HALF_OPEN_FILE_IDX, EP_ROOK_OPEN_FILE_IDX, EvalParams, FeatureData, TaperedFeature
-    },
+    texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature},
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -253,7 +251,7 @@ impl Board {
         let mut misc_features_idx = 0;
         for (i, c) in piece_counts.iter().enumerate() {
             if *c != 0 {
-                result.misc_features[misc_features_idx] = (*c, (EP_PIECE_VALUES_IDX + i) as u16);
+                result.misc_features[misc_features_idx] = (*c, FeatureIndex::PieceValues + i as u16);
                 misc_features_idx += 1;
             }
         }
@@ -295,29 +293,29 @@ impl Board {
         
         result.pawn_shield = TaperedFeature {
             weight: net_pawn_shield_penalty,
-            idx: EP_PAWN_SHIELD_IDX as u16,
+            idx: FeatureIndex::PawnShield as u16,
             taper_amount: game_stage_for_pawn_shield,
             max_amount: MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
         };
 
         if doubled_pawns != 0 {
-            result.misc_features[misc_features_idx] = (doubled_pawns as i8, EP_DOUBLED_PAWNS_IDX as u16);
+            result.misc_features[misc_features_idx] = (doubled_pawns as i8, FeatureIndex::DoubledPawns as u16);
             misc_features_idx += 1;
         }
         if net_passed_pawns != 0 {
-            result.misc_features[misc_features_idx] = (net_passed_pawns as i8, EP_PASSED_PAWN_IDX as u16);
+            result.misc_features[misc_features_idx] = (net_passed_pawns as i8, FeatureIndex::PassedPawns as u16);
             misc_features_idx += 1;
         }
         if net_rooks_on_open_files != 0 {
-            result.misc_features[misc_features_idx] = (net_rooks_on_open_files as i8, EP_ROOK_OPEN_FILE_IDX as u16);
+            result.misc_features[misc_features_idx] = (net_rooks_on_open_files as i8, FeatureIndex::RookOpenFile as u16);
             misc_features_idx += 1;
         }
         if net_rooks_on_half_open_files != 0 {
-            result.misc_features[misc_features_idx] = (net_rooks_on_half_open_files as i8, EP_ROOK_HALF_OPEN_FILE_IDX as u16);
+            result.misc_features[misc_features_idx] = (net_rooks_on_half_open_files as i8, FeatureIndex::RookHalfOpenFile as u16);
             misc_features_idx += 1;
         }
         if bishop_pair != 0 {
-            result.misc_features[misc_features_idx] = (bishop_pair as i8, EP_BISHOP_PAIR_IDX as u16);
+            result.misc_features[misc_features_idx] = (bishop_pair as i8, FeatureIndex::BishopPair as u16);
             misc_features_idx += 1;
         }
 
