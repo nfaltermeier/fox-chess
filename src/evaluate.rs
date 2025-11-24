@@ -3,8 +3,8 @@ use array_macro::array;
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
     board::{
-        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
-        PIECE_QUEEN, PIECE_ROOK,
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT,
+        PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
@@ -35,21 +35,21 @@ const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
  164, 147, 136, 128,  85,  59,  16,  55,
   37,  53,  50,  46,  50,  62,  74,  30,
-   0,  11,  -2,  12,  20,  15,  14,  -2,
- -11,   5,  -5,   1,  -1,   9,   7, -13,
- -13,   2,  -9,  -6,   3,   4,  23,  -4,
- -17,  -4, -17, -16,  -8,  18,  30, -14,
+   0,  11,  -1,  12,  20,  15,  15,  -2,
+ -11,   5,  -4,   3,   2,  10,   8, -12,
+ -13,   2,  -9,  -6,   2,   4,  21,  -4,
+ -17,  -5, -17, -19, -11,  14,  26, -16,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
 #[rustfmt::skip]
 const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
-  82, 111, 109,  71, 102, 128, 171, 128,
+  83, 112, 110,  72, 102, 129, 172, 129,
  109, 103,  79,  63,  54,  46,  63,  63,
   70,  54,  47,  14,  12,  20,  40,  29,
-  50,  44,  23,   7,  14,  26,  37,  24,
-  49,  35,  29,  22,  21,  24,  28,  19,
+  50,  44,  23,   7,  14,  25,  37,  24,
+  49,  35,  29,  22,  21,  24,  27,  19,
   61,  51,  41,  24,  32,  29,  32,  34,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
@@ -160,7 +160,7 @@ const KING_MIDGAME_SQUARE_TABLE: [i16; 64] = [
   16,  40,  37,  30,  26,  26,   5,  -2,
    6,  24,  18,  17,  19,   7,   7, -13,
   21,  13,   8, -10,  -4,  -2,  18,  18,
- -34,  21,  -2, -41,  -4, -34,  30,  14,
+ -34,  20,  -2, -41,  -1, -34,  25,  14,
 ];
 
 #[rustfmt::skip]
@@ -172,7 +172,7 @@ const KING_ENDGAME_SQUARE_TABLE: [i16; 64] = [
  -28, -10,   2,  11,  19,  17,  13,   1,
  -37, -17,  -1,   5,   7,  13,   2,  -8,
  -44, -12,  -9,   2,   2,   5,  -7, -29,
-   6, -37, -16, -11, -28,  -6, -49, -56,
+   6, -37, -16, -11, -28,  -6, -48, -56,
 ];
 
 const ALL_PIECE_SQUARE_TABLES: [[i16; 64]; 12] = [
@@ -207,21 +207,20 @@ static BISHOP_GUARDED_PROMOTION_FILES: [[u64; 4]; 2] = [
 impl Board {
     pub fn evaluate(&self) -> i16 {
         let mut material_score = 0;
-        let mut game_stage = self.game_stage;
-
         for i in 1..7 {
             material_score += CENTIPAWN_VALUES[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
         }
 
-        let doubled_pawns = self.count_doubled_pawns();
-
-        if game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
-            game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
+        let mut capped_game_stage = self.game_stage;
+        if capped_game_stage > MIN_GAME_STAGE_FULLY_MIDGAME {
+            capped_game_stage = MIN_GAME_STAGE_FULLY_MIDGAME;
         }
 
-        let position_score_final = ((self.piecesquare_midgame * game_stage)
-            + (self.piecesquare_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - game_stage)))
+        let position_score_final = ((self.piecesquare_midgame * capped_game_stage)
+            + (self.piecesquare_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - capped_game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME);
+
+        let doubled_pawns = self.count_doubled_pawns();
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
@@ -246,6 +245,19 @@ impl Board {
             0
         };
 
+        let mut pawn_shield_eval = 0;
+        let game_stage_for_pawn_shield = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+            0
+        } else {
+            self.game_stage - ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+        };
+        if game_stage_for_pawn_shield > 0 {
+            // How much pawn shield each side is missing. Positive: white is missing more
+            let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
+            pawn_shield_eval =
+                (game_stage_for_pawn_shield * net_pawn_shield_penalty * -5) / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
+        }
+
         material_score
             + position_score_final
             + doubled_pawns * 23
@@ -253,6 +265,7 @@ impl Board {
             + (w_open - b_open) * 21
             + (w_half_open - b_half_open) * 18
             + bishop_pair * 19
+            + pawn_shield_eval
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
