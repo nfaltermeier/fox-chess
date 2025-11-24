@@ -30,13 +30,17 @@ pub struct TexelPosition {
 
 pub const MAX_MISC_FEATURES: usize = 16;
 
-
-#[derive(Default)]
 pub struct TaperedFeature {
     pub weight: i16,
     pub idx: u16,
     pub taper_amount: i16,
     pub max_amount: i16,
+}
+
+impl Default for TaperedFeature {
+    fn default() -> Self {
+        Self { weight: 0, idx: 0, taper_amount: 0, max_amount: 1 }
+    }
 }
 
 #[derive(Default)]
