@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::ops::Add;
 use std::simd::i16x8;
 use std::simd::num::SimdInt;
 use std::{
@@ -48,12 +49,28 @@ pub const EVAL_PARAM_COUNT: usize = 780;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
-pub const EP_PIECE_VALUES_IDX: usize = 768;
-pub const EP_DOUBLED_PAWNS_IDX: usize = 775;
-pub const EP_PASSED_PAWN_IDX: usize = 776;
-pub const EP_ROOK_OPEN_FILE_IDX: usize = 777;
-pub const EP_ROOK_HALF_OPEN_FILE_IDX: usize = 778;
-pub const EP_BISHOP_PAIR_IDX: usize = 779;
+#[repr(u16)]
+pub enum FeatureIndex {
+    MidgamePawn = 0,
+    MidgameKnight = 64 * 1,
+    MidgameBishop = 64 * 2,
+    MidgameRook = 64 * 3,
+    MidgameQueen = 64 * 4,
+    MidgameKing = 64 * 5,
+    EndgamePawn = 64 * 6,
+    EndgameKnight = 64 * 7,
+    EndgameBishop = 64 * 8,
+    EndgameRook = 64 * 9,
+    EndgameQueen = 64 * 10,
+    EndgameKing = 64 * 11,
+    /// Index of the None piece
+    PieceValues = 64 * 12,
+    DoubledPawns = 775,
+    PassedPawns = 776,
+    RookOpenFile = 777,
+    RookHalfOpenFile = 778,
+    BishopPair = 779,
+}
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
@@ -433,9 +450,9 @@ pub fn change_param_at_index(i: usize) -> bool {
         // endgame pawns on last row
         || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
         // None piece centipawn value midgame
-        || i == EP_PIECE_VALUES_IDX
+        || i == FeatureIndex::PieceValues as usize
         // King centipawn value midgame
-        || i == EP_PIECE_VALUES_IDX + PIECE_KING as usize
+        || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize
     {
         return false;
     }
@@ -617,6 +634,14 @@ fn perturb(params: &mut EvalParams) {
         if change_param_at_index(i) {
             params[i] += rand.gen_range(-50..=50);
         }
+    }
+}
+
+impl Add<u16> for FeatureIndex {
+    type Output = u16;
+
+    fn add(self, rhs: u16) -> Self::Output {
+        self as u16 + rhs
     }
 }
 
