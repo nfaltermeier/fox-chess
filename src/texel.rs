@@ -189,12 +189,6 @@ pub static DEFAULT_PARAMS: EvalParams = [
         8,21,18,19,-5,
     ];
 
-pub struct LoadPositionsResult {
-    pub positions: Vec<TexelPosition>,
-    pub loaded_ratio: i32,
-    pub skipped_ratio: i32,
-}
-
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
     let positions_to_use = 9_000_000;
     let mut result = Vec::with_capacity(positions_to_use);
