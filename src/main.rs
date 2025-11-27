@@ -88,14 +88,12 @@ fn main() {
     println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
     let positions = load_positions(r"C:\Programming\git\fox-chess\target\release\set_three_positions.epd");
     println!(
-        "[{}] {} Positions loaded, take to skip ratio: {}/{}",
+        "[{}] {} Positions loaded",
         humantime::format_rfc3339(SystemTime::now()),
-        positions.positions.len(),
-        positions.loaded_ratio,
-        positions.skipped_ratio
+        positions.len()
     );
     // find_scaling_constant(positions.positions);
-    find_best_params(positions.positions);
+    find_best_params(positions);
 
     // search_moves_from_pos(STARTING_FEN, 1);
     // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");

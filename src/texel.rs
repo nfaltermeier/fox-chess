@@ -195,79 +195,95 @@ pub struct LoadPositionsResult {
     pub skipped_ratio: i32,
 }
 
-pub fn load_positions(filename: &str) -> LoadPositionsResult {
-    let mut result = vec![];
-    let load_positions = 3;
-    let skip_positions = 7;
-    let load_skip_cycle_size = load_positions + skip_positions;
-    let mut considered_to_load = -1;
+pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
+    let positions_to_use = 9_000_000;
+    let mut result = Vec::with_capacity(positions_to_use);
+
+    // Based on a blank line being inserted between each game by pgn-extract
+    let file = File::open(filename).unwrap();
+    let games_count = BufReader::new(file).lines().filter(|l| l.as_ref().unwrap().is_empty()).count() + 1;
+
+    let positions_per_game = positions_to_use / games_count;
+    // Find out how many positions we will be short because of integer rounding
+    let mut extra_positions = positions_to_use - positions_per_game * games_count;
+    let mut extra_positions_left = extra_positions;
+
+    let mut current_game_positions = Vec::with_capacity(200);
+
+    let mut rand = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
 
     let file = File::open(filename).unwrap();
-
     for line in BufReader::new(file).lines() {
         let line = line.unwrap();
 
-        if line.is_empty() {
-            continue;
-        }
+        if !line.is_empty() {
+            let c2_index = line.find("c2");
+            // The first positions are when it left book but they lack a comment
+            if let Some(c2_index) = c2_index {
+                let c2 = &line[c2_index..];
 
-        let c2_index = line.find("c2");
-        // The first positions are when it left book but they lack a comment
-        if let Some(c2_index) = c2_index {
-            let c2 = &line[c2_index..];
-
-            // If forced mate was found or evaluation was skipped because only one move was possible (which may indicate the player is being mated)
-            if c2.contains("M") || c2.contains("/1;") || c2.contains("/1 ") {
-                continue;
+                // Skip starting positions and book moves.
+                // Also If forced mate was found or evaluation was skipped because only one move was possible (which may indicate the player is being mated) then skip
+                if c2.is_empty() || c2.contains("book") || c2.contains("M") || c2.contains("/1;") || c2.contains("/1 ") {
+                    continue;
+                }
             }
-        }
 
-        let c0_index = line.find("c0");
-        if c0_index.is_none() {
-            panic!("Could not find c0, possibly a malformed line: {line}");
-        }
-        let c0_index = c0_index.unwrap();
-
-        let fen = &line[..c0_index];
-
-        if STARTING_FEN.starts_with(fen) {
+            current_game_positions.push(line);
             continue;
         }
 
-        considered_to_load += 1;
-        if considered_to_load % load_skip_cycle_size >= load_positions {
-            continue;
-        }
-
-        let board = Board::from_fen(fen).unwrap();
-
-        let c1_index = line.find("c1");
-        if c1_index.is_none() {
-            panic!("Could not find c1, possibly a malformed line: {line}");
-        }
-        let c1_index = c1_index.unwrap();
-
-        let c1_and_remaining = &line[c1_index + 3..];
-
-        let match_result = &c1_and_remaining[..(c1_and_remaining.find(";").unwrap())];
-        let match_result_value = match match_result {
-            "1-0" => 1.0,
-            "1/2-1/2" => 0.5,
-            "0-1" => 0.0,
-            _ => panic!("Unexpected match result {match_result} on line {line}"),
+        let positions_to_take = if extra_positions_left > 0 && rand.gen_ratio(extra_positions as u32, games_count as u32) {
+            extra_positions_left -= 1;
+            positions_per_game + 1
+        } else {
+            positions_per_game
         };
 
-        result.push(TexelPosition {
-            board,
-            result: match_result_value,
-        });
+        for i in 0..positions_to_take {
+            if current_game_positions.len() == 0 {
+                extra_positions_left += positions_to_take - i + 1;
+                break;
+            }
+
+            let line = current_game_positions.swap_remove(rand.gen_range(0..current_game_positions.len()));
+
+            let c0_index = line.find("c0");
+            if c0_index.is_none() {
+                panic!("Could not find c0, possibly a malformed line: {line}");
+            }
+            let c0_index = c0_index.unwrap();
+
+            let fen = &line[..c0_index];
+
+            let board = Board::from_fen(fen).unwrap();
+
+            let c1_index = line.find("c1");
+            if c1_index.is_none() {
+                panic!("Could not find c1, possibly a malformed line: {line}");
+            }
+            let c1_index = c1_index.unwrap();
+
+            let c1_and_remaining = &line[c1_index + 3..];
+
+            let match_result = &c1_and_remaining[..(c1_and_remaining.find(";").unwrap())];
+            let match_result_value = match match_result {
+                "1-0" => 1.0,
+                "1/2-1/2" => 0.5,
+                "0-1" => 0.0,
+                _ => panic!("Unexpected match result {match_result} on line {line}"),
+            };
+
+            result.push(TexelPosition {
+                board,
+                result: match_result_value,
+            });
+        }
+
+        current_game_positions.clear();
     }
 
-    LoadPositionsResult {
-        positions: result,
-        loaded_ratio: load_positions,
-        skipped_ratio: skip_positions,
-    }
+    result
 }
 
 fn sigmoid(eval: f64, scaling_constant: f64) -> f64 {
