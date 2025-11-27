@@ -205,7 +205,7 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
 
     let positions_per_game = positions_to_use / games_count;
     // Find out how many positions we will be short because of integer rounding
-    let mut extra_positions = positions_to_use - positions_per_game * games_count;
+    let extra_positions = positions_to_use - positions_per_game * games_count;
     let mut extra_positions_left = extra_positions;
 
     let mut current_game_positions = Vec::with_capacity(200);
@@ -222,9 +222,19 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
             if let Some(c2_index) = c2_index {
                 let c2 = &line[c2_index..];
 
-                // Skip starting positions and book moves.
                 // Also If forced mate was found or evaluation was skipped because only one move was possible (which may indicate the player is being mated) then skip
-                if c2.is_empty() || c2.contains("book") || c2.contains("M") || c2.contains("/1;") || c2.contains("/1 ") {
+                if c2.contains("M") || c2.contains("/1;") || c2.contains("/1 ") {
+                    continue;
+                }
+
+                let c0_index = line.find("c0");
+                if c0_index.is_none() {
+                    panic!("Could not find c0, possibly a malformed line: {line}");
+                }
+                let c0_index = c0_index.unwrap();
+
+                let fen = &line[..c0_index];
+                if STARTING_FEN.starts_with(fen) {
                     continue;
                 }
             }
