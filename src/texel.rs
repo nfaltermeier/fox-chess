@@ -88,7 +88,7 @@ pub enum FeatureIndex {
     PawnShield = 780,
 }
 
-static FEATURE_SETS: [usize; 14] = [
+static FEATURE_SETS: [usize; 15] = [
     FeatureIndex::MidgamePawn as usize,
     FeatureIndex::MidgameKnight as usize,
     FeatureIndex::MidgameBishop as usize,
@@ -101,6 +101,7 @@ static FEATURE_SETS: [usize; 14] = [
     FeatureIndex::EndgameRook as usize,
     FeatureIndex::EndgameQueen as usize,
     FeatureIndex::EndgameKing as usize,
+    FeatureIndex::PieceValues as usize,
     EVAL_PARAM_COUNT,
     0,
 ];
@@ -339,7 +340,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut feature_set_loops = 0;
 
     // The goal for how much to improve at each descent step
-    for base_c in [ 0.1, 0.6, 0.03] {
+    for base_c in [ 0.1, 0.06, 0.03] {
         loop {
             let mut any_changed_in_feature_set = false;
             for feature_set_index in 0..(FEATURE_SETS.len()-1) {
