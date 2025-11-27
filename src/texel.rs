@@ -339,7 +339,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut feature_set_loops = 0;
 
     // The goal for how much to improve at each descent step
-    for c in [ 0.1, 0.6, 0.03] {
+    for base_c in [ 0.1, 0.6, 0.03] {
         loop {
             let mut any_changed_in_feature_set = false;
             for feature_set_index in 0..(FEATURE_SETS.len()-1) {
@@ -364,9 +364,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     }
                 }
 
-                let default_step_size = if feature_set_range.end - feature_set_range.start > 100 { 10_000_000.0 } else { 100_000_000.0 };
+                let (c, default_step_size) = if feature_set_range.end - feature_set_range.start > 100 { (base_c, 10_000_000.0) } else { (3.0 * base_c, 100_000_000.0) };
                 step_size = default_step_size;
-
+                
                 loop {
                     let features = qsearch_for_features(&mut nonquiet_positions, &params);
 
@@ -503,7 +503,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
                     iterations += 1;
                     println!(
-                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set_index: {feature_set_index}, feature_set_loops: {feature_set_loops}, c: {c}",
+                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set_index: {feature_set_index}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
                         humantime::format_rfc3339(SystemTime::now()),
                         starting_error.unwrap() - new_error
                     );
