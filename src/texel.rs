@@ -327,10 +327,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     // perturb(&mut params);
 
     let scaling_constant = 1.06;
-    const DEFAULT_STEP_SIZE: f64 = 10000000.0;
-    let mut step_size = DEFAULT_STEP_SIZE;
-    // The goal for how much to improve at each descent step
-    let c = 0.03;
+    let mut step_size;
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
     let tau = 0.95;
 
@@ -340,183 +337,190 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut total_param_changes = 0;
     let mut starting_error = None;
     let mut feature_set_loops = 0;
-    loop {
-        let mut any_changed_in_feature_set = false;
-        for feature_set_index in 0..(FEATURE_SETS.len()-1) {
-            let feature_set_range;
-            {
-                let feature_set_lower_bound = FEATURE_SETS[feature_set_index].min(FEATURE_SETS[feature_set_index + 1]);
-                let feature_set_upper_bound = FEATURE_SETS[feature_set_index].max(FEATURE_SETS[feature_set_index + 1]);
-                feature_set_range = feature_set_lower_bound..feature_set_upper_bound;
-            }
 
-            {
-                let mut any_can_change = false;
-                for i in feature_set_range.clone() {
-                    if change_param_at_index(i) {
-                        any_can_change = true;
-                        break;
+    // The goal for how much to improve at each descent step
+    for c in [ 0.1, 0.6, 0.03] {
+        loop {
+            let mut any_changed_in_feature_set = false;
+            for feature_set_index in 0..(FEATURE_SETS.len()-1) {
+                let feature_set_range;
+                {
+                    let feature_set_lower_bound = FEATURE_SETS[feature_set_index].min(FEATURE_SETS[feature_set_index + 1]);
+                    let feature_set_upper_bound = FEATURE_SETS[feature_set_index].max(FEATURE_SETS[feature_set_index + 1]);
+                    feature_set_range = feature_set_lower_bound..feature_set_upper_bound;
+                }
+
+                {
+                    let mut any_can_change = false;
+                    for i in feature_set_range.clone() {
+                        if change_param_at_index(i) {
+                            any_can_change = true;
+                            break;
+                        }
+                    }
+
+                    if !any_can_change {
+                        continue;
                     }
                 }
 
-                if !any_can_change {
-                    continue;
-                }
-            }
+                let default_step_size = if feature_set_range.end - feature_set_range.start > 100 { 10_000_000.0 } else { 100_000_000.0 };
+                step_size = default_step_size;
 
-            loop {
-                let features = qsearch_for_features(&mut nonquiet_positions, &params);
-
-                let base_error = find_error_for_features(&features, &params, scaling_constant);
-                println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
-                if starting_error.is_none() {
-                    starting_error = Some(base_error);
-                }
-
-                let gradient = eval_gradient(&features, &mut params, scaling_constant, feature_set_range.clone());
-                let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
-                let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
-                let mut sorted = gradient.clone();
-                sorted.sort_unstable_by(f64::total_cmp);
-                let median_gradient_value = sorted[gradient.len() / 2];
-                println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}, avg is {avg_gradient_value}, median is {median_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
-                save_gradient(&gradient);
-
-                // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
-                let m = calc_m(&gradient);
-                let t = -c * m;
-
-                let mut updated_params;
-                let mut new_error = base_error;
-                let mut biggest_change;
-                let mut changed_params = 0;
-                let mut found_improvement = false;
-                let mut best_improvement: Option<Improvement> = None;
-                let mut lowest_step_size_improvement = None;
-                let mut search_up = 0;
-                let mut search_down = 0;
-                let mut final_loop = false;
                 loop {
-                    updated_params = params;
-                    let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
-                    gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
-                    biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
+                    let features = qsearch_for_features(&mut nonquiet_positions, &params);
 
-                    println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
-
-                    // if biggest_change >= 100 {
-                    //     panic!("Biggest change {biggest_change} could cause an overflow")
-                    // } else
-                    if biggest_change == 0 {
-                        if found_improvement {
-                            final_loop = true;
-                            step_size = best_improvement.as_ref().unwrap().step_size;
-                            continue;
-                        } else if changed_since_step_size_reset {
-                            // Maybe the bigger derivatives have settled down now,
-                            // retry from the start to give the smaller derivatives a chance to change.
-                            // Params have not changed so reuse the gradient.
-                            step_size = DEFAULT_STEP_SIZE;
-                            changed_since_step_size_reset = false;
-                            step_size_resets += 1;
-                            println!("[{}] ##### Resetting step size for the {step_size_resets}{} time #####", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
-
-                            continue;
-                        } else {
-                            break;
-                        }
+                    let base_error = find_error_for_features(&features, &params, scaling_constant);
+                    println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
+                    if starting_error.is_none() {
+                        starting_error = Some(base_error);
                     }
 
-                    updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
+                    let gradient = eval_gradient(&features, &mut params, scaling_constant, feature_set_range.clone());
+                    let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
+                    let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
+                    let mut sorted = gradient.clone();
+                    sorted.sort_unstable_by(f64::total_cmp);
+                    let median_gradient_value = sorted[gradient.len() / 2];
+                    println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}, avg is {avg_gradient_value}, median is {median_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
+                    save_gradient(&gradient);
 
-                    // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
-                    new_error = find_error_for_features(&features, &updated_params, scaling_constant);
+                    // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
+                    let m = calc_m(&gradient);
+                    let t = -c * m;
 
-                    if base_error - new_error >= step_size * t {
-                        println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+                    let mut updated_params;
+                    let mut new_error = base_error;
+                    let mut biggest_change;
+                    let mut changed_params = 0;
+                    let mut found_improvement = false;
+                    let mut best_improvement: Option<Improvement> = None;
+                    let mut lowest_step_size_improvement = None;
+                    let mut search_up = 0;
+                    let mut search_down = 0;
+                    let mut final_loop = false;
+                    loop {
+                        updated_params = params;
+                        let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
+                        gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
+                        biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
 
-                        if final_loop {
-                            changed_params = changes.iter().filter(|v| **v != 0).count();
-                            total_param_changes += changed_params;
-                            changed_since_step_size_reset = true;
-                            any_changed_in_feature_set = true;
-                            break;
+                        println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
+
+                        // if biggest_change >= 100 {
+                        //     panic!("Biggest change {biggest_change} could cause an overflow")
+                        // } else
+                        if biggest_change == 0 {
+                            if found_improvement {
+                                final_loop = true;
+                                step_size = best_improvement.as_ref().unwrap().step_size;
+                                continue;
+                            } else if changed_since_step_size_reset {
+                                // Maybe the bigger derivatives have settled down now,
+                                // retry from the start to give the smaller derivatives a chance to change.
+                                // Params have not changed so reuse the gradient.
+                                step_size = default_step_size;
+                                changed_since_step_size_reset = false;
+                                step_size_resets += 1;
+                                println!("[{}] ##### Resetting step size for the {step_size_resets}{} time #####", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
+
+                                continue;
+                            } else {
+                                break;
+                            }
                         }
 
-                        let improvement = base_error - new_error;
-                        if !found_improvement {
-                            /*
-                            * Testing step size is way *way* faster than recalculating a gradient so once a step_size that improves the error is found,
-                            * do some searching around to find if a nearby step size improves it even more.
-                            */
-                            best_improvement = Some(Improvement {
-                                step_size,
-                                improvement,
-                            });
-                            lowest_step_size_improvement = best_improvement.clone();
-                            found_improvement = true;
-                            search_up = 6;
-                            search_down = 6;
-                        } else {
-                            if improvement > best_improvement.as_ref().unwrap().improvement {
+                        updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
+
+                        // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
+                        new_error = find_error_for_features(&features, &updated_params, scaling_constant);
+
+                        if base_error - new_error >= step_size * t {
+                            println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+
+                            if final_loop {
+                                changed_params = changes.iter().filter(|v| **v != 0).count();
+                                total_param_changes += changed_params;
+                                changed_since_step_size_reset = true;
+                                any_changed_in_feature_set = true;
+                                break;
+                            }
+
+                            let improvement = base_error - new_error;
+                            if !found_improvement {
+                                /*
+                                * Testing step size is way *way* faster than recalculating a gradient so once a step_size that improves the error is found,
+                                * do some searching around to find if a nearby step size improves it even more.
+                                */
                                 best_improvement = Some(Improvement {
                                     step_size,
                                     improvement,
                                 });
+                                lowest_step_size_improvement = best_improvement.clone();
+                                found_improvement = true;
+                                search_up = 6;
+                                search_down = 6;
+                            } else {
+                                if improvement > best_improvement.as_ref().unwrap().improvement {
+                                    best_improvement = Some(Improvement {
+                                        step_size,
+                                        improvement,
+                                    });
 
-                                // Let it keep searching for an improvement
-                                if search_up > 1 {
-                                    search_up += 1;
-                                } else {
-                                    search_down += 1;
+                                    // Let it keep searching for an improvement
+                                    if search_up > 1 {
+                                        search_up += 1;
+                                    } else {
+                                        search_down += 1;
+                                    }
                                 }
                             }
-                        }
-                    } else {
-                        println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
-                        step_size *= tau;
-                    }
-
-                    if found_improvement {
-                        if search_up > 1 {
-                            step_size /= tau;
-                            search_up -= 1;
-
-                            if search_up == 0 {
-                                step_size = lowest_step_size_improvement.as_ref().unwrap().step_size;
-                            }
-                        } else if search_down > 1 {
-                            step_size *= tau;
-                            search_down -= 1;
                         } else {
-                            final_loop = true;
-                            step_size = best_improvement.as_ref().unwrap().step_size;
+                            println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+                            step_size *= tau;
+                        }
+
+                        if found_improvement {
+                            if search_up > 1 {
+                                step_size /= tau;
+                                search_up -= 1;
+
+                                if search_up == 0 {
+                                    step_size = lowest_step_size_improvement.as_ref().unwrap().step_size;
+                                }
+                            } else if search_down > 1 {
+                                step_size *= tau;
+                                search_down -= 1;
+                            } else {
+                                final_loop = true;
+                                step_size = best_improvement.as_ref().unwrap().step_size;
+                            }
                         }
                     }
-                }
 
-                // To find the appropriate step size we descend the gradient, so we just use that value as our next value
-                params = updated_params;
+                    // To find the appropriate step size we descend the gradient, so we just use that value as our next value
+                    params = updated_params;
 
-                iterations += 1;
-                println!(
-                    "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set_index: {feature_set_index}, feature_set_loops: {feature_set_loops}",
-                    humantime::format_rfc3339(SystemTime::now()),
-                    starting_error.unwrap() - new_error
-                );
-                save_params(&params);
+                    iterations += 1;
+                    println!(
+                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set_index: {feature_set_index}, feature_set_loops: {feature_set_loops}, c: {c}",
+                        humantime::format_rfc3339(SystemTime::now()),
+                        starting_error.unwrap() - new_error
+                    );
+                    save_params(&params);
 
-                if biggest_change == 0 {
-                    break;
+                    if biggest_change == 0 {
+                        break;
+                    }
                 }
             }
-        }
 
-        if !any_changed_in_feature_set {
-            break;
-        }
+            if !any_changed_in_feature_set {
+                break;
+            }
 
-        feature_set_loops += 1;
+            feature_set_loops += 1;
+        }
     }
 
     println!("Regression done");
