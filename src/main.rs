@@ -86,7 +86,7 @@ fn main() {
     // rayon::ThreadPoolBuilder::new().num_threads(5).build_global().unwrap();
 
     println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
-    let positions = load_positions(r"C:\Programming\git\fox-chess\target\release\set_three_positions.epd");
+    let positions = load_positions(r"C:\Programming\git\fox-chess\target\release\s5.epd");
     println!(
         "[{}] {} Positions loaded",
         humantime::format_rfc3339(SystemTime::now()),
