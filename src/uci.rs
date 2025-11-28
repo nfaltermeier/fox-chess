@@ -293,7 +293,11 @@ impl UciInterface {
         let commit = match &build_info.version_control {
             Some(vc) => match vc {
                 Git(g) => {
-                    format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" })
+                    format!(
+                        "{}{}",
+                        g.tags.first().unwrap_or(&g.commit_short_id),
+                        if g.dirty { "*" } else { "" }
+                    )
                 }
             },
             None => "".to_string(),
