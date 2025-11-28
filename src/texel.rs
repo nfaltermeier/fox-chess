@@ -296,6 +296,8 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
         current_game_positions.clear();
     }
 
+    println!("Loaded {games_count} games and targetted {positions_per_game} positions per game");
+
     result
 }
 
