@@ -28,6 +28,7 @@ pub struct UciInterface {
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
     continuation_history: Box<ContinuationHistoryTable>,
+    multi_pv: u8,
 }
 
 impl UciInterface {
@@ -38,6 +39,7 @@ impl UciInterface {
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
             continuation_history: Self::alloc_zeroed_continuation_history(),
+            multi_pv: 1,
         }
     }
 
@@ -50,6 +52,7 @@ impl UciInterface {
                     println!("id name FoxChess {}", UciInterface::get_version());
                     println!("id author nfaltermeier");
                     println!("option name Hash type spin default 128 min 1 max 1048576");
+                    println!("option name MultiPV type spin default 1 min 1 max 255");
                     println!("uciok");
                 }
                 UciMessage::IsReady => {
@@ -123,6 +126,7 @@ impl UciInterface {
                             &mut self.history_table,
                             &self.stop_rx,
                             &mut self.continuation_history,
+                            self.multi_pv,
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -162,10 +166,26 @@ impl UciInterface {
 
                                 self.transposition_table = TranspositionTable::new(entries_log2 as u8);
                             } else {
-                                error!("Failed to parse value as an integer: {}", hash_mib.unwrap_err());
+                                error!("Failed to parse Hash value as a natural number: {}", hash_mib.unwrap_err());
                             }
                         } else {
-                            error!("Expected a value for option hash");
+                            error!("Expected a value for option Hash");
+                        }
+                    }
+                    "multipv" => {
+                        if let Some(value) = value {
+                            let multi_pv = value.parse::<u8>();
+                            if let Ok(multi_pv) = multi_pv {
+                                if multi_pv == 0 {
+                                    error!("MultiPV value must be at least 1");
+                                } else {
+                                    self.multi_pv = multi_pv;
+                                }
+                            } else {
+                                error!("Failed to parse MultiPV value as a natural number: {}", multi_pv.unwrap_err());
+                            }
+                        } else {
+                            error!("Expected a value for option MultiPV");
                         }
                     }
                     _ => {
@@ -220,6 +240,7 @@ impl UciInterface {
         transposition_table: &TranspositionTable,
         pv: &TinyVec<[Move; 32]>,
         search_starting_fullmove: u8,
+        multi_pv: u8,
     ) {
         let abs_cp = eval.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
@@ -232,17 +253,17 @@ impl UciInterface {
 
         let nps = stats.total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} hashfull {} string aspiration_researches {}",
-            stats.total_nodes,
+            "info depth {} multipv {multi_pv} {score_string} time {} nodes {} nps {:.0} hashfull {} pv {} string aspiration_researches {}",
             stats.depth,
-            nps,
             elapsed.as_millis(),
+            stats.total_nodes,
+            nps,
+            transposition_table.hashfull(search_starting_fullmove),
             pv.iter()
                 .rev()
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),
-            transposition_table.hashfull(search_starting_fullmove),
             stats.aspiration_researches,
         );
     }
