@@ -83,6 +83,7 @@ pub fn bench() {
             &mut history,
             &stop_rx,
             &mut continuation_history,
+            1,
         );
 
         searcher.iterative_deepening_search(&tc, &sc);

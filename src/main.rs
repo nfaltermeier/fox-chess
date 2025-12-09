@@ -287,6 +287,7 @@ fn search_moves_from_pos(fen: &str, depth: u8) {
             &mut history,
             &stop_rx,
             &mut continuation_history,
+            1,
         );
 
         let mut result;
