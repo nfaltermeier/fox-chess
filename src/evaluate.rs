@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES: [i16; 7] = [0, 84, 292, 313, 445, 903, 20000];
+pub static CENTIPAWN_VALUES: [i16; 7] = [0, 82, 292, 313, 445, 903, 20000];
 
 /// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
@@ -35,22 +35,22 @@ const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
  167, 148, 137, 130,  86,  59,  16,  55,
   39,  53,  51,  44,  52,  67,  74,  31,
-   2,  12,   8,  12,  30,  25,  20,   0,
- -10,   7,  -1,   4,   4,  16,  15, -11,
- -11,   0,  -9,  -9,   4,   5,  26,  -3,
- -14,  -4, -16, -28, -15,  17,  34, -18,
+   3,  12,   8,  11,  29,  25,  20,   0,
+ -10,   3,  -2,   2,   3,  14,  14, -11,
+ -15,  -7, -13, -14,  -3,   3,  19,  -9,
+ -13,  -5, -14, -30, -16,  16,  34, -18,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
 #[rustfmt::skip]
 const PAWN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
- 187, 198, 200, 152, 178, 199, 248, 217,
- 135, 127, 100,  83,  65,  67,  88,  90,
-  86,  72,  56,  26,  22,  30,  51,  44,
-  62,  60,  34,  19,  23,  30,  39,  28,
-  56,  49,  35,  28,  27,  28,  31,  26,
-  71,  61,  49,  39,  50,  38,  38,  44,
+ 189, 200, 201, 152, 179, 199, 249, 217,
+ 134, 127, 100,  83,  64,  67,  87,  90,
+  82,  66,  52,  23,  17,  25,  44,  40,
+  57,  54,  28,  14,  17,  24,  31,  22,
+  51,  42,  31,  25,  21,  22,  22,  21,
+  68,  56,  46,  42,  50,  33,  30,  37,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
@@ -229,6 +229,7 @@ impl Board {
         let black_passed_distance = (north_fill(black_passed) & !black_passed).count_ones() as i16;
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
+        let net_connected_pawns = self.get_connected_pawns(true).count_ones() as i16 - self.get_connected_pawns(false).count_ones() as i16;
 
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
@@ -255,17 +256,18 @@ impl Board {
             // How much pawn shield each side is missing. Positive: white is missing more
             let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
             pawn_shield_eval =
-                (game_stage_for_pawn_shield * net_pawn_shield_penalty * -9) / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
+                (game_stage_for_pawn_shield * net_pawn_shield_penalty * -8) / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
         }
 
         material_score
             + position_score_final
-            + doubled_pawns * 24
+            + doubled_pawns * 22
             + net_passed_pawns * 8
             + (w_open - b_open) * 29
             + (w_half_open - b_half_open) * 21
             + bishop_pair * 27
             + pawn_shield_eval
+            + net_connected_pawns * 6
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {

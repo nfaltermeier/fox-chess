@@ -302,12 +302,23 @@ impl Board {
 
         (2 * close_pawns + far_pawns) as i16
     }
+
+    pub fn get_connected_pawns(&self, white: bool) -> u64 {
+        let pawns = self.piece_bitboards[if white { 0 } else { 1 }][PIECE_PAWN as usize];
+
+        let mut ne_conn = north_east_one(pawns) & pawns;
+        ne_conn |= south_west_one(ne_conn);
+
+        let mut nw_conn = north_west_one(pawns) & pawns;
+        nw_conn |= south_east_one(nw_conn);
+
+        ne_conn | nw_conn
+    }
 }
 
 #[cfg(test)]
 mod bitboard_tests {
-
-    use crate::board::Board;
+    use crate::board::{Board, PIECE_PAWN};
 
     #[test]
     pub fn basic_passed_pawns() {
@@ -350,5 +361,58 @@ mod bitboard_tests {
         mixed_shields: ("1k6/1pp5/p7/8/8/6PP/5P2/6K1 w - - 0 1", 4, 5),
         completely_full_shields: ("1k6/ppp5/ppp5/8/8/5PPP/5PPP/6K1 w - - 0 1", 9, 9),
         shield_not_position_dependent: ("8/4k3/3ppp2/5P2/4P3/4K3/8/8 w - - 0 1", 3, 6),
+    }
+
+    macro_rules! connected_pawns_count_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_white_count, expected_black_count) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white = board.get_connected_pawns(true);
+                    let black = board.get_connected_pawns(false);
+
+                    assert_eq!(expected_white_count, white.count_ones());
+                    assert_eq!(expected_black_count, black.count_ones());
+                }
+            )*
+        }
+    }
+
+    connected_pawns_count_test! {
+        v: ("rnbqkbnr/pppp4/4p3/5p1p/2P3pP/1P1P4/P3PPP1/RNBQKBNR w KQkq - 0 6", 5, 5),
+        pairs: ("8/8/p2ppp2/1p1p2pp/1P1P2PP/P2PPP2/8/1K1k4 w - - 0 1", 6, 6),
+        long_chain: ("8/5Pp1/4Pp2/3Pp3/2Pp4/1Pp5/Pp6/1K1k4 w - - 0 1", 6, 6),
+        x: ("8/8/5p1p/1P1P2p1/2P2p1p/1P1P4/8/1K1k4 w - - 0 1", 5, 5),
+        unpaired: ("8/2P1ppPP/1p6/1P1p3p/p2P4/P1p3p1/4PP2/1K1k4 w - - 0 1", 0, 0),
+        checkered: ("8/8/1P1Pp1p1/p1p2P1P/1P4p1/p1p2P1P/1P1Pp1p1/1K1k4 w - - 0 1", 0, 0),
+    }
+
+    /// All pawns must be connected
+    macro_rules! connected_pawns_shape_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let fen = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white = board.get_connected_pawns(true);
+                    let black = board.get_connected_pawns(false);
+
+                    assert_eq!(board.piece_bitboards[0][PIECE_PAWN as usize], white);
+                    assert_eq!(board.piece_bitboards[1][PIECE_PAWN as usize], black);
+                }
+            )*
+        }
+    }
+
+    connected_pawns_shape_test! {
+        shape_x: "8/8/5p1p/1P1P2p1/2P2p1p/1P1P4/8/1K1k4 w - - 0 1",
+        shape_pairs: "8/8/p3pp2/1p1p2p1/1P1P2P1/P3PP2/8/1K1k4 w - - 0 1",
+        shape_long_chain: "8/5Pp1/4Pp2/3Pp3/2Pp4/1Pp5/Pp6/1K1k4 w - - 0 1",
+        shape_v: "4k3/3p4/4p3/5p1p/2P3p1/1P1P4/P3P3/4K3 w - - 0 6",
     }
 }
