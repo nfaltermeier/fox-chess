@@ -265,6 +265,7 @@ impl Board {
         let black_passed_distance = (north_fill(black_passed) & !black_passed).count_ones() as i16;
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
+        let net_connected_pawns = self.get_connected_pawns(true).count_ones() as i16 - self.get_connected_pawns(false).count_ones() as i16;
 
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
@@ -316,6 +317,10 @@ impl Board {
         }
         if bishop_pair != 0 {
             result.misc_features[misc_features_idx] = (bishop_pair as i8, FeatureIndex::BishopPair as u16);
+            misc_features_idx += 1;
+        }
+        if net_connected_pawns != 0 {
+            result.misc_features[misc_features_idx] = (net_connected_pawns as i8, FeatureIndex::ConnectedPawns as u16);
             misc_features_idx += 1;
         }
 
