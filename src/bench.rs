@@ -7,6 +7,7 @@ use crate::{
     search::{DEFAULT_HISTORY_TABLE, Searcher},
     transposition_table::TranspositionTable,
     uci::UciInterface,
+    uci_required_options_helper::RequiredUciOptions,
 };
 
 pub fn bench() {
@@ -84,6 +85,7 @@ pub fn bench() {
             &stop_rx,
             &mut continuation_history,
             1,
+            RequiredUciOptions::default(),
         );
 
         searcher.iterative_deepening_search(&tc, &sc);

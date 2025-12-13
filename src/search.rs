@@ -22,6 +22,7 @@ use crate::{
     repetition_tracker::RepetitionTracker,
     transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
+    uci_required_options_helper::RequiredUciOptions,
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
@@ -86,6 +87,7 @@ pub struct Searcher<'a> {
     move_history: Vec<Move>,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
+    extra_uci_options: RequiredUciOptions,
 }
 
 impl<'a> Searcher<'a> {
@@ -96,6 +98,7 @@ impl<'a> Searcher<'a> {
         stop_rx: &'a Receiver<()>,
         continuation_history: &'a mut ContinuationHistoryTable,
         multi_pv: u8,
+        extra_uci_options: RequiredUciOptions,
     ) -> Self {
         let starting_fullmove = board.fullmove_counter as u8;
 
@@ -120,6 +123,7 @@ impl<'a> Searcher<'a> {
             move_history: vec![],
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
+            extra_uci_options,
         }
     }
 

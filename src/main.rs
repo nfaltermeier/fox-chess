@@ -26,6 +26,7 @@ mod repetition_tracker;
 mod search;
 mod transposition_table;
 mod uci;
+mod uci_required_options_helper;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 

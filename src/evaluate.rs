@@ -229,7 +229,8 @@ impl Board {
         let black_passed_distance = (north_fill(black_passed) & !black_passed).count_ones() as i16;
 
         let net_passed_pawns = white_passed_distance - black_passed_distance;
-        let net_connected_pawns = self.get_connected_pawns(true).count_ones() as i16 - self.get_connected_pawns(false).count_ones() as i16;
+        let net_connected_pawns =
+            self.get_connected_pawns(true).count_ones() as i16 - self.get_connected_pawns(false).count_ones() as i16;
 
         let (w_open, w_half_open) = self.rooks_on_open_files(true);
         let (b_open, b_half_open) = self.rooks_on_open_files(false);
@@ -255,8 +256,8 @@ impl Board {
         if game_stage_for_pawn_shield > 0 {
             // How much pawn shield each side is missing. Positive: white is missing more
             let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
-            pawn_shield_eval =
-                (game_stage_for_pawn_shield * net_pawn_shield_penalty * -8) / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
+            pawn_shield_eval = (game_stage_for_pawn_shield * net_pawn_shield_penalty * -8)
+                / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
         }
 
         material_score
