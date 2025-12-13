@@ -411,6 +411,7 @@ name = "fox-chess"
 version = "0.1.0"
 dependencies = [
  "array-macro",
+ "arrayvec",
  "build-info",
  "build-info-build",
  "clap",

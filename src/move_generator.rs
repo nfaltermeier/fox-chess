@@ -1,5 +1,5 @@
+use arrayvec::ArrayVec;
 use log::error;
-use tinyvec::{TinyVec, tiny_vec};
 
 use crate::{
     bitboard::{
@@ -39,57 +39,50 @@ const MOVE_SCORE_QUIET: i16 = 0;
 
 const MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR: i16 = 10;
 
-pub const MOVE_ARRAY_SIZE: usize = 64;
+pub const MOVE_ARRAY_SIZE: usize = 256;
 
 impl Board {
     #[inline]
     pub fn generate_pseudo_legal_moves_with_history(
         &mut self,
         history_table: &HistoryTable,
-    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
-        let moves = self.generate_moves_pseudo_legal::<true, false>(history_table);
+        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
+    ) {
+        self.generate_moves_pseudo_legal::<true, false>(history_table, result);
 
-        self.do_make_unmake_move_test(&moves);
-
-        moves
+        self.do_make_unmake_move_test(result);
     }
 
     #[inline]
-    pub fn generate_legal_moves_without_history(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
-        self.generate_legal_moves::<false, false>(&DEFAULT_HISTORY_TABLE)
+    pub fn generate_legal_moves_without_history(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+        self.generate_legal_moves::<false, false>(&DEFAULT_HISTORY_TABLE, result);
     }
 
     #[inline]
-    pub fn generate_pseudo_legal_moves_without_history(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
-        let moves = self.generate_moves_pseudo_legal::<false, false>(&DEFAULT_HISTORY_TABLE);
+    pub fn generate_pseudo_legal_moves_without_history(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+        self.generate_moves_pseudo_legal::<false, false>(&DEFAULT_HISTORY_TABLE, result);
 
-        self.do_make_unmake_move_test(&moves);
-
-        moves
+        self.do_make_unmake_move_test(result);
     }
 
     #[inline]
-    pub fn generate_pseudo_legal_capture_moves(&mut self) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
-        let moves = self.generate_moves_pseudo_legal::<false, true>(&DEFAULT_HISTORY_TABLE);
+    pub fn generate_pseudo_legal_capture_moves(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+        self.generate_moves_pseudo_legal::<false, true>(&DEFAULT_HISTORY_TABLE, result);
 
-        self.do_make_unmake_move_test(&moves);
-
-        moves
+        self.do_make_unmake_move_test(result);
     }
 
     /// if make and unmake move work properly then at the end board should be back to it's original state
     pub fn generate_legal_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
         &mut self,
         history_table: &HistoryTable,
-    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
-        let moves = self.generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(history_table);
-        self.filter_to_legal_moves(moves)
+        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
+    ) {
+        self.generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(history_table, result);
+        self.filter_to_legal_moves(result)
     }
 
-    fn filter_to_legal_moves(
-        &mut self,
-        mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>,
-    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
+    fn filter_to_legal_moves(&mut self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         let mut rollback = MoveRollback::default();
         let mut board_copy = None;
         if ENABLE_UNMAKE_MOVE_TEST {
@@ -128,15 +121,14 @@ impl Board {
         });
 
         debug_assert!(rollback.is_empty());
-
-        moves
     }
 
     pub fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
         &self,
         history_table: &HistoryTable,
-    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
-        let mut result = tiny_vec!();
+        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
+    ) {
+        result.clear();
         let side = if self.white_to_move { 0 } else { 1 };
         let other_side = if self.white_to_move { 1 } else { 0 };
 
@@ -284,39 +276,24 @@ impl Board {
             PIECE_KNIGHT,
             side,
             other_side,
-            &mut result,
+            result,
             history_table,
             lookup_knight_attack,
         );
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
-            PIECE_BISHOP,
-            side,
-            other_side,
-            &mut result,
-            history_table,
-            |sq| lookup_bishop_attack(sq, self.occupancy),
-        );
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
-            PIECE_ROOK,
-            side,
-            other_side,
-            &mut result,
-            history_table,
-            |sq| lookup_rook_attack(sq, self.occupancy),
-        );
-        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
-            PIECE_QUEEN,
-            side,
-            other_side,
-            &mut result,
-            history_table,
-            |sq| lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy),
-        );
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_BISHOP, side, other_side, result, history_table, |sq| {
+            lookup_bishop_attack(sq, self.occupancy)
+        });
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_ROOK, side, other_side, result, history_table, |sq| {
+            lookup_rook_attack(sq, self.occupancy)
+        });
+        self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(PIECE_QUEEN, side, other_side, result, history_table, |sq| {
+            lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)
+        });
         self.add_moves::<USE_HISTORY, ONLY_CAPTURES, _>(
             PIECE_KING,
             side,
             other_side,
-            &mut result,
+            result,
             history_table,
             lookup_king_attack,
         );
@@ -353,8 +330,6 @@ impl Board {
                 }
             }
         }
-
-        result
     }
 
     fn add_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool, F: Fn(u8) -> u64>(
@@ -362,7 +337,7 @@ impl Board {
         piece_type: u8,
         side: usize,
         other_side: usize,
-        result: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>,
+        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
         history_table: &HistoryTable,
         get_attacks: F,
     ) {
@@ -408,9 +383,10 @@ impl Board {
     pub fn generate_pseudo_legal_check_evasions(
         &self,
         history_table: &HistoryTable,
-    ) -> TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]> {
+        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
+    ) {
+        result.clear();
         let (self_side, other_side) = if self.white_to_move { (0, 1) } else { (1, 0) };
-        let mut result = tiny_vec!();
 
         let king_pos = self.piece_bitboards[self_side][PIECE_KING as usize].trailing_zeros() as u8;
         if king_pos == 64 {
@@ -470,21 +446,21 @@ impl Board {
             }
         }
 
-        self.add_moves::<true, false, _>(PIECE_KING, self_side, other_side, &mut result, history_table, |sq| {
+        self.add_moves::<true, false, _>(PIECE_KING, self_side, other_side, result, history_table, |sq| {
             lookup_king_attack(sq)
         });
 
         if !double_check {
-            self.add_moves::<true, false, _>(PIECE_KNIGHT, self_side, other_side, &mut result, history_table, |sq| {
+            self.add_moves::<true, false, _>(PIECE_KNIGHT, self_side, other_side, result, history_table, |sq| {
                 lookup_knight_attack(sq) & move_to_mask
             });
-            self.add_moves::<true, false, _>(PIECE_BISHOP, self_side, other_side, &mut result, history_table, |sq| {
+            self.add_moves::<true, false, _>(PIECE_BISHOP, self_side, other_side, result, history_table, |sq| {
                 lookup_bishop_attack(sq, self.occupancy) & move_to_mask
             });
-            self.add_moves::<true, false, _>(PIECE_ROOK, self_side, other_side, &mut result, history_table, |sq| {
+            self.add_moves::<true, false, _>(PIECE_ROOK, self_side, other_side, result, history_table, |sq| {
                 lookup_rook_attack(sq, self.occupancy) & move_to_mask
             });
-            self.add_moves::<true, false, _>(PIECE_QUEEN, self_side, other_side, &mut result, history_table, |sq| {
+            self.add_moves::<true, false, _>(PIECE_QUEEN, self_side, other_side, result, history_table, |sq| {
                 (lookup_rook_attack(sq, self.occupancy) | lookup_bishop_attack(sq, self.occupancy)) & move_to_mask
             });
 
@@ -523,20 +499,8 @@ impl Board {
 
                     moves &= self.side_occupancy[other_side];
                     moves &= move_to_mask;
-                    self.add_pawn_moves::<false, true, false, false>(
-                        moves,
-                        offset,
-                        &mut result,
-                        self_side,
-                        history_table,
-                    );
-                    self.add_pawn_moves::<false, true, true, false>(
-                        moves,
-                        offset,
-                        &mut result,
-                        self_side,
-                        history_table,
-                    );
+                    self.add_pawn_moves::<false, true, false, false>(moves, offset, result, self_side, history_table);
+                    self.add_pawn_moves::<false, true, true, false>(moves, offset, result, self_side, history_table);
                 }
 
                 let mut moves;
@@ -554,17 +518,11 @@ impl Board {
                 self.add_pawn_moves::<true, false, false, false>(
                     masked_moves,
                     offset,
-                    &mut result,
+                    result,
                     self_side,
                     history_table,
                 );
-                self.add_pawn_moves::<true, false, true, false>(
-                    masked_moves,
-                    offset,
-                    &mut result,
-                    self_side,
-                    history_table,
-                );
+                self.add_pawn_moves::<true, false, true, false>(masked_moves, offset, result, self_side, history_table);
 
                 if self.white_to_move {
                     // The pawns have already been shifted forward once so mask to only ranks 3 and 6 instead of 2 and 7
@@ -579,7 +537,7 @@ impl Board {
 
                 moves &= !self.occupancy;
                 moves &= move_to_mask;
-                self.add_pawn_moves::<true, false, false, true>(moves, offset, &mut result, self_side, history_table);
+                self.add_pawn_moves::<true, false, false, true>(moves, offset, result, self_side, history_table);
 
                 // En passant
                 if let Some(ep_target_64) = self.en_passant_target_square_index {
@@ -603,15 +561,13 @@ impl Board {
                 }
             }
         }
-
-        result
     }
 
     fn add_pawn_moves<const USE_HISTORY: bool, const CAPTURES: bool, const PROMOS: bool, const DOUBLE_PUSH: bool>(
         &self,
         mut to_squares: u64,
         offset: i8,
-        result: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>,
+        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
         side: usize,
         history_table: &HistoryTable,
     ) {
@@ -772,7 +728,7 @@ impl Board {
     }
 
     #[inline]
-    fn do_make_unmake_move_test(&mut self, moves: &TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>) {
+    fn do_make_unmake_move_test(&mut self, moves: &ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         if ENABLE_UNMAKE_MOVE_TEST {
             let board_copy = self.clone();
             let mut rollback = MoveRollback::default();
@@ -829,12 +785,16 @@ mod check_evasion_tests {
                     initialize_magic_bitboards();
 
                     let mut board = Board::from_fen(input).unwrap();
-                    let evasion_generator_moves = board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE);
-                    let legal_evasion_generator_moves = board.filter_to_legal_moves(evasion_generator_moves);
+                    let mut evasion_generator_moves = ArrayVec::new();
+                    board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE, &mut evasion_generator_moves);
+                    board.filter_to_legal_moves(&mut evasion_generator_moves);
 
-                    assert_eq!(expected, legal_evasion_generator_moves.len());
+                    assert_eq!(expected, evasion_generator_moves.len());
 
-                    assert_eq!(expected, board.generate_legal_moves_without_history().len());
+                    let mut legal_moves = ArrayVec::new();
+                    board.generate_legal_moves_without_history(&mut legal_moves);
+
+                    assert_eq!(expected, legal_moves.len());
                 }
             )*
         }

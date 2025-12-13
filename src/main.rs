@@ -1,5 +1,4 @@
 use std::{
-    cmp::Reverse,
     sync::mpsc::{self, TryRecvError},
     thread::sleep,
     time::{Duration, SystemTime},
@@ -8,15 +7,12 @@ use std::{
 use crate::bench::bench;
 use board::{Board, HASH_VALUES};
 use build_info::build_info;
-use clap::{ArgAction, Parser, Subcommand};
-use log::{debug, error, info, warn};
+use clap::{Parser, Subcommand};
+use log::{debug, error};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
-use moves::{Move, MoveRollback};
-use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
-use transposition_table::TranspositionTable;
 use uci::UciInterface;
-use vampirc_uci::{UciSearchControl, parse_with_unknown};
+use vampirc_uci::parse_with_unknown;
 
 mod bench;
 mod bitboard;
@@ -85,9 +81,6 @@ fn main() {
 
     run_uci();
 
-    // search_moves_from_pos(STARTING_FEN, 1);
-    // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
-    // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // hash_values_edit_distance();
 }
 
@@ -233,111 +226,6 @@ fn run_perft_tests() {
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
         vec![(1, 46), (2, 2079), (3, 89_890), (4, 3_894_594), (5, 164_075_551)],
     );
-}
-
-fn print_moves_from_pos(fen: &str) {
-    let mut board = Board::from_fen(fen).unwrap();
-    info!("{:#?}", &board);
-
-    let mut moves = board.generate_legal_moves_without_history();
-
-    moves.sort_by_key(|m| Reverse(m.score));
-
-    for r#move in moves {
-        info!(
-            "{} move order score {}",
-            r#move.m.pretty_print(Some(&board)),
-            r#move.score
-        );
-    }
-}
-
-fn search_moves_from_pos(fen: &str, depth: u8) {
-    let mut board = Board::from_fen(fen).unwrap();
-    info!("{:#?}", &board);
-
-    let mut moves = board.generate_legal_moves_without_history();
-
-    moves.sort_by_key(|m| Reverse(m.score));
-
-    let mut rollback = MoveRollback::default();
-    let mut transposition_table = TranspositionTable::new(23);
-    let mut history = DEFAULT_HISTORY_TABLE;
-    let mut best: Option<SearchResult> = None;
-    let mut continuation_history = [[[[[0; 64]; 6]; 64]; 6]; 2];
-
-    for r#move in moves {
-        info!("{}:", r#move.m.pretty_print(Some(&board)));
-        board.make_move(&r#move.m, &mut rollback);
-
-        let (_, stop_rx) = mpsc::channel::<()>();
-        let mut searcher = Searcher::new(
-            &mut board,
-            &mut transposition_table,
-            &mut history,
-            &stop_rx,
-            &mut continuation_history,
-            1,
-        );
-
-        let mut result;
-        if depth != 1 {
-            let tc = None;
-            let sc = Some(UciSearchControl::depth(depth - 1));
-
-            result = searcher.iterative_deepening_search(&tc, &sc);
-            result.best_move = r#move.m;
-        } else {
-            result = SearchResult {
-                best_move: r#move.m,
-                score: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 0)
-                    * if board.white_to_move { 1 } else { -1 },
-            };
-        }
-
-        board.unmake_move(&r#move.m, &mut rollback);
-
-        if best.as_ref().is_none_or(|v| {
-            v.score * if board.white_to_move { 1 } else { -1 } < result.score * if board.white_to_move { 1 } else { -1 }
-        }) {
-            best = Some(result);
-        }
-    }
-
-    if let Some(r) = best {
-        debug!(
-            "best move: {} eval: {}",
-            r.best_move.pretty_print(Some(&board)),
-            r.score
-        )
-    } else {
-        debug!("No valid moves");
-    }
-}
-
-fn make_moves(moves: Vec<Move>, fen: &str) {
-    let mut board = Board::from_fen(fen).unwrap();
-    let mut rollback = MoveRollback::default();
-    for r#move in moves {
-        debug!("{:?}", board);
-        debug!("{}", r#move.pretty_print(Some(&board)));
-        board.make_move(&r#move, &mut rollback);
-        let legal = !board.can_capture_opponent_king(true);
-        debug!("legality: {}", legal)
-    }
-
-    debug!("After all moves");
-    debug!("{:?}", board);
-
-    let final_pos_moves = board.generate_legal_moves_without_history();
-
-    if final_pos_moves.is_empty() {
-        warn!("No moves found")
-    }
-
-    for r#move in final_pos_moves {
-        info!("{}", r#move.m.pretty_print(Some(&board)));
-    }
 }
 
 fn hash_values_edit_distance() {

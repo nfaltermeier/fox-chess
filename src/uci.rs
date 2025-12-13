@@ -19,7 +19,7 @@ use crate::{
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
-    transposition_table::{self, TTEntry, TranspositionTable},
+    transposition_table::{TTEntry, TranspositionTable},
 };
 
 pub struct UciInterface {
@@ -166,7 +166,10 @@ impl UciInterface {
 
                                 self.transposition_table = TranspositionTable::new(entries_log2 as u8);
                             } else {
-                                error!("Failed to parse Hash value as a natural number: {}", hash_mib.unwrap_err());
+                                error!(
+                                    "Failed to parse Hash value as a natural number: {}",
+                                    hash_mib.unwrap_err()
+                                );
                             }
                         } else {
                             error!("Expected a value for option Hash");
@@ -182,7 +185,10 @@ impl UciInterface {
                                     self.multi_pv = multi_pv;
                                 }
                             } else {
-                                error!("Failed to parse MultiPV value as a natural number: {}", multi_pv.unwrap_err());
+                                error!(
+                                    "Failed to parse MultiPV value as a natural number: {}",
+                                    multi_pv.unwrap_err()
+                                );
                             }
                         } else {
                             error!("Expected a value for option MultiPV");

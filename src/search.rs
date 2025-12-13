@@ -1,7 +1,10 @@
 use std::{
-    collections::VecDeque, sync::mpsc::Receiver, time::{Duration, Instant}
+    collections::VecDeque,
+    sync::mpsc::Receiver,
+    time::{Duration, Instant},
 };
 
+use arrayvec::ArrayVec;
 use log::{debug, error};
 use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
@@ -236,7 +239,9 @@ impl<'a> Searcher<'a> {
         let mut latest_result = None;
         loop {
             let end_search = self.alpha_beta_init(depth, latest_result.clone());
-            if let Some(best_pv) = self.root_pvs.front() && let Some(worst_pv) = self.root_pvs.back() {
+            if let Some(best_pv) = self.root_pvs.front()
+                && let Some(worst_pv) = self.root_pvs.back()
+            {
                 // Max nodes are infrequently checked in the search so do an additional check here
                 if self.stats.total_nodes >= self.max_nodes {
                     return latest_result
@@ -334,8 +339,18 @@ impl<'a> Searcher<'a> {
             debug_assert!(self.rollback.is_empty());
             debug_assert!(self.move_history.is_empty());
 
-            let low_score = self.root_pvs.back().expect("No root pv found in alpha_beta_init after successful search").search_result.score;
-            let high_score = self.root_pvs.front().expect("No root pv found in alpha_beta_init after successful search").search_result.score;
+            let low_score = self
+                .root_pvs
+                .back()
+                .expect("No root pv found in alpha_beta_init after successful search")
+                .search_result
+                .score;
+            let high_score = self
+                .root_pvs
+                .front()
+                .expect("No root pv found in alpha_beta_init after successful search")
+                .search_result
+                .score;
 
             if low_score <= alpha {
                 self.stats.aspiration_researches += 1;
@@ -356,7 +371,7 @@ impl<'a> Searcher<'a> {
             } else {
                 break;
             }
-        };
+        }
 
         if pv.is_empty() {
             error!("PV is empty in alpha_beta_init");
@@ -424,7 +439,7 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
 
-        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
+        let mut moves = ArrayVec::new();
         let tt_entry = self
             .transposition_table
             .get_entry(self.board.hash, self.starting_fullmove);
@@ -464,12 +479,10 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves = tiny_vec!(ScoredMove {
+            moves.push(ScoredMove {
                 m: tt_data.important_move,
                 score: 1,
             });
-        } else {
-            moves = tiny_vec!();
         }
 
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
@@ -710,7 +723,7 @@ impl<'a> Searcher<'a> {
                             pv: TinyVec::default(),
                             search_result: SearchResult {
                                 best_move: r#move.m,
-                                score
+                                score,
                             },
                         };
 
@@ -744,7 +757,7 @@ impl<'a> Searcher<'a> {
                             pv: parent_pv.clone(),
                             search_result: SearchResult {
                                 best_move: r#move.m,
-                                score
+                                score,
                             },
                         };
 
@@ -782,9 +795,11 @@ impl<'a> Searcher<'a> {
 
             if round == 0 {
                 if !in_check {
-                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
+                    self.board
+                        .generate_pseudo_legal_moves_with_history(self.history_table, &mut moves);
                 } else {
-                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
+                    self.board
+                        .generate_pseudo_legal_check_evasions(self.history_table, &mut moves);
                 }
 
                 self.apply_history_to_move_scores(&mut moves);
@@ -835,7 +850,10 @@ impl<'a> Searcher<'a> {
         }
 
         if ply == 0 && self.multi_pv > 1 {
-            let best_pv = self.root_pvs.front().expect("No root pv found at the end of alpha_beta_recurse for ply == 0");
+            let best_pv = self
+                .root_pvs
+                .front()
+                .expect("No root pv found at the end of alpha_beta_recurse for ply == 0");
             best_move = Some(best_pv.search_result.best_move);
             best_score = best_pv.search_result.score;
             *parent_pv = best_pv.pv.clone();
@@ -868,7 +886,7 @@ impl<'a> Searcher<'a> {
         }
 
         let is_pv = alpha + 1 != beta;
-        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
+        let mut moves = ArrayVec::new();
         let tt_entry = self
             .transposition_table
             .get_entry(self.board.hash, self.starting_fullmove);
@@ -894,15 +912,11 @@ impl<'a> Searcher<'a> {
             }
 
             if tt_data.important_move.data & MOVE_FLAG_CAPTURE_FULL != 0 {
-                moves = tiny_vec!(ScoredMove {
+                moves.push(ScoredMove {
                     m: tt_data.important_move,
                     score: 1,
                 });
-            } else {
-                moves = tiny_vec!();
             }
-        } else {
-            moves = tiny_vec!();
         }
 
         let mut best_score;
@@ -990,9 +1004,10 @@ impl<'a> Searcher<'a> {
 
             if round == 0 {
                 if in_check {
-                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
+                    self.board
+                        .generate_pseudo_legal_check_evasions(self.history_table, &mut moves);
                 } else {
-                    moves = self.board.generate_pseudo_legal_capture_moves();
+                    self.board.generate_pseudo_legal_capture_moves(&mut moves);
                 }
             }
         }
@@ -1019,7 +1034,7 @@ impl<'a> Searcher<'a> {
         best_score
     }
 
-    fn apply_history_to_move_scores(&mut self, moves: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>) {
+    fn apply_history_to_move_scores(&mut self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         if let Some(relevant_cont_hist) =
             get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history)
         {
@@ -1117,7 +1132,7 @@ fn get_relevant_cont_hist<'a>(
 }
 
 #[inline]
-fn select_next_move(moves: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>, index_to_skip: usize) {
+fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_skip: usize) {
     // Perform one iteration of selection sort every time another move needs to be evaluated
     let mut best_move_score = moves[index_to_skip].score;
     let mut best_move_index = index_to_skip;

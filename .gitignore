@@ -4,4 +4,4 @@ output.log
 notes
 eval_trees
 save-states
-proc_macros/target
+fox-chess-proc/target
