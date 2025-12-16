@@ -267,13 +267,12 @@ impl UciInterface {
             format!("score cp {eval}")
         };
 
-        let nps = stats.total_nodes as f64 / elapsed.as_secs_f64();
+        let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+        let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info depth {} multipv {multi_pv} {score_string} time {} nodes {} nps {:.0} hashfull {} pv {} string aspiration_researches {}",
+            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} hashfull {} pv {} string aspiration_researches {}",
             stats.depth,
             elapsed.as_millis(),
-            stats.total_nodes,
-            nps,
             transposition_table.hashfull(search_starting_fullmove),
             pv.iter()
                 .rev()

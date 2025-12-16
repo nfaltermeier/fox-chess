@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     sync::mpsc::Receiver,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use arrayvec::ArrayVec;
@@ -20,6 +20,7 @@ use crate::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
     repetition_tracker::RepetitionTracker,
+    time_management::{get_cutoff_times, modify_cutoff_time},
     transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
     uci_required_options_helper::RequiredUciOptions,
@@ -38,7 +39,8 @@ const EMPTY_MOVE: Move = Move { data: 0 };
 #[derive(Default)]
 pub struct SearchStats {
     pub depth: u8,
-    pub total_nodes: u64,
+    pub current_iteration_total_nodes: u64,
+    pub previous_iterations_total_nodes: u64,
     pub total_search_leaves: u64,
     pub aspiration_researches: u8,
 }
@@ -77,17 +79,20 @@ pub struct Searcher<'a> {
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
     starting_fullmove: u8,
-    cancel_search_at: Option<Instant>,
-    end_search: bool,
+    hard_cutoff_time: Option<Instant>,
+    single_root_move: bool,
     starting_in_check: bool,
     stop_rx: &'a Receiver<()>,
     stop_received: bool,
-    max_nodes: u64,
+    total_max_nodes: u64,
+    max_nodes_for_current_iteration: u64,
     continuation_history: &'a mut ContinuationHistoryTable,
     move_history: Vec<Move>,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
     extra_uci_options: RequiredUciOptions,
+    root_pv_branch_nodes: u64,
+    pv_nodes_fractions: VecDeque<f32>,
 }
 
 impl<'a> Searcher<'a> {
@@ -113,17 +118,20 @@ impl<'a> Searcher<'a> {
             transposition_table,
             history_table,
             starting_fullmove,
-            cancel_search_at: None,
-            end_search: false,
+            hard_cutoff_time: None,
+            single_root_move: false,
             starting_in_check,
             stop_rx,
             stop_received: false,
-            max_nodes: u64::MAX,
+            total_max_nodes: u64::MAX,
+            max_nodes_for_current_iteration: u64::MAX,
             continuation_history,
             move_history: vec![],
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
             extra_uci_options,
+            root_pv_branch_nodes: 0,
+            pv_nodes_fractions: VecDeque::new(),
         }
     }
 
@@ -133,11 +141,12 @@ impl<'a> Searcher<'a> {
         search: &Option<UciSearchControl>,
     ) -> SearchResult {
         let start_time = Instant::now();
-        let mut target_dur = None;
+        let mut soft_cutoff_time = None;
         let mut search_control: SearchControl;
         let mut max_depth = 40;
-        let use_stricter_time_cutoff;
+        let mut cutoff_times = None;
 
+        self.hard_cutoff_time = None;
         if let Some(t) = time {
             match t {
                 UciTimeControl::TimeLeft {
@@ -154,54 +163,27 @@ impl<'a> Searcher<'a> {
                         (black_time, black_increment)
                     };
 
-                    if time_left.is_none() {
-                        error!("No time left value provided when searching");
-                        panic!("No time left value provided when searching");
-                    }
-
-                    let divisor = if self.board.fullmove_counter < 15 {
-                        25
-                    } else if self.board.fullmove_counter < 25 {
-                        20
-                    } else {
-                        30
-                    };
-
-                    let time_left = time_left.as_ref().unwrap().to_std().unwrap();
-                    target_dur = Some(time_left.checked_div(divisor).unwrap());
-
-                    if let Some(inc) = increment {
-                        let inc = inc.to_std().unwrap();
-
-                        if time_left > inc.saturating_mul(2) {
-                            target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
-
-                            use_stricter_time_cutoff = time_left < Duration::from_secs(1);
-                        } else {
-                            use_stricter_time_cutoff = true;
-                        }
-                    } else {
-                        use_stricter_time_cutoff = time_left < Duration::from_secs(5);
-                    }
+                    cutoff_times = Some(get_cutoff_times(time_left, increment, &start_time, self.board.fullmove_counter));
+                    soft_cutoff_time = Some(cutoff_times.as_ref().unwrap().soft_cutoff);
+                    self.hard_cutoff_time = Some(cutoff_times.as_ref().unwrap().hard_cutoff);
 
                     search_control = SearchControl::Time;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
-                    target_dur = Some(time_delta.to_std().unwrap());
+                    let target_dur = time_delta.to_std().unwrap();
+                    soft_cutoff_time = Some(target_dur);
+                    self.hard_cutoff_time = Some(start_time.checked_add(target_dur).unwrap());
                     search_control = SearchControl::Time;
-                    use_stricter_time_cutoff = true;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
                     search_control = SearchControl::Infinite;
-                    use_stricter_time_cutoff = false;
                 }
             }
         } else {
             search_control = SearchControl::Unknown;
-            use_stricter_time_cutoff = false;
         }
 
         if let Some(s) = search {
@@ -214,29 +196,13 @@ impl<'a> Searcher<'a> {
                 if search_control == SearchControl::Unknown {
                     search_control = SearchControl::Nodes;
                 }
-                self.max_nodes = s.nodes.unwrap();
+                self.total_max_nodes = s.nodes.unwrap();
             }
         }
 
         if search_control == SearchControl::Unknown {
             error!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
             panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
-        }
-
-        let cutoff;
-        match target_dur {
-            Some(d) => {
-                cutoff = Some(d.mul_f32(if use_stricter_time_cutoff { 0.3 } else { 0.5 }));
-                self.cancel_search_at = Some(
-                    start_time
-                        .checked_add(d.mul_f32(if use_stricter_time_cutoff { 1.1 } else { 2.0 }))
-                        .unwrap(),
-                );
-            }
-            None => {
-                cutoff = None;
-                self.cancel_search_at = None;
-            }
         }
 
         let mut depth = 1;
@@ -247,7 +213,7 @@ impl<'a> Searcher<'a> {
                 && let Some(worst_pv) = self.root_pvs.back()
             {
                 // Max nodes are infrequently checked in the search so do an additional check here
-                if self.stats.total_nodes >= self.max_nodes {
+                if self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration {
                     return latest_result
                         .expect("iterative_deepening_search exceeded max nodes before completing any searches");
                 }
@@ -272,10 +238,27 @@ impl<'a> Searcher<'a> {
                     || (search_control != SearchControl::Infinite
                         && (end_search
                             || worst_pv.search_result.score.abs() >= MATE_THRESHOLD
-                            || depth >= max_depth
-                            || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
+                            || depth >= max_depth))
                 {
                     return best_pv.search_result.clone();
+                }
+
+                if matches!(search_control, SearchControl::Time) {
+                    if let Some(cutoff_times) = &cutoff_times {
+                        let pv_nodes_fraction = self.root_pv_branch_nodes as f32 / self.stats.current_iteration_total_nodes as f32;
+
+                        if self.pv_nodes_fractions.len() >= 3 {
+                            self.pv_nodes_fractions.pop_back();
+                        }
+
+                        self.pv_nodes_fractions.push_front(pv_nodes_fraction);
+
+                        soft_cutoff_time = Some(modify_cutoff_time(cutoff_times, &self.pv_nodes_fractions));
+                    }
+
+                    if elapsed >= soft_cutoff_time.unwrap() {
+                        return best_pv.search_result.clone();
+                    }
                 }
 
                 latest_result = Some(best_pv.search_result.clone());
@@ -295,7 +278,7 @@ impl<'a> Searcher<'a> {
     pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> bool {
         self.rollback = MoveRollback::default();
         self.stats.depth = draft;
-        self.end_search = false;
+        self.single_root_move = false;
 
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
@@ -320,6 +303,9 @@ impl<'a> Searcher<'a> {
 
         loop {
             self.root_pvs.clear();
+            self.stats.previous_iterations_total_nodes += self.stats.current_iteration_total_nodes;
+            self.stats.current_iteration_total_nodes = 0;
+            self.max_nodes_for_current_iteration = self.total_max_nodes - self.stats.previous_iterations_total_nodes;
 
             let result = self.alpha_beta_recurse(
                 alpha,
@@ -382,7 +368,7 @@ impl<'a> Searcher<'a> {
             panic!("PV is empty in alpha_beta_init")
         }
 
-        self.end_search
+        self.single_root_move
     }
 
     fn alpha_beta_recurse(
@@ -398,7 +384,7 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         debug_assert!(alpha <= beta);
 
-        self.stats.total_nodes += 1;
+        self.stats.current_iteration_total_nodes += 1;
 
         if ply != 0
             && (self.board.halfmove_clock >= 100
@@ -419,8 +405,8 @@ impl<'a> Searcher<'a> {
             if self.stats.total_search_leaves % 16384 == 16383 {
                 let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
                 if stop_received
-                    || self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
-                    || self.stats.total_nodes >= self.max_nodes
+                    || self.hard_cutoff_time.is_some_and(|t| Instant::now() >= t)
+                    || self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration
                 {
                     if stop_received {
                         self.stop_received = stop_received;
@@ -639,6 +625,8 @@ impl<'a> Searcher<'a> {
                     reduction = reduction.clamp(0, draft - 1)
                 }
 
+                let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+
                 let mut score;
                 if searched_moves == 0 || ply == 0 {
                     // Use reduction
@@ -772,6 +760,11 @@ impl<'a> Searcher<'a> {
                         let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
                         self.root_pvs.insert(index, pv_data);
 
+                        // If there is a new best PV
+                        if index == 0 {
+                            self.root_pv_branch_nodes = self.stats.current_iteration_total_nodes - start_of_search_nodes;
+                        }
+
                         score = self.root_pvs.back().unwrap().search_result.score;
                     }
 
@@ -850,7 +843,7 @@ impl<'a> Searcher<'a> {
                 return Ok(0);
             }
         } else if searched_moves == 1 && ply == 0 {
-            self.end_search = true;
+            self.single_root_move = true;
         }
 
         if ply == 0 && self.multi_pv > 1 {
@@ -883,7 +876,7 @@ impl<'a> Searcher<'a> {
     }
 
     pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, ply: u8) -> i16 {
-        self.stats.total_nodes += 1;
+        self.stats.current_iteration_total_nodes += 1;
 
         if self.board.is_insufficient_material() {
             return 0;

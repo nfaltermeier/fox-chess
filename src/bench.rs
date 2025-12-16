@@ -90,7 +90,7 @@ pub fn bench() {
 
         searcher.iterative_deepening_search(&tc, &sc);
 
-        nodes += searcher.stats.total_nodes;
+        nodes += searcher.stats.current_iteration_total_nodes + searcher.stats.previous_iterations_total_nodes;
     }
 
     let elapsed = start_time.elapsed();

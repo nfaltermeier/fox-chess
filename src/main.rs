@@ -24,6 +24,7 @@ mod moves;
 mod perft;
 mod repetition_tracker;
 mod search;
+mod time_management;
 mod transposition_table;
 mod uci;
 mod uci_required_options_helper;
