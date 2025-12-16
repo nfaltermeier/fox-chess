@@ -1,7 +1,10 @@
 use std::{
-    cmp::Reverse, collections::VecDeque, sync::mpsc::Receiver, time::{Duration, Instant}
+    collections::VecDeque,
+    sync::mpsc::Receiver,
+    time::Instant,
 };
 
+use arrayvec::ArrayVec;
 use log::{debug, error};
 use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
@@ -18,8 +21,10 @@ use crate::{
     },
     repetition_tracker::RepetitionTracker,
     texel::{DEFAULT_PARAMS, EvalParams, FeatureIndex},
+    time_management::{get_cutoff_times, modify_cutoff_time},
     transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
+    uci_required_options_helper::RequiredUciOptions,
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
@@ -35,7 +40,8 @@ const EMPTY_MOVE: Move = Move { data: 0 };
 #[derive(Default)]
 pub struct SearchStats {
     pub depth: u8,
-    pub total_nodes: u64,
+    pub current_iteration_total_nodes: u64,
+    pub previous_iterations_total_nodes: u64,
     pub total_search_leaves: u64,
     pub aspiration_researches: u8,
 }
@@ -74,16 +80,20 @@ pub struct Searcher<'a> {
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
     starting_fullmove: u8,
-    cancel_search_at: Option<Instant>,
-    end_search: bool,
+    hard_cutoff_time: Option<Instant>,
+    single_root_move: bool,
     starting_in_check: bool,
     stop_rx: &'a Receiver<()>,
     stop_received: bool,
-    max_nodes: u64,
+    total_max_nodes: u64,
+    max_nodes_for_current_iteration: u64,
     continuation_history: &'a mut ContinuationHistoryTable,
     move_history: Vec<Move>,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
+    extra_uci_options: RequiredUciOptions,
+    root_pv_branch_nodes: u64,
+    pv_nodes_fractions: VecDeque<f32>,
 }
 
 impl<'a> Searcher<'a> {
@@ -94,6 +104,7 @@ impl<'a> Searcher<'a> {
         stop_rx: &'a Receiver<()>,
         continuation_history: &'a mut ContinuationHistoryTable,
         multi_pv: u8,
+        extra_uci_options: RequiredUciOptions,
     ) -> Self {
         let starting_fullmove = 0;
 
@@ -108,16 +119,20 @@ impl<'a> Searcher<'a> {
             transposition_table,
             history_table,
             starting_fullmove,
-            cancel_search_at: None,
-            end_search: false,
+            hard_cutoff_time: None,
+            single_root_move: false,
             starting_in_check,
             stop_rx,
             stop_received: false,
-            max_nodes: u64::MAX,
+            total_max_nodes: u64::MAX,
+            max_nodes_for_current_iteration: u64::MAX,
             continuation_history,
             move_history: vec![],
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
+            extra_uci_options,
+            root_pv_branch_nodes: 0,
+            pv_nodes_fractions: VecDeque::new(),
         }
     }
 
@@ -127,11 +142,12 @@ impl<'a> Searcher<'a> {
         search: &Option<UciSearchControl>,
     ) -> SearchResult {
         let start_time = Instant::now();
-        let mut target_dur = None;
+        let mut soft_cutoff_time = None;
         let mut search_control: SearchControl;
         let mut max_depth = 40;
-        let use_stricter_time_cutoff;
+        let mut cutoff_times = None;
 
+        self.hard_cutoff_time = None;
         if let Some(t) = time {
             match t {
                 UciTimeControl::TimeLeft {
@@ -148,48 +164,27 @@ impl<'a> Searcher<'a> {
                         (black_time, black_increment)
                     };
 
-                    if time_left.is_none() {
-                        error!("No time left value provided when searching");
-                        panic!("No time left value provided when searching");
-                    }
-
-                    let divisor = 30;
-
-                    let time_left = time_left.as_ref().unwrap().to_std().unwrap();
-                    target_dur = Some(time_left.checked_div(divisor).unwrap());
-
-                    if let Some(inc) = increment {
-                        let inc = inc.to_std().unwrap();
-
-                        if time_left > inc.saturating_mul(2) {
-                            target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
-
-                            use_stricter_time_cutoff = time_left < Duration::from_secs(1);
-                        } else {
-                            use_stricter_time_cutoff = true;
-                        }
-                    } else {
-                        use_stricter_time_cutoff = time_left < Duration::from_secs(5);
-                    }
+                    cutoff_times = Some(get_cutoff_times(time_left, increment, &start_time, 42));
+                    soft_cutoff_time = Some(cutoff_times.as_ref().unwrap().soft_cutoff);
+                    self.hard_cutoff_time = Some(cutoff_times.as_ref().unwrap().hard_cutoff);
 
                     search_control = SearchControl::Time;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
-                    target_dur = Some(time_delta.to_std().unwrap());
+                    let target_dur = time_delta.to_std().unwrap();
+                    soft_cutoff_time = Some(target_dur);
+                    self.hard_cutoff_time = Some(start_time.checked_add(target_dur).unwrap());
                     search_control = SearchControl::Time;
-                    use_stricter_time_cutoff = true;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
                     search_control = SearchControl::Infinite;
-                    use_stricter_time_cutoff = false;
                 }
             }
         } else {
             search_control = SearchControl::Unknown;
-            use_stricter_time_cutoff = false;
         }
 
         if let Some(s) = search {
@@ -202,7 +197,7 @@ impl<'a> Searcher<'a> {
                 if search_control == SearchControl::Unknown {
                     search_control = SearchControl::Nodes;
                 }
-                self.max_nodes = s.nodes.unwrap();
+                self.total_max_nodes = s.nodes.unwrap();
             }
         }
 
@@ -211,29 +206,15 @@ impl<'a> Searcher<'a> {
             panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
         }
 
-        let cutoff;
-        match target_dur {
-            Some(d) => {
-                cutoff = Some(d.mul_f32(if use_stricter_time_cutoff { 0.3 } else { 0.5 }));
-                self.cancel_search_at = Some(
-                    start_time
-                        .checked_add(d.mul_f32(if use_stricter_time_cutoff { 1.1 } else { 2.0 }))
-                        .unwrap(),
-                );
-            }
-            None => {
-                cutoff = None;
-                self.cancel_search_at = None;
-            }
-        }
-
         let mut depth = 1;
         let mut latest_result = None;
         loop {
             let end_search = self.alpha_beta_init(depth, latest_result.clone());
-            if let Some(best_pv) = self.root_pvs.front() && let Some(worst_pv) = self.root_pvs.back() {
+            if let Some(best_pv) = self.root_pvs.front()
+                && let Some(worst_pv) = self.root_pvs.back()
+            {
                 // Max nodes are infrequently checked in the search so do an additional check here
-                if self.stats.total_nodes >= self.max_nodes {
+                if self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration {
                     return latest_result
                         .expect("iterative_deepening_search exceeded max nodes before completing any searches");
                 }
@@ -258,10 +239,27 @@ impl<'a> Searcher<'a> {
                     || (search_control != SearchControl::Infinite
                         && (end_search
                             || worst_pv.search_result.score.abs() >= MATE_THRESHOLD
-                            || depth >= max_depth
-                            || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
+                            || depth >= max_depth))
                 {
                     return best_pv.search_result.clone();
+                }
+
+                if matches!(search_control, SearchControl::Time) {
+                    if let Some(cutoff_times) = &cutoff_times {
+                        let pv_nodes_fraction = self.root_pv_branch_nodes as f32 / self.stats.current_iteration_total_nodes as f32;
+
+                        if self.pv_nodes_fractions.len() >= 3 {
+                            self.pv_nodes_fractions.pop_back();
+                        }
+
+                        self.pv_nodes_fractions.push_front(pv_nodes_fraction);
+
+                        soft_cutoff_time = Some(modify_cutoff_time(cutoff_times, &self.pv_nodes_fractions));
+                    }
+
+                    if elapsed >= soft_cutoff_time.unwrap() {
+                        return best_pv.search_result.clone();
+                    }
                 }
 
                 latest_result = Some(best_pv.search_result.clone());
@@ -281,7 +279,7 @@ impl<'a> Searcher<'a> {
     pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> bool {
         self.rollback = MoveRollback::default();
         self.stats.depth = draft;
-        self.end_search = false;
+        self.single_root_move = false;
 
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
@@ -306,6 +304,9 @@ impl<'a> Searcher<'a> {
 
         loop {
             self.root_pvs.clear();
+            self.stats.previous_iterations_total_nodes += self.stats.current_iteration_total_nodes;
+            self.stats.current_iteration_total_nodes = 0;
+            self.max_nodes_for_current_iteration = self.total_max_nodes - self.stats.previous_iterations_total_nodes;
 
             let result = self.alpha_beta_recurse(
                 alpha,
@@ -329,8 +330,18 @@ impl<'a> Searcher<'a> {
             debug_assert!(self.rollback.is_empty());
             debug_assert!(self.move_history.is_empty());
 
-            let low_score = self.root_pvs.back().expect("No root pv found in alpha_beta_init after successful search").search_result.score;
-            let high_score = self.root_pvs.front().expect("No root pv found in alpha_beta_init after successful search").search_result.score;
+            let low_score = self
+                .root_pvs
+                .back()
+                .expect("No root pv found in alpha_beta_init after successful search")
+                .search_result
+                .score;
+            let high_score = self
+                .root_pvs
+                .front()
+                .expect("No root pv found in alpha_beta_init after successful search")
+                .search_result
+                .score;
 
             if low_score <= alpha {
                 self.stats.aspiration_researches += 1;
@@ -351,14 +362,14 @@ impl<'a> Searcher<'a> {
             } else {
                 break;
             }
-        };
+        }
 
         if pv.is_empty() {
             error!("PV is empty in alpha_beta_init");
             panic!("PV is empty in alpha_beta_init")
         }
 
-        self.end_search
+        self.single_root_move
     }
 
     fn alpha_beta_recurse(
@@ -374,7 +385,7 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         debug_assert!(alpha <= beta);
 
-        self.stats.total_nodes += 1;
+        self.stats.current_iteration_total_nodes += 1;
 
         if ply != 0
             && (RepetitionTracker::test_repetition(self.board)
@@ -394,8 +405,8 @@ impl<'a> Searcher<'a> {
             if self.stats.total_search_leaves % 16384 == 16383 {
                 let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
                 if stop_received
-                    || self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
-                    || self.stats.total_nodes >= self.max_nodes
+                    || self.hard_cutoff_time.is_some_and(|t| Instant::now() >= t)
+                    || self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration
                 {
                     if stop_received {
                         self.stop_received = stop_received;
@@ -420,7 +431,7 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
 
-        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
+        let mut moves = ArrayVec::new();
         let tt_entry = self
             .transposition_table
             .get_entry(self.board.hash, self.starting_fullmove);
@@ -460,12 +471,10 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves = tiny_vec!(ScoredMove {
+            moves.push(ScoredMove {
                 m: tt_data.important_move,
                 score: 1,
             });
-        } else {
-            moves = tiny_vec!();
         }
 
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
@@ -625,6 +634,8 @@ impl<'a> Searcher<'a> {
                     reduction = reduction.clamp(0, draft - 1)
                 }
 
+                let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+
                 let mut score;
                 if searched_moves == 0 || ply == 0 {
                     // Use reduction
@@ -713,7 +724,7 @@ impl<'a> Searcher<'a> {
                             pv: TinyVec::default(),
                             search_result: SearchResult {
                                 best_move: r#move.m,
-                                score
+                                score,
                             },
                         };
 
@@ -747,7 +758,7 @@ impl<'a> Searcher<'a> {
                             pv: parent_pv.clone(),
                             search_result: SearchResult {
                                 best_move: r#move.m,
-                                score
+                                score,
                             },
                         };
 
@@ -757,6 +768,11 @@ impl<'a> Searcher<'a> {
 
                         let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
                         self.root_pvs.insert(index, pv_data);
+
+                        // If there is a new best PV
+                        if index == 0 {
+                            self.root_pv_branch_nodes = self.stats.current_iteration_total_nodes - start_of_search_nodes;
+                        }
 
                         score = self.root_pvs.back().unwrap().search_result.score;
                     }
@@ -785,9 +801,11 @@ impl<'a> Searcher<'a> {
 
             if round == 0 {
                 if !in_check {
-                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
+                    self.board
+                        .generate_pseudo_legal_moves_with_history(self.history_table, &mut moves);
                 } else {
-                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
+                    self.board
+                        .generate_pseudo_legal_check_evasions(self.history_table, &mut moves);
                 }
 
                 self.apply_history_to_move_scores(&mut moves);
@@ -834,11 +852,14 @@ impl<'a> Searcher<'a> {
                 return Ok(0);
             }
         } else if searched_moves == 1 && ply == 0 {
-            self.end_search = true;
+            self.single_root_move = true;
         }
 
         if ply == 0 && self.multi_pv > 1 {
-            let best_pv = self.root_pvs.front().expect("No root pv found at the end of alpha_beta_recurse for ply == 0");
+            let best_pv = self
+                .root_pvs
+                .front()
+                .expect("No root pv found at the end of alpha_beta_recurse for ply == 0");
             best_move = Some(best_pv.search_result.best_move);
             best_score = best_pv.search_result.score;
             *parent_pv = best_pv.pv.clone();
@@ -863,7 +884,7 @@ impl<'a> Searcher<'a> {
         Ok(best_score)
     }
 
-    fn apply_history_to_move_scores(&mut self, moves: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>) {
+    fn apply_history_to_move_scores(&mut self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         if let Some(relevant_cont_hist) =
             get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history)
         {
@@ -927,11 +948,12 @@ impl Board {
 
         let mut best_position = None;
 
-        let mut moves = if in_check {
-            self.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE)
+        let mut moves = ArrayVec::new();
+        if in_check {
+            self.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE, &mut moves);
         } else {
-            self.generate_pseudo_legal_capture_moves()
-        };
+            self.generate_pseudo_legal_capture_moves(&mut moves);
+        }
 
         for move_index in 0..moves.len() {
             select_next_move(&mut moves, move_index);
@@ -1059,7 +1081,7 @@ fn get_relevant_cont_hist<'a>(
 }
 
 #[inline]
-fn select_next_move(moves: &mut TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>, index_to_skip: usize) {
+fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_skip: usize) {
     // Perform one iteration of selection sort every time another move needs to be evaluated
     let mut best_move_score = moves[index_to_skip].score;
     let mut best_move_index = index_to_skip;

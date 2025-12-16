@@ -7,6 +7,7 @@ use crate::{
     search::{DEFAULT_HISTORY_TABLE, Searcher},
     transposition_table::TranspositionTable,
     uci::UciInterface,
+    uci_required_options_helper::RequiredUciOptions,
 };
 
 pub fn bench() {
@@ -84,11 +85,12 @@ pub fn bench() {
             &stop_rx,
             &mut continuation_history,
             1,
+            RequiredUciOptions::default(),
         );
 
         searcher.iterative_deepening_search(&tc, &sc);
 
-        nodes += searcher.stats.total_nodes;
+        nodes += searcher.stats.current_iteration_total_nodes + searcher.stats.previous_iterations_total_nodes;
     }
 
     let elapsed = start_time.elapsed();

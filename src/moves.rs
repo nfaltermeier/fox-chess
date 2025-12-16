@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use log::error;
 use regex::Regex;
 
@@ -564,7 +565,8 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
     let mut rollback = MoveRollback::default();
 
     for (i, r#move) in indices.iter().enumerate() {
-        let mut moves = board.generate_pseudo_legal_moves_without_history();
+        let mut moves = ArrayVec::new();
+        board.generate_pseudo_legal_moves_without_history(&mut moves);
         let Some(gen_move_pos) = moves.iter().position(|m| {
             if m.m.from() != r#move.0 as u16 || m.m.to() != r#move.1 as u16 {
                 return false;

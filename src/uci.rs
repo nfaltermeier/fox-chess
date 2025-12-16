@@ -7,6 +7,7 @@ use std::{
 };
 
 use build_info::VersionControl::Git;
+use fox_chess_proc::uci_fields_parser;
 use log::{debug, error, trace};
 use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
@@ -19,7 +20,8 @@ use crate::{
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
-    transposition_table::{self, TTEntry, TranspositionTable},
+    transposition_table::{TTEntry, TranspositionTable},
+    uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
 
 pub struct UciInterface {
@@ -29,6 +31,7 @@ pub struct UciInterface {
     stop_rx: Receiver<()>,
     continuation_history: Box<ContinuationHistoryTable>,
     multi_pv: u8,
+    extra_uci_options: RequiredUciOptionsAsOptions,
 }
 
 impl UciInterface {
@@ -40,10 +43,11 @@ impl UciInterface {
             stop_rx,
             continuation_history: Self::alloc_zeroed_continuation_history(),
             multi_pv: 1,
+            extra_uci_options: RequiredUciOptionsAsOptions::default(),
         }
     }
 
-    // how to communicate with the engine while it is computing? How necessary is that?
+    #[uci_fields_parser(extra_uci_options)]
     pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) -> bool {
         debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
         for m in cmds.1 {
@@ -53,6 +57,7 @@ impl UciInterface {
                     println!("id author nfaltermeier");
                     println!("option name Hash type spin default 128 min 1 max 1048576");
                     println!("option name MultiPV type spin default 1 min 1 max 255");
+                    RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
                 UciMessage::IsReady => {
@@ -129,6 +134,7 @@ impl UciInterface {
                             &self.stop_rx,
                             &mut self.continuation_history,
                             self.multi_pv,
+                            self.extra_uci_options.convert(),
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -143,57 +149,67 @@ impl UciInterface {
                 UciMessage::Quit => {
                     return true;
                 }
-                UciMessage::SetOption { name, value } => match name.to_ascii_lowercase().as_str() {
-                    "hash" => {
-                        if let Some(value) = value {
-                            let hash_mib = value.parse::<usize>();
-                            if let Ok(hash_mib) = hash_mib {
-                                let hash_bytes = hash_mib * 1024 * 1024;
+                UciMessage::SetOption { name, value } =>
+                {
+                    #[uci_fields_parser]
+                    match name.to_ascii_lowercase().as_str() {
+                        "hash" => {
+                            if let Some(value) = value {
+                                let hash_mib = value.parse::<usize>();
+                                if let Ok(hash_mib) = hash_mib {
+                                    let hash_bytes = hash_mib * 1024 * 1024;
 
-                                if hash_bytes == 0 {
-                                    error!("Minimum value is 1 (MiB)");
-                                    continue;
-                                }
+                                    if hash_bytes == 0 {
+                                        error!("Minimum value is 1 (MiB)");
+                                        continue;
+                                    }
 
-                                let entries = hash_bytes / size_of::<TTEntry>();
-                                let entries_log2 = entries.checked_ilog2().unwrap();
+                                    let entries = hash_bytes / size_of::<TTEntry>();
+                                    let entries_log2 = entries.checked_ilog2().unwrap();
 
-                                if entries_log2 > u8::MAX as u32 {
-                                    error!("Value is too big");
-                                    continue;
-                                } else if entries_log2 < 2 {
-                                    error!("Something went wrong, entries_log2 is less than 2");
-                                    continue;
-                                }
+                                    if entries_log2 > u8::MAX as u32 {
+                                        error!("Value is too big");
+                                        continue;
+                                    } else if entries_log2 < 2 {
+                                        error!("Something went wrong, entries_log2 is less than 2");
+                                        continue;
+                                    }
 
-                                self.transposition_table = TranspositionTable::new(entries_log2 as u8);
-                            } else {
-                                error!("Failed to parse Hash value as a natural number: {}", hash_mib.unwrap_err());
-                            }
-                        } else {
-                            error!("Expected a value for option Hash");
-                        }
-                    }
-                    "multipv" => {
-                        if let Some(value) = value {
-                            let multi_pv = value.parse::<u8>();
-                            if let Ok(multi_pv) = multi_pv {
-                                if multi_pv == 0 {
-                                    error!("MultiPV value must be at least 1");
+                                    self.transposition_table = TranspositionTable::new(entries_log2 as u8);
                                 } else {
-                                    self.multi_pv = multi_pv;
+                                    error!(
+                                        "Failed to parse Hash value as a natural number: {}",
+                                        hash_mib.unwrap_err()
+                                    );
                                 }
                             } else {
-                                error!("Failed to parse MultiPV value as a natural number: {}", multi_pv.unwrap_err());
+                                error!("Expected a value for option Hash");
                             }
-                        } else {
-                            error!("Expected a value for option MultiPV");
+                        }
+                        "multipv" => {
+                            if let Some(value) = value {
+                                let multi_pv = value.parse::<u8>();
+                                if let Ok(multi_pv) = multi_pv {
+                                    if multi_pv == 0 {
+                                        error!("MultiPV value must be at least 1");
+                                    } else {
+                                        self.multi_pv = multi_pv;
+                                    }
+                                } else {
+                                    error!(
+                                        "Failed to parse MultiPV value as a natural number: {}",
+                                        multi_pv.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option MultiPV");
+                            }
+                        }
+                        _ => {
+                            error!("Unknown UCI setoption name '{name}'");
                         }
                     }
-                    _ => {
-                        error!("Unknown UCI setoption name '{name}'");
-                    }
-                },
+                }
                 UciMessage::Unknown(message, err) => {
                     if message.starts_with("go perft") {
                         let parts = message.split(' ').collect::<Vec<_>>();
@@ -253,13 +269,12 @@ impl UciInterface {
             format!("score cp {eval}")
         };
 
-        let nps = stats.total_nodes as f64 / elapsed.as_secs_f64();
+        let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+        let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info depth {} multipv {multi_pv} {score_string} time {} nodes {} nps {:.0} hashfull {} pv {} string aspiration_researches {}",
+            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} hashfull {} pv {} string aspiration_researches {}",
             stats.depth,
             elapsed.as_millis(),
-            stats.total_nodes,
-            nps,
             transposition_table.hashfull(search_starting_fullmove),
             pv.iter()
                 .rev()

@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use arrayvec::ArrayVec;
 use log::info;
 use num_format::{Locale, ToFormattedString};
 
@@ -56,20 +57,22 @@ pub struct PerftStats {
 
 // Code referenced from https://www.chessprogramming.org/Perft
 fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats, divide: bool) {
+    let mut moves = ArrayVec::new();
+
     if draft == 0 {
         // slow as all heck
-        if ENABLE_PERFT_STATS
-            && ENABLE_PERFT_STATS_CHECKMATES
-            && board.generate_legal_moves_without_history().is_empty()
-        {
-            stats.checkmates += 1;
+        if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES {
+            board.generate_legal_moves_without_history(&mut moves);
+            if moves.is_empty() {
+                stats.checkmates += 1;
+            }
         }
 
         stats.nodes += 1;
         return;
     }
 
-    let moves = board.generate_pseudo_legal_moves_without_history();
+    board.generate_pseudo_legal_moves_without_history(&mut moves);
     for r#move in &moves {
         let (legal, move_made) = board.test_legality_and_maybe_make_move(r#move.m, rollback);
         if !legal {
