@@ -549,7 +549,8 @@ pub fn change_param_at_index(i: usize) -> bool {
 }
 
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f64) -> f64 {
-    let errors = positions
+    let mut errors = Vec::with_capacity(positions.len());
+    positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
             let result = p
@@ -564,12 +565,13 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
                 val_sqrt * val_sqrt
             }
         })
-        .collect::<Vec<f64>>();
+        .collect_into_vec(&mut errors);
 
     sum_orlp(&errors[..]) / positions.len() as f64
 }
 
 fn qsearch_for_features(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<PositionFeatures> {
+    let mut result = Vec::with_capacity(positions.len());
     positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
@@ -590,7 +592,9 @@ fn qsearch_for_features(positions: &mut Vec<TexelPosition>, params: &EvalParams)
                 }
             }
         })
-        .collect()
+        .collect_into_vec(&mut result);
+
+    result
 }
 
 fn find_error_for_features(
@@ -598,13 +602,14 @@ fn find_error_for_features(
     params: &EvalParams,
     scaling_constant: f64,
 ) -> f64 {
-    let errors = features
+    let mut errors = Vec::with_capacity(features.len());
+    features
         .par_iter()
         .map(|p| {
             let val_sqrt = p.result - sigmoid(p.features.evaluate(params) as f64, scaling_constant);
             val_sqrt * val_sqrt
         })
-        .collect::<Vec<f64>>();
+        .collect_into_vec(&mut errors);
 
     let sum = sum_orlp(&errors[..]);
     sum / errors.len() as f64
@@ -644,7 +649,8 @@ fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scal
 /// Finds the dot product of the gradient and the search direction p
 fn calc_m(gradient: &Box<EvalGradient>) -> f64 {
     // p is the negative gradient so first square everything and make them negative
-    let negative_squares = gradient.par_iter().map(|v| -v * v).collect::<Vec<f64>>();
+    let mut negative_squares = Vec::with_capacity(gradient.len());
+    gradient.par_iter().map(|v| -v * v).collect_into_vec(&mut negative_squares);
     sum_orlp(&negative_squares)
 }
 
