@@ -20,6 +20,7 @@ mod board;
 mod evaluate;
 mod magic_bitboard;
 mod move_generator;
+mod move_generator_struct;
 mod moves;
 mod perft;
 mod repetition_tracker;
