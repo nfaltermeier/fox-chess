@@ -6,6 +6,7 @@ use num_format::{Locale, ToFormattedString};
 
 use crate::{
     board::Board,
+    move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{
         MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move,
         MoveRollback,
@@ -57,9 +58,8 @@ pub struct PerftStats {
 
 // Code referenced from https://www.chessprogramming.org/Perft
 fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats, divide: bool) {
-    let mut moves = ArrayVec::new();
-
     if draft == 0 {
+        let mut moves = ArrayVec::new();
         // slow as all heck
         if ENABLE_PERFT_STATS && ENABLE_PERFT_STATS_CHECKMATES {
             board.generate_legal_moves_without_history(&mut moves);
@@ -72,8 +72,18 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
         return;
     }
 
-    board.generate_pseudo_legal_moves_without_history(&mut moves);
-    for r#move in &moves {
+    let mut move_generator = MoveGenerator::new();
+    move_generator.generate_moves_pseudo_legal(board);
+    loop {
+        let r#move = match move_generator.get_next_move_unordered() {
+            GetMoveResult::Move(scored_move) => scored_move,
+            GetMoveResult::GenerateMoves => {
+                move_generator.generate_more_moves(board, None, None, None, None);
+                continue;
+            }
+            GetMoveResult::NoMoves => break,
+        };
+
         let (legal, move_made) = board.test_legality_and_maybe_make_move(r#move.m, rollback);
         if !legal {
             if move_made {

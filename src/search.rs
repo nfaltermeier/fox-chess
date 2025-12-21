@@ -12,10 +12,8 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{
-        MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1,
-        MOVE_SCORE_KILLER_2, ScoredMove,
-    },
+    move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove},
+    move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
@@ -35,7 +33,7 @@ pub type ContinuationHistoryTable = [[[[[i16; 64]; 6]; 64]; 6]; 2];
 /// Each value is in addition to the last
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
-const EMPTY_MOVE: Move = Move { data: 0 };
+pub const EMPTY_MOVE: Move = Move { data: 0 };
 
 #[derive(Default)]
 pub struct SearchStats {
@@ -431,7 +429,7 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
 
-        let mut moves = ArrayVec::new();
+        let mut move_gen = MoveGenerator::new();
         let tt_entry = self
             .transposition_table
             .get_entry(self.board.hash, self.starting_fullmove);
@@ -471,10 +469,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves.push(ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            });
+            move_gen.set_tt_move(tt_data.important_move);
         }
 
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
@@ -537,7 +532,7 @@ impl<'a> Searcher<'a> {
         }
 
         // Internal Iterative Deepening
-        if moves.is_empty() && is_pv && draft > 5 {
+        if tt_entry.is_none() && is_pv && draft > 5 {
             let mut iid_pv = tiny_vec!();
             self.alpha_beta_recurse(
                 alpha,
@@ -554,285 +549,254 @@ impl<'a> Searcher<'a> {
                 .transposition_table
                 .get_entry(self.board.hash, self.starting_fullmove);
             if let Some(tt_data) = tt_entry {
-                moves.push(ScoredMove {
-                    m: tt_data.important_move,
-                    score: 1,
-                });
+                move_gen.set_tt_move(tt_data.important_move);
             }
+        }
+
+        if !in_check {
+            move_gen.generate_moves_pseudo_legal(self.board);
+        } else {
+            move_gen.generate_moves_check_evasion(
+                self.board,
+                Some(self.history_table),
+                Some(&self.move_history),
+                Some(self.continuation_history),
+                Some(killers),
+            );
         }
 
         let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
         let mut has_legal_move = false;
         let mut improved_alpha = false;
-
-        // Round 0 is the tt move, round 1 is regular move gen
-        for round in 0..2 {
-            for move_index in 0..moves.len() {
-                select_next_move(&mut moves, move_index);
-
-                let r#move = &moves[move_index];
-
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+        loop {
+            let r#move = match move_gen.get_next_move() {
+                GetMoveResult::Move(scored_move) => scored_move,
+                GetMoveResult::GenerateMoves => {
+                    move_gen.generate_more_moves(
+                        self.board,
+                        Some(self.history_table),
+                        Some(&self.move_history),
+                        Some(self.continuation_history),
+                        Some(killers),
+                    );
                     continue;
                 }
+                GetMoveResult::NoMoves => break,
+            };
 
-                let (legal, move_made) = self
-                    .board
-                    .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
-                if !legal {
-                    if move_made {
-                        self.board.unmake_move(&r#move.m, &mut self.rollback);
-                    }
-
-                    continue;
-                }
-
-                has_legal_move = true;
-                let gives_check = self.board.is_in_check(false);
-
-                // limit to avoid underflow
-                let limited_draft = draft.min(21) as i16;
-
-                // Futility pruning and late move pruning
-                if searched_moves >= 1
-                    && !gives_check
-                    && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
-                    && (futility_prune
-                        || (!is_pv
-                            && !in_check
-                            && searched_moves >= 6
-                            // LMP will not happen at all for I think draft 14 and above
-                            && r#move.score < -1.6f32.powi(limited_draft as i32) as i16 - 70 * limited_draft - 700))
-                {
+            let (legal, move_made) = self
+                .board
+                .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
+            if !legal {
+                if move_made {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
-                    continue;
                 }
 
-                self.move_history.push(r#move.m);
+                continue;
+            }
 
-                let mut reduction = 0;
-                // Late move reduction
-                if draft > 2 && searched_moves > 3 {
-                    let flags = r#move.m.flags();
+            has_legal_move = true;
+            let gives_check = self.board.is_in_check(false);
 
-                    // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
-                    reduction = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0 {
-                        (0.7844 + (draft as f32).ln() * (searched_moves as f32).ln() / 2.4696).round() as u8
-                    } else {
-                        3
-                    };
+            // Futility pruning and late move pruning
+            if (futility_prune
+                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -750 - 50 * draft as i16))
+                && searched_moves >= 1
+                && !gives_check
+                && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+            {
+                self.board.unmake_move(&r#move.m, &mut self.rollback);
+                continue;
+            }
 
-                    if is_pv && reduction > 0 {
-                        reduction -= 1;
-                    }
+            self.move_history.push(r#move.m);
 
-                    if in_check && reduction > 0 {
-                        reduction -= 1;
-                    }
+            let mut reduction = 0;
+            // Late move reduction
+            if draft > 2 && searched_moves > 3 {
+                let flags = r#move.m.flags();
 
-                    reduction = reduction.clamp(0, draft - 1)
+                // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
+                reduction = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0 {
+                    (0.7844 + (draft as f32).ln() * (searched_moves as f32).ln() / 2.4696).round() as u8
+                } else {
+                    3
+                };
+
+                if is_pv && reduction > 0 {
+                    reduction -= 1;
                 }
 
-                let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+                if in_check && reduction > 0 {
+                    reduction -= 1;
+                }
 
-                let mut score;
-                if searched_moves == 0 || ply == 0 {
-                    // Use reduction
+                reduction = reduction.clamp(0, draft - 1)
+            }
+
+            let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+
+            let mut score;
+            if searched_moves == 0 || ply == 0 {
+                // Use reduction
+                score = -self.alpha_beta_recurse(
+                    -beta,
+                    -alpha,
+                    draft - reduction - 1,
+                    ply + 1,
+                    &mut new_killers,
+                    gives_check,
+                    can_null_move,
+                    &mut pv,
+                )?;
+
+                if score > alpha && reduction > 0 {
+                    // Do a full search
                     score = -self.alpha_beta_recurse(
                         -beta,
                         -alpha,
-                        draft - reduction - 1,
+                        draft - 1,
                         ply + 1,
                         &mut new_killers,
                         gives_check,
                         can_null_move,
                         &mut pv,
                     )?;
+                }
+            } else {
+                // Use null window and reduction
+                score = -self.alpha_beta_recurse(
+                    -alpha - 1,
+                    -alpha,
+                    draft - reduction - 1,
+                    ply + 1,
+                    &mut new_killers,
+                    gives_check,
+                    can_null_move,
+                    &mut pv,
+                )?;
 
-                    if score > alpha && reduction > 0 {
-                        // Do a full search
-                        score = -self.alpha_beta_recurse(
-                            -beta,
-                            -alpha,
-                            draft - 1,
-                            ply + 1,
-                            &mut new_killers,
-                            gives_check,
-                            can_null_move,
-                            &mut pv,
-                        )?;
-                    }
-                } else {
-                    // Use null window and reduction
+                if score > alpha {
+                    // Do a full search
                     score = -self.alpha_beta_recurse(
-                        -alpha - 1,
+                        -beta,
                         -alpha,
-                        draft - reduction - 1,
+                        draft - 1,
                         ply + 1,
                         &mut new_killers,
                         gives_check,
                         can_null_move,
                         &mut pv,
                     )?;
-
-                    if score > alpha {
-                        // Do a full search
-                        score = -self.alpha_beta_recurse(
-                            -beta,
-                            -alpha,
-                            draft - 1,
-                            ply + 1,
-                            &mut new_killers,
-                            gives_check,
-                            can_null_move,
-                            &mut pv,
-                        )?;
-                    }
-                }
-
-                self.board.unmake_move(&r#move.m, &mut self.rollback);
-                self.move_history.pop();
-                searched_moves += 1;
-
-                if score >= beta {
-                    let mut relevant_cont_hist =
-                        get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history);
-
-                    update_killers_and_history(
-                        &self.board,
-                        &mut self.history_table,
-                        killers,
-                        &r#move.m,
-                        ply,
-                        &mut relevant_cont_hist,
-                    );
-
-                    let penalty = -(ply as i16) * (ply as i16);
-                    for m in searched_quiet_moves {
-                        update_history(
-                            &self.board,
-                            &mut self.history_table,
-                            &m,
-                            penalty,
-                            &mut relevant_cont_hist,
-                        );
-                    }
-
-                    if ply == 0 {
-                        let pv_data = PvData {
-                            pv: TinyVec::default(),
-                            search_result: SearchResult {
-                                best_move: r#move.m,
-                                score,
-                            },
-                        };
-
-                        if self.root_pvs.len() == self.multi_pv as usize {
-                            self.root_pvs.pop_back();
-                        }
-
-                        let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
-                        self.root_pvs.insert(index, pv_data);
-                    }
-
-                    self.transposition_table.store_entry(TTEntry::new(
-                        self.board.hash,
-                        r#move.m,
-                        MoveType::FailHigh,
-                        score,
-                        draft,
-                        ply,
-                        self.starting_fullmove,
-                    ));
-
-                    return Ok(score);
-                }
-
-                if score > best_score {
-                    if ply == 0 {
-                        *parent_pv = pv.clone();
-                        parent_pv.push(r#move.m);
-
-                        let pv_data = PvData {
-                            pv: parent_pv.clone(),
-                            search_result: SearchResult {
-                                best_move: r#move.m,
-                                score,
-                            },
-                        };
-
-                        if self.root_pvs.len() == self.multi_pv as usize {
-                            self.root_pvs.pop_back();
-                        }
-
-                        let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
-                        self.root_pvs.insert(index, pv_data);
-
-                        // If there is a new best PV
-                        if index == 0 {
-                            self.root_pv_branch_nodes = self.stats.current_iteration_total_nodes - start_of_search_nodes;
-                        }
-
-                        score = self.root_pvs.back().unwrap().search_result.score;
-                    }
-
-                    if ply != 0 || self.root_pvs.len() == self.multi_pv as usize {
-                        best_score = score;
-                        best_move = Some(r#move.m);
-                        if score > alpha {
-                            alpha = score;
-                            improved_alpha = true;
-
-                            // This will be handled separately for root nodes
-                            if is_pv && ply != 0 {
-                                *parent_pv = pv.clone();
-                                parent_pv.push(r#move.m);
-                            }
-                        }
-                    }
-                }
-
-                // TODO: change to check for capture flag
-                if r#move.m.flags() == 0 {
-                    searched_quiet_moves.push(r#move.m);
                 }
             }
 
-            if round == 0 {
-                if !in_check {
-                    self.board
-                        .generate_pseudo_legal_moves_with_history(self.history_table, &mut moves);
-                } else {
-                    self.board
-                        .generate_pseudo_legal_check_evasions(self.history_table, &mut moves);
+            self.board.unmake_move(&r#move.m, &mut self.rollback);
+            self.move_history.pop();
+            searched_moves += 1;
+
+            if score >= beta {
+                let mut relevant_cont_hist =
+                    get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history);
+
+                update_killers_and_history(
+                    &self.board,
+                    &mut self.history_table,
+                    killers,
+                    &r#move.m,
+                    ply,
+                    &mut relevant_cont_hist,
+                );
+
+                let penalty = -(ply as i16) * (ply as i16);
+                for m in searched_quiet_moves {
+                    update_history(
+                        &self.board,
+                        &mut self.history_table,
+                        &m,
+                        penalty,
+                        &mut relevant_cont_hist,
+                    );
                 }
 
-                self.apply_history_to_move_scores(&mut moves);
+                if ply == 0 {
+                    let pv_data = PvData {
+                        pv: TinyVec::default(),
+                        search_result: SearchResult {
+                            best_move: r#move.m,
+                            score,
+                        },
+                    };
 
-                if killers[0] != EMPTY_MOVE {
-                    let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
+                    if self.root_pvs.len() == self.multi_pv as usize {
+                        self.root_pvs.pop_back();
+                    }
 
-                    for m in moves.iter_mut() {
-                        if m.m == killers[0] {
-                            m.score = MOVE_SCORE_KILLER_1;
+                    let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
+                    self.root_pvs.insert(index, pv_data);
+                }
 
-                            if unmatched_killers == 1 {
-                                break;
-                            } else {
-                                unmatched_killers -= 1;
-                            }
-                        } else if m.m == killers[1] {
-                            m.score = MOVE_SCORE_KILLER_2;
+                self.transposition_table.store_entry(TTEntry::new(
+                    self.board.hash,
+                    r#move.m,
+                    MoveType::FailHigh,
+                    score,
+                    draft,
+                    ply,
+                    self.starting_fullmove,
+                ));
 
-                            if unmatched_killers == 1 {
-                                break;
-                            } else {
-                                unmatched_killers -= 1;
-                            }
+                return Ok(score);
+            }
+
+            if score > best_score {
+                if ply == 0 {
+                    *parent_pv = pv.clone();
+                    parent_pv.push(r#move.m);
+
+                    let pv_data = PvData {
+                        pv: parent_pv.clone(),
+                        search_result: SearchResult {
+                            best_move: r#move.m,
+                            score,
+                        },
+                    };
+
+                    if self.root_pvs.len() == self.multi_pv as usize {
+                        self.root_pvs.pop_back();
+                    }
+
+                    let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
+                    self.root_pvs.insert(index, pv_data);
+
+                    // If there is a new best PV
+                    if index == 0 {
+                        self.root_pv_branch_nodes = self.stats.current_iteration_total_nodes - start_of_search_nodes;
+                    }
+
+                    score = self.root_pvs.back().unwrap().search_result.score;
+                }
+
+                if ply != 0 || self.root_pvs.len() == self.multi_pv as usize {
+                    best_score = score;
+                    best_move = Some(r#move.m);
+                    if score > alpha {
+                        alpha = score;
+                        improved_alpha = true;
+
+                        // This will be handled separately for root nodes
+                        if is_pv && ply != 0 {
+                            *parent_pv = pv.clone();
+                            parent_pv.push(r#move.m);
                         }
                     }
                 }
+            }
+
+            // TODO: change to check for capture flag
+            if r#move.m.flags() == 0 {
+                searched_quiet_moves.push(r#move.m);
             }
         }
 
