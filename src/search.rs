@@ -583,6 +583,15 @@ impl<'a> Searcher<'a> {
                 GetMoveResult::NoMoves => break,
             };
 
+            if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+                let see_margin = draft as i16 * -50;
+                if see_margin > (CENTIPAWN_VALUES[PIECE_PAWN as usize] - CENTIPAWN_VALUES[PIECE_QUEEN as usize])
+                    && !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin)
+                {
+                    continue;
+                }
+            }
+
             let (legal, move_made) = self
                 .board
                 .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);

@@ -388,6 +388,69 @@ impl Board {
 
         values[0]
     }
+
+    // Based on the code from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
+    /// Move is expected to be a capture but probably will work if it isn't. En passant, castling, and promotions are not supported.
+    pub fn is_static_exchange_eval_at_least(&self, m: Move, threshold: i16) -> bool {
+        let from = m.from();
+        let to = m.to();
+        let mut occupancy = self.occupancy & !BIT_SQUARES[from as usize];
+        let mut attacks_data = self.get_attacks_to(to as u8, occupancy);
+        attacks_data.attackers &= !BIT_SQUARES[from as usize];
+
+        let mut values = [0; 32];
+        let mut depth = 1;
+        let mut color = if self.white_to_move { 1 } else { 0 };
+        values[0] = CENTIPAWN_VALUES[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
+        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
+
+        loop {
+            // Check if the last move opened up an x-ray
+            if attacks_data.possible_rook_like_x_rays != 0 &&
+                (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
+            {
+                let new_attacks = lookup_rook_attack(to as u8, occupancy) & attacks_data.possible_rook_like_x_rays;
+                attacks_data.attackers |= new_attacks;
+                attacks_data.possible_rook_like_x_rays ^= new_attacks;
+            }
+
+            if attacks_data.possible_bishop_like_x_rays != 0 &&
+                (last_attacker == PIECE_BISHOP as usize
+                    || last_attacker == PIECE_QUEEN as usize
+                    || last_attacker == PIECE_PAWN as usize)
+            {
+                let new_attacks = lookup_bishop_attack(to as u8, occupancy) & attacks_data.possible_bishop_like_x_rays;
+                attacks_data.attackers |= new_attacks;
+                attacks_data.possible_bishop_like_x_rays ^= new_attacks;
+            }
+
+            let (attacker_bitboard, next_attacker_piece) =
+                self.get_least_valuable_attacker(attacks_data.attackers, color);
+            if attacker_bitboard == 0 {
+                break;
+            }
+
+            attacks_data.attackers ^= attacker_bitboard;
+            occupancy ^= attacker_bitboard;
+            values[depth] = CENTIPAWN_VALUES[last_attacker] - values[depth - 1];
+
+            // If the other side just moved and their value is less than the negative threshold value,
+            // then break to ensure that they wouldn't stop earlier
+            if depth % 2 == 1 && values[depth].max(-values[depth - 1]) <= -threshold {
+                break;
+            }
+
+            depth += 1;
+            color = if color != 0 { 0 } else { 1 };
+            last_attacker = next_attacker_piece;
+        }
+
+        for i in (1..depth).rev() {
+            values[i - 1] = -values[i].max(-values[i - 1]);
+        }
+
+        values[0] >= threshold
+    }
 }
 
 #[cfg(test)]
@@ -457,15 +520,19 @@ mod eval_tests {
             $(
                 #[test]
                 fn $name() {
-                    let (fen, expected_eval, m) = $value;
+                    let (fen, expected_eval, m_str) = $value;
 
                     let board = Board::from_fen(fen).unwrap();
 
                     initialize_magic_bitboards();
 
-                    let see_result = board.static_exchange_eval(Move::from_simple_long_algebraic_notation(m, 0));
+                    let m = Move::from_simple_long_algebraic_notation(m_str, 0);
+                    let see_result = board.static_exchange_eval(m);
 
                     assert_eq!(expected_eval, see_result);
+                    assert!(board.is_static_exchange_eval_at_least(m, expected_eval - 1));
+                    assert!(board.is_static_exchange_eval_at_least(m, expected_eval));
+                    assert!(!board.is_static_exchange_eval_at_least(m, expected_eval + 1));
                 }
             )*
         }
@@ -484,5 +551,6 @@ mod eval_tests {
         rook_xray_extra_defender: ("4q3/1p1pr1kb/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES[PIECE_PAWN as usize], "e6e4"),
         // I think the best is if everything gets traded off, this is the net change of that. It fails, not sure if that is because my bishop val != knight val
         // big_trade_both_xrays: ("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -", CENTIPAWN_VALUES[PIECE_KNIGHT as usize] * 2 - CENTIPAWN_VALUES[PIECE_BISHOP as usize] + CENTIPAWN_VALUES[PIECE_ROOK as usize] - CENTIPAWN_VALUES[PIECE_QUEEN as usize], "d3d4"),
+        bench_is_at_least: ("3r1rk1/ppp1pp1p/6p1/3qb2P/3n4/4BN2/PP2BP2/R2Q1RK1 w - - 0 16", -298, "d1d4"),
     }
 }
