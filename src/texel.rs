@@ -4,6 +4,8 @@ use std::ops::Add;
 use std::ops::Range;
 use std::simd::i16x8;
 use std::simd::num::SimdInt;
+use std::time::Duration;
+use std::time::Instant;
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -329,6 +331,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
     // perturb(&mut params);
 
+    let quiet = true;
+
     let scaling_constant = 1.06;
     let mut step_size;
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
@@ -340,6 +344,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     let mut total_param_changes = 0;
     let mut starting_error = None;
     let mut feature_set_loops = 0;
+    let mut failures: usize = 0;
+    let mut last_disk_save = Instant::now();
 
     // The goal for how much to improve at each descent step
     for base_c in [0.1] {
@@ -379,7 +385,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         starting_error = Some(base_error);
                     }
 
-                    let gradient = eval_gradient(&features, &mut params, scaling_constant, feature_set_range.clone());
+                    let gradient = eval_gradient(&features, &mut params, scaling_constant, feature_set_range.clone(), quiet);
                     let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
                     let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
                     let mut sorted = gradient.clone();
@@ -479,7 +485,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                                 }
                             }
                         } else {
-                            println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+                            failures += 1;
+                            if !quiet || failures % 5 == 0 {
+                                println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+                            }
                             step_size *= tau;
                         }
 
@@ -510,7 +519,11 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         humantime::format_rfc3339(SystemTime::now()),
                         starting_error.unwrap() - new_error
                     );
-                    save_params(&params);
+
+                    if !quiet || last_disk_save.elapsed() > Duration::from_secs(10) {
+                        save_params(&params);
+                        last_disk_save = Instant::now();
+                    }
 
                     if biggest_change == 0 {
                         break;
@@ -616,7 +629,7 @@ fn find_error_for_features(
 }
 
 /// params should be unchanged when this method returns
-fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scaling_constant: f64, feature_set_range: Range<usize>) -> Box<EvalGradient> {
+fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scaling_constant: f64, feature_set_range: Range<usize>, quiet: bool) -> Box<EvalGradient> {
     let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in feature_set_range {
@@ -638,7 +651,7 @@ fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scal
         // Approximate the derivative with symmetrical difference quotient numerical differentiation
         result[i] = (positive_error - negative_error) / 2.0;
 
-        if i % 100 == 0 {
+        if !quiet && i % 100 == 0 {
             println!("[{}] Calculated derivative for {i} elements of gradient", humantime::format_rfc3339(SystemTime::now()))
         }
     }
