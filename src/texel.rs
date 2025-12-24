@@ -91,21 +91,20 @@ pub enum FeatureIndex {
     ConnectedPawns = 781,
 }
 
-static FEATURE_SETS: [usize; 14] = [
-    FeatureIndex::MidgamePawn as usize,
-    FeatureIndex::MidgameKnight as usize,
-    FeatureIndex::MidgameBishop as usize,
-    FeatureIndex::MidgameRook as usize,
-    FeatureIndex::MidgameQueen as usize,
-    FeatureIndex::MidgameKing as usize,
-    FeatureIndex::EndgamePawn as usize,
-    FeatureIndex::EndgameKnight as usize,
-    FeatureIndex::EndgameBishop as usize,
-    FeatureIndex::EndgameRook as usize,
-    FeatureIndex::EndgameQueen as usize,
-    FeatureIndex::EndgameKing as usize,
-    FeatureIndex::PieceValues as usize,
-    EVAL_PARAM_COUNT,
+static FEATURE_SETS: [FeatureSet; 13] = [
+    FeatureSet::new("MidgamePawn", FeatureIndex::MidgamePawn, FeatureIndex::MidgameKnight),
+    FeatureSet::new("MidgameKnight", FeatureIndex::MidgameKnight, FeatureIndex::MidgameBishop),
+    FeatureSet::new("MidgameBishop", FeatureIndex::MidgameBishop, FeatureIndex::MidgameRook),
+    FeatureSet::new("MidgameRook", FeatureIndex::MidgameRook, FeatureIndex::MidgameQueen),
+    FeatureSet::new("MidgameQueen", FeatureIndex::MidgameQueen, FeatureIndex::MidgameKing),
+    FeatureSet::new("MidgameKing", FeatureIndex::MidgameKing, FeatureIndex::EndgamePawn),
+    FeatureSet::new("EndgamePawn", FeatureIndex::EndgamePawn, FeatureIndex::EndgameKnight),
+    FeatureSet::new("EndgameKnight", FeatureIndex::EndgameKnight, FeatureIndex::EndgameBishop),
+    FeatureSet::new("EndgameBishop", FeatureIndex::EndgameBishop, FeatureIndex::EndgameRook),
+    FeatureSet::new("EndgameRook", FeatureIndex::EndgameRook, FeatureIndex::EndgameQueen),
+    FeatureSet::new("EndgameQueen", FeatureIndex::EndgameQueen, FeatureIndex::EndgameKing),
+    FeatureSet::new("EndgameKing", FeatureIndex::EndgameKing, FeatureIndex::PieceValues),
+    FeatureSet::new_mixed("Misc", FeatureIndex::PieceValues, EVAL_PARAM_COUNT),
 ];
 
 #[rustfmt::skip]
@@ -351,13 +350,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     for base_c in [0.1] {
         loop {
             let mut any_changed_in_feature_set = false;
-            for feature_set_index in 0..(FEATURE_SETS.len()-1) {
-                let feature_set_range;
-                {
-                    let feature_set_lower_bound = FEATURE_SETS[feature_set_index].min(FEATURE_SETS[feature_set_index + 1]);
-                    let feature_set_upper_bound = FEATURE_SETS[feature_set_index].max(FEATURE_SETS[feature_set_index + 1]);
-                    feature_set_range = feature_set_lower_bound..feature_set_upper_bound;
-                }
+            for feature_set in &FEATURE_SETS {
+                let feature_set_range = feature_set.lower..feature_set.upper;
 
                 {
                     let mut any_can_change = false;
@@ -515,9 +509,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
                     iterations += 1;
                     println!(
-                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set_index: {feature_set_index}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
+                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
                         humantime::format_rfc3339(SystemTime::now()),
-                        starting_error.unwrap() - new_error
+                        starting_error.unwrap() - new_error,
+                        feature_set.name,
                     );
 
                     if !quiet || last_disk_save.elapsed() > Duration::from_secs(10) {
@@ -751,6 +746,38 @@ impl Add<u16> for FeatureIndex {
 
     fn add(self, rhs: u16) -> Self::Output {
         self as u16 + rhs
+    }
+}
+
+pub struct FeatureSet<'a> {
+    pub name: &'a str,
+    pub lower: usize,
+    pub upper: usize,
+}
+
+impl<'a> FeatureSet<'a> {
+    pub const fn new(name: &'a str, lower: FeatureIndex, upper: FeatureIndex) -> Self {
+        Self {
+            name,
+            lower: lower as usize,
+            upper: upper as usize,
+        }
+    }
+
+    pub const fn new_usize(name: &'a str, lower: usize, upper: usize) -> Self {
+        Self {
+            name,
+            lower,
+            upper,
+        }
+    }
+
+    pub const fn new_mixed(name: &'a str, lower: FeatureIndex, upper: usize) -> Self {
+        Self {
+            name,
+            lower: lower as usize,
+            upper,
+        }
     }
 }
 
