@@ -260,42 +260,6 @@ impl MoveGenerator {
             }
         }
 
-        if board.castling_rights != 0 {
-            if board.white_to_move {
-                if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
-                    && (board.occupancy & 0x1f) == 0x11
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
-
-                if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0
-                    && (board.occupancy & 0xf0) == 0x90
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            } else {
-                if board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
-                    && (board.occupancy & 0x1f00000000000000) == 0x1100000000000000
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
-
-                if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0
-                    && (board.occupancy & 0xf000000000000000) == 0x9000000000000000
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            }
-        }
-
         self.state = MoveGeneratorState::AllGenerated;
         let move_buf_len = self.move_buf.len();
 
