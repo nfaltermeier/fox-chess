@@ -67,6 +67,7 @@ pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
 #[repr(u16)]
+#[derive(Clone, Copy)]
 pub enum FeatureIndex {
     MidgamePawn = 0,
     MidgameKnight = 64 * 1,
@@ -338,6 +339,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     // perturb(&mut params);
 
     let quiet = true;
+    if quiet {
+        println!("Running in quiet mode, skipping some printouts and saves");
+    }
 
     let scaling_constant = 1.06;
     let mut step_size;
@@ -414,8 +418,6 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
                         gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
                         biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
-
-                        println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
 
                         // if biggest_change >= 100 {
                         //     panic!("Biggest change {biggest_change} could cause an overflow")
@@ -518,6 +520,10 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     // To find the appropriate step size we descend the gradient, so we just use that value as our next value
                     params = updated_params;
 
+                    if biggest_change == 0 {
+                        new_error = base_error;
+                    }
+
                     iterations += 1;
                     println!(
                         "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
@@ -526,7 +532,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         feature_set.name,
                     );
 
-                    if !quiet || last_disk_save.elapsed() > Duration::from_secs(10) {
+                    if !quiet || last_disk_save.elapsed() > Duration::from_secs(20) {
                         save_params(&params);
                         last_disk_save = Instant::now();
                     }
@@ -546,6 +552,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     }
 
     println!("Regression done");
+    save_params(&params);
 }
 
 pub fn change_param_at_index(i: usize) -> bool {
