@@ -91,7 +91,7 @@ pub enum FeatureIndex {
     ConnectedPawns = 781,
 }
 
-static FEATURE_SETS: [FeatureSet; 13] = [
+static FEATURE_SETS: [FeatureSet; 20] = [
     FeatureSet::new("MidgamePawn", FeatureIndex::MidgamePawn, FeatureIndex::MidgameKnight),
     FeatureSet::new("MidgameKnight", FeatureIndex::MidgameKnight, FeatureIndex::MidgameBishop),
     FeatureSet::new("MidgameBishop", FeatureIndex::MidgameBishop, FeatureIndex::MidgameRook),
@@ -104,7 +104,14 @@ static FEATURE_SETS: [FeatureSet; 13] = [
     FeatureSet::new("EndgameRook", FeatureIndex::EndgameRook, FeatureIndex::EndgameQueen),
     FeatureSet::new("EndgameQueen", FeatureIndex::EndgameQueen, FeatureIndex::EndgameKing),
     FeatureSet::new("EndgameKing", FeatureIndex::EndgameKing, FeatureIndex::PieceValues),
-    FeatureSet::new_mixed("Misc", FeatureIndex::PieceValues, EVAL_PARAM_COUNT),
+    FeatureSet::new("PieceValues", FeatureIndex::PieceValues, FeatureIndex::DoubledPawns),
+    FeatureSet::new_single("DoubledPawns", FeatureIndex::DoubledPawns),
+    FeatureSet::new_single("PassedPawns", FeatureIndex::PassedPawns),
+    FeatureSet::new_single("RookOpenFile", FeatureIndex::RookOpenFile),
+    FeatureSet::new_single("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile),
+    FeatureSet::new_single("BishopPair", FeatureIndex::BishopPair),
+    FeatureSet::new_single("PawnShield", FeatureIndex::PawnShield),
+    FeatureSet::new_single("ConnectedPawns", FeatureIndex::ConnectedPawns),
 ];
 
 #[rustfmt::skip]
@@ -751,7 +758,9 @@ impl Add<u16> for FeatureIndex {
 
 pub struct FeatureSet<'a> {
     pub name: &'a str,
+    /// inclusive lower bound
     pub lower: usize,
+    /// exclusive upper bound
     pub upper: usize,
 }
 
@@ -777,6 +786,14 @@ impl<'a> FeatureSet<'a> {
             name,
             lower: lower as usize,
             upper,
+        }
+    }
+
+    pub const fn new_single(name: &'a str, index: FeatureIndex) -> Self {
+        Self {
+            name,
+            lower: index as usize,
+            upper: index as usize + 1,
         }
     }
 }
