@@ -421,6 +421,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         //     panic!("Biggest change {biggest_change} could cause an overflow")
                         // } else
                         if biggest_change == 0 {
+                            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
+
                             if found_improvement {
                                 final_loop = true;
                                 step_size = best_improvement.as_ref().unwrap().step_size;
@@ -446,6 +448,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         new_error = find_error_for_features(&features, &updated_params, scaling_constant);
 
                         if base_error - new_error >= step_size * t {
+                            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
                             println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
 
                             if final_loop {
@@ -488,6 +491,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                         } else {
                             failures += 1;
                             if !quiet || failures % 5 == 0 {
+                                println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
                                 println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
                             }
                             step_size *= tau;
@@ -516,7 +520,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
                     iterations += 1;
                     println!(
-                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
+                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
                         humantime::format_rfc3339(SystemTime::now()),
                         starting_error.unwrap() - new_error,
                         feature_set.name,
