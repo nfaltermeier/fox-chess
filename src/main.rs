@@ -17,6 +17,7 @@ use vampirc_uci::parse_with_unknown;
 mod bench;
 mod bitboard;
 mod board;
+mod eval_values;
 mod evaluate;
 mod magic_bitboard;
 mod move_generator;

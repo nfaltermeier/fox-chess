@@ -11,7 +11,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
+    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove},
     move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{
@@ -23,6 +23,7 @@ use crate::{
     uci::UciInterface,
     uci_required_options_helper::RequiredUciOptions,
 };
+use crate::eval_values::CENTIPAWN_VALUES_MIDGAME;
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
@@ -585,7 +586,7 @@ impl<'a> Searcher<'a> {
 
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 let see_margin = draft as i16 * -50;
-                if see_margin > (CENTIPAWN_VALUES[PIECE_PAWN as usize] - CENTIPAWN_VALUES[PIECE_QUEEN as usize])
+                if see_margin > (CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] - CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize])
                     && !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin)
                 {
                     continue;
@@ -906,7 +907,7 @@ impl<'a> Searcher<'a> {
             }
 
             if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-                && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
+                && stand_pat + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] + 100 < alpha
             {
                 return stand_pat;
             }

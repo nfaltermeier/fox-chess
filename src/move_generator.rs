@@ -12,7 +12,7 @@ use crate::{
         HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN,
         PIECE_ROOK,
     },
-    evaluate::CENTIPAWN_VALUES,
+    eval_values::CENTIPAWN_VALUES_MIDGAME,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
@@ -147,35 +147,35 @@ impl Board {
                 if !promo {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
+                            - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                     });
                 } else {
-                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
+                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
+                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
                     ));
                 }
             }
@@ -195,25 +195,25 @@ impl Board {
                             from,
                             to,
                             MOVE_PROMO_QUEEN,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_ROOK,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_BISHOP,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_KNIGHT,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
                         ));
                     } else {
                         result.push(ScoredMove::new(
@@ -371,8 +371,8 @@ impl Board {
                 } else {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
+                            - CENTIPAWN_VALUES_MIDGAME[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                     });
                 }
             }
@@ -590,8 +590,8 @@ impl Board {
                     }
             } else {
                 let target_piece = self.get_piece_64(to as usize);
-                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES[(target_piece & PIECE_MASK) as usize]
-                    - CENTIPAWN_VALUES[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR
+                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
+                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR
             };
 
             if !PROMOS {
@@ -608,25 +608,25 @@ impl Board {
                     from,
                     to,
                     MOVE_PROMO_QUEEN | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES[PIECE_QUEEN as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_ROOK | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES[PIECE_ROOK as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_BISHOP | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES[PIECE_BISHOP as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_KNIGHT | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES[PIECE_KNIGHT as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
                 ));
             }
         }

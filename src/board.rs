@@ -4,9 +4,7 @@ use log::error;
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{BIT_SQUARES, DARK_SQUARES, pretty_print_bitboard},
-    evaluate::{GAME_STAGE_VALUES, PIECE_SQUARE_TABLES},
-    repetition_tracker::RepetitionTracker,
+    bitboard::{BIT_SQUARES, DARK_SQUARES, pretty_print_bitboard}, eval_values::PIECE_SQUARE_TABLES, evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker
 };
 
 pub const PIECE_MASK: u8 = 0b0000_0111;
