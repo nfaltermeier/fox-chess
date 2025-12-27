@@ -251,7 +251,7 @@ impl Board {
         let mut misc_features_idx = 0;
         for (i, c) in piece_counts.iter().enumerate() {
             if *c != 0 {
-                result.misc_features[misc_features_idx] = (*c, FeatureIndex::PieceValues + i as u16);
+                result.misc_features[misc_features_idx] = (*c, FeatureIndex::PieceValues + i as u16 * 2);
                 misc_features_idx += 1;
             }
         }

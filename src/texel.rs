@@ -62,7 +62,7 @@ pub struct PositionFeatures {
     pub result: f64,
 }
 
-pub const EVAL_PARAM_COUNT: usize = 782;
+pub const EVAL_PARAM_COUNT: usize = 796;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
@@ -83,13 +83,13 @@ pub enum FeatureIndex {
     EndgameKing = 64 * 11,
     /// Index of the None piece
     PieceValues = 64 * 12,
-    DoubledPawns = 775,
-    PassedPawns = 776,
-    RookOpenFile = 777,
-    RookHalfOpenFile = 778,
-    BishopPair = 779,
-    PawnShield = 780,
-    ConnectedPawns = 781,
+    DoubledPawns = 782,
+    PassedPawns = 784,
+    RookOpenFile = 786,
+    RookHalfOpenFile = 788,
+    BishopPair = 790,
+    PawnShield = 792,
+    ConnectedPawns = 794,
 }
 
 static FEATURE_SETS: [FeatureSet; 20] = [
@@ -106,13 +106,13 @@ static FEATURE_SETS: [FeatureSet; 20] = [
     FeatureSet::new("EndgameQueen", FeatureIndex::EndgameQueen, FeatureIndex::EndgameKing),
     FeatureSet::new("EndgameKing", FeatureIndex::EndgameKing, FeatureIndex::PieceValues),
     FeatureSet::new("PieceValues", FeatureIndex::PieceValues, FeatureIndex::DoubledPawns),
-    FeatureSet::new_single("DoubledPawns", FeatureIndex::DoubledPawns),
-    FeatureSet::new_single("PassedPawns", FeatureIndex::PassedPawns),
-    FeatureSet::new_single("RookOpenFile", FeatureIndex::RookOpenFile),
-    FeatureSet::new_single("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile),
-    FeatureSet::new_single("BishopPair", FeatureIndex::BishopPair),
-    FeatureSet::new_single("PawnShield", FeatureIndex::PawnShield),
-    FeatureSet::new_single("ConnectedPawns", FeatureIndex::ConnectedPawns),
+    FeatureSet::new("DoubledPawns", FeatureIndex::DoubledPawns, FeatureIndex::PassedPawns),
+    FeatureSet::new("PassedPawns", FeatureIndex::PassedPawns, FeatureIndex::RookOpenFile),
+    FeatureSet::new("RookOpenFile", FeatureIndex::RookOpenFile, FeatureIndex::RookHalfOpenFile),
+    FeatureSet::new("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile, FeatureIndex::BishopPair),
+    FeatureSet::new("BishopPair", FeatureIndex::BishopPair, FeatureIndex::PawnShield),
+    FeatureSet::new("PawnShield", FeatureIndex::PawnShield, FeatureIndex::ConnectedPawns),
+    FeatureSet::new_mixed("ConnectedPawns", FeatureIndex::ConnectedPawns, EVAL_PARAM_COUNT),
 ];
 
 #[rustfmt::skip]
@@ -120,35 +120,35 @@ pub static DEFAULT_PARAMS: EvalParams = [
         0,0,0,0,0,0,0,0,
         167,148,137,130,86,59,16,55,
         39,53,51,44,52,67,74,31,
-        3,12,8,11,29,25,20,0,
-        -10,3,-2,2,3,14,14,-11,
-        -15,-7,-13,-14,-3,3,19,-9,
-        -13,-5,-14,-30,-16,16,34,-18,
+        5,12,8,11,28,25,20,2,
+        -9,2,-2,3,3,13,14,-11,
+        -15,-9,-14,-15,-6,1,17,-9,
+        -12,-4,-13,-31,-17,16,35,-17,
         0,0,0,0,0,0,0,0,
         -124,-21,-7,-15,24,-46,-39,-118,
         -10,4,22,40,36,38,-33,-10,
-        6,27,43,64,80,81,38,6,
-        1,14,41,62,36,64,28,32,
-        -13,7,26,16,31,24,32,-3,
-        -31,-9,1,16,27,8,12,-20,
-        -49,-23,-14,-4,-5,0,-15,-16,
-        -81,-39,-37,-25,-26,-18,-39,-66,
+        6,27,43,64,80,81,40,6,
+        1,14,41,62,37,64,28,32,
+        -13,7,28,17,31,24,32,-1,
+        -31,-9,3,16,27,9,12,-22,
+        -49,-23,-14,-4,-6,0,-15,-11,
+        -81,-40,-37,-25,-26,-18,-41,-66,
         -13,-29,-36,-18,-37,-57,-14,20,
-        -7,2,6,-9,9,4,-8,-19,
-        -1,17,27,35,37,66,38,26,
-        2,4,23,49,33,30,-1,-2,
-        -13,10,11,29,22,4,0,-4,
-        -17,5,8,8,8,5,5,2,
-        -13,-8,4,-12,-4,0,12,-15,
-        -37,-26,-29,-28,-22,-36,-23,-26,
-        50,47,43,38,35,35,47,40,
-        25,28,47,56,47,68,54,53,
-        11,23,29,36,43,65,50,23,
-        -6,-4,11,14,15,23,14,-5,
-        -23,-16,-10,-3,-5,-5,1,-21,
-        -30,-24,-20,-23,-18,-18,1,-22,
-        -33,-27,-16,-20,-18,-3,-18,-49,
-        -14,-15,-10,-8,-5,-5,-25,-19,
+        -7,3,6,-9,9,4,-9,-19,
+        -1,17,27,35,37,66,39,27,
+        1,3,23,49,32,30,-1,-2,
+        -13,9,11,28,21,4,1,-4,
+        -18,5,7,8,7,4,5,1,
+        -13,-8,4,-13,-4,0,12,-15,
+        -37,-26,-31,-29,-23,-36,-23,-27,
+        50,47,43,38,35,36,47,40,
+        25,27,47,56,47,68,54,53,
+        11,23,29,36,44,65,50,23,
+        -7,-4,11,15,15,24,14,-4,
+        -23,-17,-10,-3,-5,-5,1,-21,
+        -30,-24,-21,-23,-18,-18,2,-22,
+        -34,-27,-16,-20,-18,-3,-17,-49,
+        -13,-14,-10,-8,-5,-3,-24,-21,
         4,21,28,39,67,78,71,59,
         -7,-11,24,30,36,72,46,64,
         -2,6,20,35,54,105,87,59,
@@ -163,58 +163,60 @@ pub static DEFAULT_PARAMS: EvalParams = [
         27,44,13,10,18,26,42,27,
         16,40,36,32,30,25,6,-7,
         3,21,16,15,15,8,7,-15,
-        13,1,9,-14,-6,-4,25,23,
-        -40,12,0,-44,12,-34,33,22,
+        13,1,9,-14,-6,-4,26,24,
+        -40,12,0,-44,13,-34,33,21,
         0,0,0,0,0,0,0,0,
-        189,200,201,152,179,199,249,217,
-        134,127,100,83,64,67,87,90,
-        82,66,52,23,17,25,44,40,
-        57,54,28,14,17,24,31,22,
-        51,42,31,25,21,22,22,21,
-        68,56,46,42,50,33,30,37,
+        156,172,172,118,159,177,232,182,
+        93,85,58,37,16,24,42,47,
+        42,26,11,-20,-22,-14,5,-2,
+        17,15,-12,-27,-22,-13,-7,-18,
+        11,4,-7,-15,-14,-15,-16,-19,
+        27,17,7,25,11,-6,-10,-4,
         0,0,0,0,0,0,0,0,
-        0,-24,-23,-18,-32,-1,-26,-60,
-        -39,-16,-19,-14,-24,-45,-18,-56,
-        -36,-26,-9,-16,-39,-50,-35,-57,
-        -28,-23,-2,-20,-1,-32,-18,-55,
-        -35,-11,2,7,-4,-14,-44,-43,
-        -56,-10,-5,-4,-19,-27,-46,-51,
-        -66,-47,-26,-19,-27,-41,-52,-89,
-        -70,-88,-56,-41,-55,-69,-88,-100,
-        2,20,17,11,8,9,-8,-39,
-        -15,4,5,4,-4,-9,-4,-39,
-        -9,-3,-10,-14,-23,-19,-11,-29,
-        -4,5,-7,-7,-1,-16,10,-22,
-        -11,2,8,-1,4,7,-4,-20,
-        -31,-12,6,2,13,-11,-30,-43,
-        -42,-26,-26,-3,-17,-27,-53,-82,
-        -34,-14,-36,-26,-29,-35,-34,-23,
-        64,75,79,79,86,85,83,87,
-        90,89,80,70,79,60,68,68,
-        92,83,81,74,66,62,65,79,
-        91,91,83,77,69,72,69,82,
-        84,86,82,74,68,77,69,74,
-        60,61,60,55,56,57,41,52,
-        48,44,47,46,42,33,40,46,
-        64,62,74,72,53,56,81,59,
-        98,118,132,147,101,82,73,85,
-        97,139,144,151,153,93,108,51,
-        74,110,122,135,117,61,46,30,
-        70,115,134,142,135,130,107,84,
-        75,108,107,124,120,129,97,94,
-        59,63,106,91,87,94,89,62,
-        55,36,65,52,35,0,15,48,
-        52,47,50,28,52,5,10,-5,
-        -69,-36,-2,23,-11,25,-1,-64,
-        -9,30,2,44,51,26,48,5,
-        19,38,48,51,59,72,77,47,
-        -6,15,34,38,39,38,26,5,
-        -35,-10,10,19,23,20,10,-11,
-        -47,-22,-3,9,11,8,-4,-16,
-        -51,-18,-10,-1,-1,0,-19,-44,
-        -2,-53,-24,-14,-47,-16,-62,-85,
-        0,82,292,313,445,903,20000,22,
-        8,29,21,27,-8,6,
+        19,1,5,10,-3,25,-5,-47,
+        -13,10,7,14,4,-19,9,-28,
+        -11,3,19,13,-12,-22,-9,-29,
+        -2,5,27,10,29,-5,11,-26,
+        -8,17,28,37,26,16,-15,-14,
+        -26,19,21,26,11,3,-15,-20,
+        -40,-15,7,14,4,-10,-22,-59,
+        -38,-57,-25,-9,-24,-39,-55,-81,
+        28,47,42,35,32,35,17,-12,
+        11,27,29,28,21,15,21,-15,
+        15,20,14,10,1,4,14,-5,
+        19,29,17,17,22,8,33,2,
+        15,28,32,25,32,30,19,5,
+        -7,13,31,26,39,14,-6,-20,
+        -18,-1,1,22,8,-4,-28,-51,
+        -10,13,-14,0,-4,-11,-6,4,
+        45,57,64,65,70,65,62,64,
+        70,72,64,55,62,41,47,44,
+        72,65,63,58,48,39,42,57,
+        71,73,67,62,51,50,49,60,
+        66,69,67,62,53,55,48,53,
+        42,44,46,40,40,35,21,34,
+        31,25,31,31,24,10,22,32,
+        44,41,55,54,36,32,57,40,
+        95,114,127,142,99,81,73,83,
+        92,134,142,147,151,88,103,49,
+        67,104,117,132,116,58,45,25,
+        65,113,134,140,134,130,102,82,
+        71,105,104,121,114,126,98,86,
+        58,63,103,88,88,92,86,59,
+        53,34,61,50,33,-2,15,50,
+        49,46,50,28,49,8,10,-5,
+        -69,-36,-2,23,-11,25,-2,-64,
+        -9,31,1,43,50,27,49,4,
+        19,38,48,51,59,73,78,48,
+        -6,15,34,39,40,39,27,5,
+        -35,-10,10,19,24,21,11,-12,
+        -47,-22,-3,9,12,10,-4,-16,
+        -51,-18,-10,0,0,0,-19,-46,
+        -3,-54,-24,-14,-47,-16,-64,-87,
+        0,0,81,123,293,293,313,313,
+        449,516,921,994,20000,20000,17,29,
+        6,13,37,2,19,36,28,88,
+        -8,-8,8,4,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
@@ -565,8 +567,12 @@ pub fn change_param_at_index(i: usize) -> bool {
         || (i >= 56 + 6 * 64 && i < 64 + 6 * 64)
         // None piece centipawn value midgame
         || i == FeatureIndex::PieceValues as usize
+        // None piece centipawn value endgame
+        || i == FeatureIndex::PieceValues as usize + 1
         // King centipawn value midgame
-        || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize
+        || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2
+        // King centipawn value endgame
+        || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2 + 1
     {
         return false;
     }
@@ -714,31 +720,31 @@ fn save_gradient(gradient: &Box<EvalGradient>) {
 
 impl FeatureData {
     pub fn evaluate(&self, params: &EvalParams) -> i16 {
-        let position_score_midgame = FeatureData::sum_psqt_for_a_phase(&self.midgame_psqt_white, &self.midgame_psqt_black, params);
+        let position_score_midgame = FeatureData::sum_psqt_for_a_phase(&self.midgame_psqt_white, &self.midgame_psqt_black, &self.misc_features, params, false);
 
-        let position_score_endgame = FeatureData::sum_psqt_for_a_phase(&self.endgame_psqt_white, &self.endgame_psqt_black, params);
+        let position_score_endgame = FeatureData::sum_psqt_for_a_phase(&self.endgame_psqt_white, &self.endgame_psqt_black, &self.misc_features, params, true);
 
-        let position_score_final = ((position_score_midgame * self.game_stage)
-            + (position_score_endgame * (MIN_GAME_STAGE_FULLY_MIDGAME - self.game_stage)))
-            / MIN_GAME_STAGE_FULLY_MIDGAME;
-
-        let mut misc_feature_score = 0;
-        for (w, i) in self.misc_features {
-            misc_feature_score += w as i16 * params[i as usize];
-        }
+        let position_score_final = (((position_score_midgame as i32 * self.game_stage as i32)
+            + (position_score_endgame as i32 * (MIN_GAME_STAGE_FULLY_MIDGAME as i32 - self.game_stage as i32)))
+            / MIN_GAME_STAGE_FULLY_MIDGAME as i32) as i16;
 
         let pawn_shield = (self.pawn_shield.taper_amount * self.pawn_shield.weight * params[self.pawn_shield.idx as usize]) / self.pawn_shield.max_amount;
 
-        position_score_final + misc_feature_score + pawn_shield
+        position_score_final + pawn_shield
     }
     
-    pub fn sum_psqt_for_a_phase(white: &[u16; 16], black: &[u16; 16], params: &EvalParams) -> i16 {
-        let mut mid_data = [0; 32];
+    pub fn sum_psqt_for_a_phase(white: &[u16; 16], black: &[u16; 16], misc_features: &[(i8, u16); MAX_MISC_FEATURES], params: &EvalParams, endgame: bool) -> i16 {
+        let mut mid_data = [0; 32 + MAX_MISC_FEATURES];
         for (a_i, p_i) in white.iter().enumerate() {
             mid_data[a_i] = params[*p_i as usize];
         }
         for (a_i, p_i) in black.iter().enumerate() {
             mid_data[a_i + 16] = -params[*p_i as usize];
+        }
+
+        for (a_i, feature) in misc_features.iter().enumerate() {
+            let (w, i) = feature;
+            mid_data[a_i + 32] = *w as i16 * params[*i as usize + if endgame { 1 } else { 0 }];
         }
 
         let mut sum = i16x8::splat(0);
