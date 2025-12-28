@@ -86,6 +86,7 @@ pub fn bench() {
             &mut continuation_history,
             1,
             RequiredUciOptions::default(),
+            0,
         );
 
         searcher.iterative_deepening_search(&tc, &sc);

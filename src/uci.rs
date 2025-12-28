@@ -32,6 +32,7 @@ pub struct UciInterface {
     continuation_history: Box<ContinuationHistoryTable>,
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
+    contempt: i16,
 }
 
 impl UciInterface {
@@ -44,6 +45,7 @@ impl UciInterface {
             continuation_history: Self::alloc_zeroed_continuation_history(),
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
+            contempt: 0,
         }
     }
 
@@ -57,6 +59,7 @@ impl UciInterface {
                     println!("id author nfaltermeier");
                     println!("option name Hash type spin default 128 min 1 max 1048576");
                     println!("option name MultiPV type spin default 1 min 1 max 255");
+                    println!("option name Contempt type spin default 0 min -100 max 100");
                     RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
@@ -133,6 +136,7 @@ impl UciInterface {
                             &mut self.continuation_history,
                             self.multi_pv,
                             self.extra_uci_options.convert(),
+                            self.contempt,
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -201,6 +205,21 @@ impl UciInterface {
                                 }
                             } else {
                                 error!("Expected a value for option MultiPV");
+                            }
+                        }
+                        "contempt" => {
+                            if let Some(value) = value {
+                                let contempt = value.parse::<i16>();
+                                if let Ok(contempt) = contempt {
+                                    self.contempt = contempt;
+                                } else {
+                                    error!(
+                                        "Failed to parse Contempt value as an integer: {}",
+                                        contempt.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option Contempt");
                             }
                         }
                         _ => {
