@@ -527,14 +527,16 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     }
 
                     iterations += 1;
+                    let will_save = !quiet || last_disk_save.elapsed() > Duration::from_secs(30);
                     println!(
-                        "[{}] Saving, error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
+                        "[{}] {}error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
                         humantime::format_rfc3339(SystemTime::now()),
+                        if will_save { "Saving, " } else { "" },
                         starting_error.unwrap() - new_error,
                         feature_set.name,
                     );
 
-                    if !quiet || last_disk_save.elapsed() > Duration::from_secs(20) {
+                    if will_save {
                         save_params(&params);
                         last_disk_save = Instant::now();
                     }
