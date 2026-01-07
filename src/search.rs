@@ -507,6 +507,7 @@ impl<'a> Searcher<'a> {
             && beta < i16::MAX
             && draft > 4
             && !in_check
+            && tt_entry.is_none_or(|e| e.move_type != MoveType::FailLow && e.get_score(ply) >= beta)
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
                 != self.board.side_occupancy[our_side]
