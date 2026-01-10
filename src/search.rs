@@ -93,6 +93,8 @@ pub struct Searcher<'a> {
     extra_uci_options: RequiredUciOptions,
     root_pv_branch_nodes: u64,
     pv_nodes_fractions: VecDeque<f32>,
+    contempt: i16,
+    white_started_search: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -104,10 +106,13 @@ impl<'a> Searcher<'a> {
         continuation_history: &'a mut ContinuationHistoryTable,
         multi_pv: u8,
         extra_uci_options: RequiredUciOptions,
+        contempt: i16,
     ) -> Self {
         let starting_fullmove = 0;
 
         let starting_in_check = board.is_in_check(false);
+
+        let white_started_search = board.white_to_move;
 
         assert!(multi_pv >= 1);
 
@@ -132,6 +137,8 @@ impl<'a> Searcher<'a> {
             extra_uci_options,
             root_pv_branch_nodes: 0,
             pv_nodes_fractions: VecDeque::new(),
+            contempt,
+            white_started_search,
         }
     }
 
@@ -391,7 +398,7 @@ impl<'a> Searcher<'a> {
                 || self.board.is_insufficient_material())
         {
             parent_pv.clear();
-            return Ok(0);
+            return Ok(self.eval_draw());
         }
 
         if in_check {
@@ -502,6 +509,7 @@ impl<'a> Searcher<'a> {
             && beta < i16::MAX
             && draft > 4
             && !in_check
+            && tt_entry.is_none_or(|e| e.move_type != MoveType::FailLow && e.get_score(ply) >= beta)
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
                 != self.board.side_occupancy[our_side]
@@ -823,7 +831,7 @@ impl<'a> Searcher<'a> {
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
                 parent_pv.clear();
-                return Ok(0);
+                return Ok(self.eval_draw());
             }
         } else if searched_moves == 1 && ply == 0 {
             self.single_root_move = true;
@@ -871,6 +879,10 @@ impl<'a> Searcher<'a> {
                 m.score += relevant_cont_hist[((piece_to_move & PIECE_MASK) - 1) as usize][m.m.to() as usize];
             }
         }
+    }
+
+    fn eval_draw(&self) -> i16 {
+        self.contempt * if self.board.white_to_move ^ self.white_started_search { 1 } else { -1 }
     }
 }
 

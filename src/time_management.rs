@@ -22,11 +22,11 @@ pub fn get_cutoff_times(
     }
 
     let divisor = if fullmove_counter < 15 {
-        25
+        27
     } else if fullmove_counter < 25 {
         20
     } else {
-        30
+        25
     };
 
     let time_left = time_left.as_ref().unwrap().to_std().unwrap();
