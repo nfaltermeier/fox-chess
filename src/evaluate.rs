@@ -4,7 +4,7 @@ use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill}, board::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
         PIECE_QUEEN, PIECE_ROOK,
-    }, eval_values::{BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, PASSED_PAWNS, PAWN_SHIELD, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move
+    }, eval_values::{BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -86,6 +86,10 @@ impl Board {
             pawn_shield_eval = (game_stage_for_pawn_shield * net_pawn_shield_penalty * PAWN_SHIELD)
                 / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
         }
+
+        let pieces_threatened_by_pawns = (self.get_pieces_threatened_by_pawns(true).count_ones() - self.get_pieces_threatened_by_pawns(false).count_ones()) as i16;
+        midgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.midgame;
+        endgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.endgame;
 
         let mut capped_game_stage = self.game_stage as i32;
         if capped_game_stage > MIN_GAME_STAGE_FULLY_MIDGAME as i32 {

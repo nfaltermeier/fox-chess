@@ -314,6 +314,13 @@ impl Board {
 
         ne_conn | nw_conn
     }
+
+    pub fn get_pieces_threatened_by_pawns(&self, white: bool) -> u64 {
+        let side = if white { 0 } else { 1 };
+        let other_side = if white { 1 } else { 0 };
+
+        generate_pawn_attack(self.piece_bitboards[side][PIECE_PAWN as usize], white) & (self.side_occupancy[other_side] & !self.piece_bitboards[other_side][PIECE_PAWN as usize])
+    }
 }
 
 #[cfg(test)]
@@ -414,5 +421,30 @@ mod bitboard_tests {
         shape_pairs: "8/8/p3pp2/1p1p2p1/1P1P2P1/P3PP2/8/1K1k4 w - - 0 1",
         shape_long_chain: "8/5Pp1/4Pp2/3Pp3/2Pp4/1Pp5/Pp6/1K1k4 w - - 0 1",
         shape_v: "4k3/3p4/4p3/5p1p/2P3p1/1P1P4/P3P3/4K3 w - - 0 6",
+    }
+
+    /// All pawns must be connected
+    macro_rules! pieces_threatened_by_pawns_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, w_value, b_value) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white = board.get_pieces_threatened_by_pawns(true);
+                    let black = board.get_pieces_threatened_by_pawns(false);
+
+                    assert_eq!(white.count_ones(), w_value);
+                    assert_eq!(black.count_ones(), b_value);
+                }
+            )*
+        }
+    }
+
+    pieces_threatened_by_pawns_test! {
+        pawns_threaten_pawns: ("1k6/8/2p1p3/1p1p4/2P1P3/3P4/8/5K2 w - - 0 1", 0, 0),
+        each_type_threaten_twice: ("1k6/8/r1b1n1q1/1P1P1P1P/1p1p1p1p/Q1R1B1N1/8/5K2 w - - 0 1", 4, 4),
+        king_threatened: ("3k4/4P3/8/8/8/8/2p5/3K4 w - - 0 1", 1, 1),
     }
 }
