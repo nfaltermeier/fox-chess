@@ -815,6 +815,17 @@ impl<'a> FeatureSet<'a> {
     }
 }
 
+fn value_is_between(i: usize, lower: FeatureIndex, upper: FeatureIndex) -> bool {
+    i >= lower as usize && i < upper as usize
+}
+
+fn is_piece_type(i: usize, piece_type: u8) -> bool {
+    // Midgame piece value
+    i == FeatureIndex::PieceValues as usize + piece_type as usize * 2
+    // Endgame piece value
+    || i == FeatureIndex::PieceValues as usize + piece_type as usize * 2 + 1
+}
+
 // Summing floats can be surprisingly complicated. These methods are taken from https://orlp.net/blog/taming-float-sums/
 // which has a lovely writeup on the issue and solutions
 fn sum_block(arr: &[f64]) -> f64 {
