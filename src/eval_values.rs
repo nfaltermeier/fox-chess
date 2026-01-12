@@ -193,3 +193,4 @@ pub const ROOF_HALF_OPEN_FILES: EvalFeature = EvalFeature::new(19, 36);
 pub const BISHOP_PAIR: EvalFeature = EvalFeature::new(28, 88);
 pub const PAWN_SHIELD: i16 = -8;
 pub const CONNECTED_PAWNS: EvalFeature = EvalFeature::new(8, 4);
+pub const PIECES_THREATENED_BY_PAWNS: EvalFeature = EvalFeature::new(56, 34);

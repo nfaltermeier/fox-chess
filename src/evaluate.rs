@@ -121,6 +121,8 @@ impl Board {
             max_amount: MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
         };
 
+        let net_pieces_threatened_by_pawns = (self.get_pieces_threatened_by_pawns(true).count_ones() - self.get_pieces_threatened_by_pawns(false).count_ones()) as i16;
+
         if doubled_pawns != 0 {
             result.misc_features[misc_features_idx] = (doubled_pawns as i8, FeatureIndex::DoubledPawns as u16);
             misc_features_idx += 1;
@@ -143,6 +145,10 @@ impl Board {
         }
         if net_connected_pawns != 0 {
             result.misc_features[misc_features_idx] = (net_connected_pawns as i8, FeatureIndex::ConnectedPawns as u16);
+            misc_features_idx += 1;
+        }
+        if net_pieces_threatened_by_pawns != 0 {
+            result.misc_features[misc_features_idx] = (net_pieces_threatened_by_pawns as i8, FeatureIndex::PawnsThreatenPieces as u16);
             misc_features_idx += 1;
         }
 

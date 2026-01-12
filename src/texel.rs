@@ -62,7 +62,7 @@ pub struct PositionFeatures {
     pub result: f64,
 }
 
-pub const EVAL_PARAM_COUNT: usize = 796;
+pub const EVAL_PARAM_COUNT: usize = 798;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
@@ -90,6 +90,8 @@ pub enum FeatureIndex {
     BishopPair = 790,
     PawnShield = 792,
     ConnectedPawns = 794,
+    // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
+    PawnsThreatenPieces = 796,
 }
 
 static FEATURE_SETS: [FeatureSet; 20] = [
@@ -112,7 +114,7 @@ static FEATURE_SETS: [FeatureSet; 20] = [
     FeatureSet::new("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile, FeatureIndex::BishopPair),
     FeatureSet::new("BishopPair", FeatureIndex::BishopPair, FeatureIndex::PawnShield),
     FeatureSet::new("PawnShield", FeatureIndex::PawnShield, FeatureIndex::ConnectedPawns),
-    FeatureSet::new_mixed("ConnectedPawns", FeatureIndex::ConnectedPawns, EVAL_PARAM_COUNT),
+    FeatureSet::new("ConnectedPawns", FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces),
 ];
 
 #[rustfmt::skip]
@@ -216,7 +218,7 @@ pub static DEFAULT_PARAMS: EvalParams = [
         0,0,81,123,293,293,313,313,
         449,516,921,994,20000,20000,17,29,
         6,13,37,2,19,36,28,88,
-        -8,-8,8,4,
+        -8,-8,8,4,56,34,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
@@ -575,6 +577,8 @@ pub fn change_param_at_index(i: usize) -> bool {
         || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2
         // King centipawn value endgame
         || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2 + 1
+        // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
+        || value_is_between(i, FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces)
     {
         return false;
     }
