@@ -87,7 +87,7 @@ impl Board {
                 / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
         }
 
-        let pieces_threatened_by_pawns = (self.get_pieces_threatened_by_pawns(true).count_ones() - self.get_pieces_threatened_by_pawns(false).count_ones()) as i16;
+        let pieces_threatened_by_pawns = self.get_pieces_threatened_by_pawns(true).count_ones() as i16 - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
         midgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.midgame;
         endgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.endgame;
 
