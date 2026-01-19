@@ -596,9 +596,7 @@ impl<'a> Searcher<'a> {
 
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 let see_margin = draft as i16 * -50;
-                if see_margin > (CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] - CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize])
-                    && !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin)
-                {
+                if !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
                     continue;
                 }
             }

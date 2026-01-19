@@ -25,6 +25,9 @@ static KING_ATTACKS: [u64; 64] = array![i => generate_king_attack(BIT_SQUARES[i]
 static PAWN_ATTACKS: [[u64; 64]; 2] = array![x => array![y => generate_pawn_attack(BIT_SQUARES[y], x == 0); 64]; 2];
 pub static SQUARES_BETWEEN: [[u64; 64]; 64] = array![x => array![y => squares_in_between(x as u64, y as u64); 64]; 64];
 
+static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
+static FILES_FOR_ISOLATED: [u64; 8] = array![i => west_one(FILES[i]) | east_one(FILES[i]); 8];
+
 pub struct AttacksTo {
     pub attackers: u64,
     pub possible_rook_like_x_rays: u64,
@@ -343,12 +346,33 @@ impl Board {
 
         generate_pawn_attack(self.piece_bitboards[side][PIECE_PAWN as usize], white) & (self.side_occupancy[other_side] & !self.piece_bitboards[other_side][PIECE_PAWN as usize])
     }
+
+    pub fn count_doubled_isolated_pawns(&self) -> (i16, i16) {
+        let mut pawn_occupied_files = [0, 0];
+        let mut isolated_pawn_files = [0, 0];
+        for color in 0..=1 {
+            for file_index in 0..8 {
+                if self.piece_bitboards[color][PIECE_PAWN as usize] & FILES[file_index] > 0 {
+                    pawn_occupied_files[color] += 1;
+
+                    if self.piece_bitboards[color][PIECE_PAWN as usize] & FILES_FOR_ISOLATED[file_index] == 0 {
+                        isolated_pawn_files[color] += 1;
+                    }
+                }
+            }
+        }
+
+        let net_doubled = (self.piece_bitboards[0][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[0])
+            - (self.piece_bitboards[1][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[1]);
+        let net_isolated = isolated_pawn_files[0] - isolated_pawn_files[1];
+
+        (net_doubled, net_isolated)
+    }
 }
 
 #[cfg(test)]
 mod bitboard_tests {
-    use crate::STARTING_FEN;
-    use crate::board::{Board, PIECE_PAWN};
+    use crate::{STARTING_FEN, board::{Board, PIECE_PAWN}};
 
     #[test]
     pub fn basic_passed_pawns() {
@@ -382,7 +406,7 @@ mod bitboard_tests {
     }
 
     probably_promote_test! {
-        starting_position: (STARTING_FEN, false),
+        probably_promote_starting_position: (STARTING_FEN, false),
         white_open: ("k7/4P3/K7/8/8/8/8/8 w - - 0 1", true),
         black_open: ("k7/8/K7/8/8/8/4p3/8 b - - 0 1", true),
         black_sw: ("k7/8/K7/8/8/8/4p3/3R4 b - - 0 1", true),
@@ -498,5 +522,35 @@ mod bitboard_tests {
         pawns_threaten_pawns: ("1k6/8/2p1p3/1p1p4/2P1P3/3P4/8/5K2 w - - 0 1", 0, 0),
         each_type_threaten_twice: ("1k6/8/r1b1n1q1/1P1P1P1P/1p1p1p1p/Q1R1B1N1/8/5K2 w - - 0 1", 4, 4),
         king_threatened: ("3k4/4P3/8/8/8/8/2p5/3K4 w - - 0 1", 1, 1),
+    }
+
+    macro_rules! doubled_pawns_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    let board = Board::from_fen(input).unwrap();
+                    let doubled_pawns = board.count_doubled_isolated_pawns().0;
+
+                    assert_eq!(expected, doubled_pawns);
+                }
+            )*
+        }
+    }
+
+    doubled_pawns_test! {
+        doubled_pawns_starting_position: (STARTING_FEN, 0),
+        white_two_doubled: ("rnbqkbnr/pppppppp/8/8/8/1P4P1/PP1PP1PP/RNBQKBNR w KQkq - 0 1", -2),
+        black_two_doubled: ("rnbqkbnr/1ppp1ppp/1p5p/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
+        white_tripled: ("rnbqkbnr/pppppppp/8/8/3P4/3P4/PP1P1PPP/RNBQKBNR w KQkq - 0 1", -2),
+        black_tripled: ("rnbqkbnr/1ppp1ppp/1p6/1p6/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
+        white_only_single_pawn: ("1k6/8/8/8/8/8/4P3/4K3 w - - 0 1", 0),
+        white_only_doubled_pawn: ("1k6/8/8/8/8/4P3/4P3/4K3 w - - 0 1", -1),
+        black_only_single_pawn: ("1k6/1p6/8/8/8/8/8/4K3 w - - 0 1", 0),
+        black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
+        unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
+        unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
     }
 }

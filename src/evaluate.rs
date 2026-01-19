@@ -1,5 +1,3 @@
-use array_macro::array;
-
 use crate::{
     bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill}, board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK}, eval_values::CENTIPAWN_VALUES_MIDGAME, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move, texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature}
 };
@@ -20,8 +18,6 @@ pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
 
 pub const MATE_THRESHOLD: i16 = 20000;
 pub const MATE_VALUE: i16 = 25000;
-
-static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
 
 #[inline]
 /// for piece_type, pawn is 0
@@ -77,7 +73,7 @@ impl Board {
             }
         }
 
-        let doubled_pawns = self.count_doubled_pawns();
+        let (doubled_pawns, isolated_pawns) = self.count_doubled_isolated_pawns();
 
         let white_passed = self.white_passed_pawns();
         let white_passed_distance = (south_fill(white_passed) & !white_passed).count_ones() as i16;
@@ -121,7 +117,7 @@ impl Board {
             max_amount: MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE,
         };
 
-        let net_pieces_threatened_by_pawns = (self.get_pieces_threatened_by_pawns(true).count_ones() - self.get_pieces_threatened_by_pawns(false).count_ones()) as i16;
+        let net_pieces_threatened_by_pawns = self.get_pieces_threatened_by_pawns(true).count_ones() as i16 - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
 
         if doubled_pawns != 0 {
             result.misc_features[misc_features_idx] = (doubled_pawns as i8, FeatureIndex::DoubledPawns as u16);
@@ -151,6 +147,10 @@ impl Board {
             result.misc_features[misc_features_idx] = (net_pieces_threatened_by_pawns as i8, FeatureIndex::PawnsThreatenPieces as u16);
             misc_features_idx += 1;
         }
+        if isolated_pawns != 0 {
+            result.misc_features[misc_features_idx] = (isolated_pawns as i8, FeatureIndex::IsolatedPawns as u16);
+            misc_features_idx += 1;
+        }
 
         result
     }
@@ -174,21 +174,6 @@ impl Board {
     /// Returns true if this position will be called a draw by the arbiter
     pub fn is_insufficient_material(&self) -> bool {
         false
-    }
-
-    /// positive value: black has more doubled pawns than white
-    fn count_doubled_pawns(&self) -> i16 {
-        let mut pawn_occupied_files = [0, 0];
-        for (color, occupied_files_count) in pawn_occupied_files.iter_mut().enumerate() {
-            for file in FILES {
-                if self.piece_bitboards[color][PIECE_PAWN as usize] & file > 0 {
-                    *occupied_files_count += 1;
-                }
-            }
-        }
-
-        (self.piece_bitboards[1][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[1])
-            - (self.piece_bitboards[0][PIECE_PAWN as usize].count_ones() as i16 - pawn_occupied_files[0])
     }
 
     // Algorithm from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
@@ -252,15 +237,22 @@ impl Board {
     pub fn is_static_exchange_eval_at_least(&self, m: Move, threshold: i16) -> bool {
         let from = m.from();
         let to = m.to();
+
+        let mut values = [0; 32];
+        values[0] = CENTIPAWN_VALUES_MIDGAME[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
+        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
+
+        // If losing the attacker with no followup is greater than the threshold, then no need to investigate further
+        if values[0] - CENTIPAWN_VALUES_MIDGAME[last_attacker] >= threshold {
+            return true;
+        }
+
         let mut occupancy = self.occupancy & !BIT_SQUARES[from as usize];
         let mut attacks_data = self.get_attacks_to(to as u8, occupancy);
         attacks_data.attackers &= !BIT_SQUARES[from as usize];
 
-        let mut values = [0; 32];
         let mut depth = 1;
         let mut color = if self.white_to_move { 1 } else { 0 };
-        values[0] = CENTIPAWN_VALUES_MIDGAME[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
-        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
 
         loop {
             // Check if the last move opened up an x-ray
@@ -318,22 +310,6 @@ mod eval_tests {
 
     use super::*;
 
-    macro_rules! doubled_pawns_test {
-        ($($name:ident: $value:expr,)*) => {
-            $(
-                #[test]
-                fn $name() {
-                    let (input, expected) = $value;
-
-                    let board = Board::from_fen(input).unwrap();
-                    let doubled_pawns = board.count_doubled_pawns();
-
-                    assert_eq!(expected, doubled_pawns);
-                }
-            )*
-        }
-    }
-
     #[test]
     pub fn simplest_kings_mirrorred() {
         let b1 = Board::from_fen("8/8/8/1k6/8/8/8/4K3 w - - 0 1").unwrap();
@@ -363,20 +339,6 @@ mod eval_tests {
         let b = Board::from_fen(STARTING_FEN).unwrap();
 
         assert_eq!(0, b.evaluate(&DEFAULT_PARAMS));
-    }
-
-    doubled_pawns_test! {
-        starting_position: (STARTING_FEN, 0),
-        white_two_doubled: ("rnbqkbnr/pppppppp/8/8/8/1P4P1/PP1PP1PP/RNBQKBNR w KQkq - 0 1", -2),
-        black_two_doubled: ("rnbqkbnr/1ppp1ppp/1p5p/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
-        white_tripled: ("rnbqkbnr/pppppppp/8/8/3P4/3P4/PP1P1PPP/RNBQKBNR w KQkq - 0 1", -2),
-        black_tripled: ("rnbqkbnr/1ppp1ppp/1p6/1p6/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
-        white_only_single_pawn: ("1k6/8/8/8/8/8/4P3/4K3 w - - 0 1", 0),
-        white_only_doubled_pawn: ("1k6/8/8/8/8/4P3/4P3/4K3 w - - 0 1", -1),
-        black_only_single_pawn: ("1k6/1p6/8/8/8/8/8/4K3 w - - 0 1", 0),
-        black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
-        unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
-        unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
     }
 
     macro_rules! see_test {
@@ -415,6 +377,6 @@ mod eval_tests {
         rook_xray_extra_defender: ("4q3/1p1pr1kb/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize], "e6e4"),
         // I think the best is if everything gets traded off, this is the net change of that. It fails, not sure if that is because my bishop val != knight val
         // big_trade_both_xrays: ("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -", CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * 2 - CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] - CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize], "d3d4"),
-        bench_is_at_least: ("3r1rk1/ppp1pp1p/6p1/3qb2P/3n4/4BN2/PP2BP2/R2Q1RK1 w - - 0 16", -298, "d1d4"),
+        bench_is_at_least: ("3r1rk1/ppp1pp1p/6p1/3qb2P/3n4/4BN2/PP2BP2/R2Q1RK1 w - - 0 16", -CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize], "d1d4"),
     }
 }

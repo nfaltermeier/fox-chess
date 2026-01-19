@@ -19,6 +19,7 @@ use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 
+use crate::board::PIECE_PAWN;
 use crate::evaluate::MIN_GAME_STAGE_FULLY_MIDGAME;
 use crate::{
     STARTING_FEN,
@@ -62,7 +63,7 @@ pub struct PositionFeatures {
     pub result: f64,
 }
 
-pub const EVAL_PARAM_COUNT: usize = 798;
+pub const EVAL_PARAM_COUNT: usize = 800;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
@@ -92,40 +93,42 @@ pub enum FeatureIndex {
     ConnectedPawns = 794,
     // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
     PawnsThreatenPieces = 796,
+    IsolatedPawns = 798,
 }
 
-static FEATURE_SETS: [FeatureSet; 20] = [
+static FEATURE_SETS: [FeatureSet; 8] = [
     FeatureSet::new("MidgamePawn", FeatureIndex::MidgamePawn, FeatureIndex::MidgameKnight),
-    FeatureSet::new("MidgameKnight", FeatureIndex::MidgameKnight, FeatureIndex::MidgameBishop),
-    FeatureSet::new("MidgameBishop", FeatureIndex::MidgameBishop, FeatureIndex::MidgameRook),
-    FeatureSet::new("MidgameRook", FeatureIndex::MidgameRook, FeatureIndex::MidgameQueen),
-    FeatureSet::new("MidgameQueen", FeatureIndex::MidgameQueen, FeatureIndex::MidgameKing),
-    FeatureSet::new("MidgameKing", FeatureIndex::MidgameKing, FeatureIndex::EndgamePawn),
+    // FeatureSet::new("MidgameKnight", FeatureIndex::MidgameKnight, FeatureIndex::MidgameBishop),
+    // FeatureSet::new("MidgameBishop", FeatureIndex::MidgameBishop, FeatureIndex::MidgameRook),
+    // FeatureSet::new("MidgameRook", FeatureIndex::MidgameRook, FeatureIndex::MidgameQueen),
+    // FeatureSet::new("MidgameQueen", FeatureIndex::MidgameQueen, FeatureIndex::MidgameKing),
+    // FeatureSet::new("MidgameKing", FeatureIndex::MidgameKing, FeatureIndex::EndgamePawn),
     FeatureSet::new("EndgamePawn", FeatureIndex::EndgamePawn, FeatureIndex::EndgameKnight),
-    FeatureSet::new("EndgameKnight", FeatureIndex::EndgameKnight, FeatureIndex::EndgameBishop),
-    FeatureSet::new("EndgameBishop", FeatureIndex::EndgameBishop, FeatureIndex::EndgameRook),
-    FeatureSet::new("EndgameRook", FeatureIndex::EndgameRook, FeatureIndex::EndgameQueen),
-    FeatureSet::new("EndgameQueen", FeatureIndex::EndgameQueen, FeatureIndex::EndgameKing),
-    FeatureSet::new("EndgameKing", FeatureIndex::EndgameKing, FeatureIndex::PieceValues),
+    // FeatureSet::new("EndgameKnight", FeatureIndex::EndgameKnight, FeatureIndex::EndgameBishop),
+    // FeatureSet::new("EndgameBishop", FeatureIndex::EndgameBishop, FeatureIndex::EndgameRook),
+    // FeatureSet::new("EndgameRook", FeatureIndex::EndgameRook, FeatureIndex::EndgameQueen),
+    // FeatureSet::new("EndgameQueen", FeatureIndex::EndgameQueen, FeatureIndex::EndgameKing),
+    // FeatureSet::new("EndgameKing", FeatureIndex::EndgameKing, FeatureIndex::PieceValues),
     FeatureSet::new("PieceValues", FeatureIndex::PieceValues, FeatureIndex::DoubledPawns),
     FeatureSet::new("DoubledPawns", FeatureIndex::DoubledPawns, FeatureIndex::PassedPawns),
     FeatureSet::new("PassedPawns", FeatureIndex::PassedPawns, FeatureIndex::RookOpenFile),
-    FeatureSet::new("RookOpenFile", FeatureIndex::RookOpenFile, FeatureIndex::RookHalfOpenFile),
-    FeatureSet::new("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile, FeatureIndex::BishopPair),
-    FeatureSet::new("BishopPair", FeatureIndex::BishopPair, FeatureIndex::PawnShield),
+    // FeatureSet::new("RookOpenFile", FeatureIndex::RookOpenFile, FeatureIndex::RookHalfOpenFile),
+    // FeatureSet::new("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile, FeatureIndex::BishopPair),
+    // FeatureSet::new("BishopPair", FeatureIndex::BishopPair, FeatureIndex::PawnShield),
     FeatureSet::new("PawnShield", FeatureIndex::PawnShield, FeatureIndex::ConnectedPawns),
     FeatureSet::new("ConnectedPawns", FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces),
+    FeatureSet::new_mixed("IsolatedPawns", FeatureIndex::IsolatedPawns, EVAL_PARAM_COUNT),
 ];
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
         0,0,0,0,0,0,0,0,
         167,148,137,130,86,59,16,55,
-        39,53,51,44,52,67,74,31,
-        5,12,8,11,28,25,20,2,
-        -9,2,-2,3,3,13,14,-11,
-        -15,-9,-14,-15,-6,1,17,-9,
-        -12,-4,-13,-31,-17,16,35,-17,
+        41,52,51,47,52,67,74,33,
+        8,3,7,10,26,24,16,4,
+        -7,-8,-3,5,3,10,2,-10,
+        -12,-18,-14,-15,-7,-2,8,-8,
+        -10,-13,-13,-31,-17,16,27,-14,
         0,0,0,0,0,0,0,0,
         -124,-21,-7,-15,24,-46,-39,-118,
         -10,4,22,40,36,38,-33,-10,
@@ -168,12 +171,12 @@ pub static DEFAULT_PARAMS: EvalParams = [
         13,1,9,-14,-6,-4,26,24,
         -40,12,0,-44,13,-34,33,21,
         0,0,0,0,0,0,0,0,
-        156,172,172,118,159,177,232,182,
-        93,85,58,37,16,24,42,47,
-        42,26,11,-20,-22,-14,5,-2,
-        17,15,-12,-27,-22,-13,-7,-18,
-        11,4,-7,-15,-14,-15,-16,-19,
-        27,17,7,25,11,-6,-10,-4,
+        151,163,164,110,150,168,223,175,
+        91,80,53,31,10,19,34,43,
+        40,25,10,-21,-22,-18,-1,-4,
+        16,14,-12,-28,-23,-14,-10,-19,
+        10,2,-7,-15,-15,-15,-20,-21,
+        26,15,5,23,11,-9,-15,-5,
         0,0,0,0,0,0,0,0,
         19,1,5,10,-3,25,-5,-47,
         -13,10,7,14,4,-19,9,-28,
@@ -215,10 +218,10 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -47,-22,-3,9,12,10,-4,-16,
         -51,-18,-10,0,0,0,-19,-46,
         -3,-54,-24,-14,-47,-16,-64,-87,
-        0,0,81,123,293,293,313,313,
-        449,516,921,994,20000,20000,17,29,
-        6,13,37,2,19,36,28,88,
-        -8,-8,8,4,56,34,
+        0,0,79,121,293,293,313,313,
+        449,516,921,994,20000,20000,-10,-24,
+        7,15,37,2,19,36,28,88,
+        -8,-8,8,4,56,34,-11,-6,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
@@ -583,7 +586,7 @@ pub fn change_param_at_index(i: usize) -> bool {
         return false;
     }
 
-    return true;
+    return !value_is_between(i, FeatureIndex::PieceValues, FeatureIndex::DoubledPawns) || is_piece_type(i, PIECE_PAWN);
 }
 
 fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f64) -> f64 {
