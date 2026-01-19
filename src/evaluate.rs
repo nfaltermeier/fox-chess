@@ -226,15 +226,22 @@ impl Board {
     pub fn is_static_exchange_eval_at_least(&self, m: Move, threshold: i16) -> bool {
         let from = m.from();
         let to = m.to();
+
+        let mut values = [0; 32];
+        values[0] = CENTIPAWN_VALUES_MIDGAME[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
+        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
+
+        // If losing the attacker with no followup is greater than the threshold, then no need to investigate further
+        if values[0] - CENTIPAWN_VALUES_MIDGAME[last_attacker] >= threshold {
+            return true;
+        }
+
         let mut occupancy = self.occupancy & !BIT_SQUARES[from as usize];
         let mut attacks_data = self.get_attacks_to(to as u8, occupancy);
         attacks_data.attackers &= !BIT_SQUARES[from as usize];
 
-        let mut values = [0; 32];
         let mut depth = 1;
         let mut color = if self.white_to_move { 1 } else { 0 };
-        values[0] = CENTIPAWN_VALUES_MIDGAME[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
-        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
 
         loop {
             // Check if the last move opened up an x-ray
@@ -383,6 +390,6 @@ mod eval_tests {
         rook_xray_extra_defender: ("4q3/1p1pr1kb/1B2rp2/6p1/p3PP2/P3R1P1/1P2R1K1/4Q3 b - -", CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize], "e6e4"),
         // I think the best is if everything gets traded off, this is the net change of that. It fails, not sure if that is because my bishop val != knight val
         // big_trade_both_xrays: ("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -", CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * 2 - CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] - CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize], "d3d4"),
-        bench_is_at_least: ("3r1rk1/ppp1pp1p/6p1/3qb2P/3n4/4BN2/PP2BP2/R2Q1RK1 w - - 0 16", -298, "d1d4"),
+        bench_is_at_least: ("3r1rk1/ppp1pp1p/6p1/3qb2P/3n4/4BN2/PP2BP2/R2Q1RK1 w - - 0 16", -CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize], "d1d4"),
     }
 }

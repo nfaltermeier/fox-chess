@@ -594,9 +594,7 @@ impl<'a> Searcher<'a> {
 
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 let see_margin = draft as i16 * -50;
-                if see_margin > (CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] - CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize])
-                    && !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin)
-                {
+                if !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
                     continue;
                 }
             }
@@ -942,8 +940,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 // SEE is coded to be run before the move is made so have to do it before testing legality
-                // Typical implementations also only check if the score is better than a threshold instead of calculating the whole thing.
-                if self.board.static_exchange_eval(r#move.m) < 0 {
+                if !self.board.is_static_exchange_eval_at_least(r#move.m, 0) {
                     continue;
                 }
 
