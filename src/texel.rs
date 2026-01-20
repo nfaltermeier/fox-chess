@@ -114,7 +114,7 @@ static FEATURE_SETS: [FeatureSet; 21] = [
     FeatureSet::new("PassedPawns", FeatureIndex::PassedPawns, FeatureIndex::RookOpenFile),
     FeatureSet::new("RookOpenFile", FeatureIndex::RookOpenFile, FeatureIndex::RookHalfOpenFile),
     FeatureSet::new("RookHalfOpenFile", FeatureIndex::RookHalfOpenFile, FeatureIndex::BishopPair),
-    FeatureSet::new("BishopPair", FeatureIndex::BishopPair, FeatureIndex::PawnShield),
+    FeatureSet::new_single("BishopPair", FeatureIndex::BishopPair),
     FeatureSet::new("PawnShield", FeatureIndex::PawnShield, FeatureIndex::ConnectedPawns),
     FeatureSet::new("ConnectedPawns", FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces),
     FeatureSet::new_mixed("IsolatedPawns", FeatureIndex::IsolatedPawns, EVAL_PARAM_COUNT),
@@ -582,6 +582,9 @@ pub fn change_param_at_index(i: usize) -> bool {
         || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2 + 1
         // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
         || value_is_between(i, FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces)
+        // PawnShield uses its own tapering so it does not have an endgame value.
+        // There is an extra value included in the params list so that the position of midgame and endgame values stays consistent. Skip that value.
+        || i == FeatureIndex::PawnShield as usize + 1
     {
         return false;
     }
