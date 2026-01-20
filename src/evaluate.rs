@@ -1,8 +1,15 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill}, board::{
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
+    board::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
         PIECE_QUEEN, PIECE_ROOK,
-    }, eval_values::{BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move
+    },
+    eval_values::{
+        BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
+        PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
+    },
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::Move,
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -27,8 +34,10 @@ impl Board {
         let mut midgame_values = self.piecesquare_midgame;
         let mut endgame_values = self.piecesquare_endgame;
         for i in 1..7 {
-            midgame_values += CENTIPAWN_VALUES_MIDGAME[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
-            endgame_values += CENTIPAWN_VALUES_ENDGAME[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
+            midgame_values +=
+                CENTIPAWN_VALUES_MIDGAME[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
+            endgame_values +=
+                CENTIPAWN_VALUES_ENDGAME[i] * (self.piece_counts[0][i] as i16 - self.piece_counts[1][i] as i16);
         }
 
         let (doubled_pawns, isolated_pawns) = self.count_doubled_isolated_pawns();
@@ -86,7 +95,8 @@ impl Board {
                 / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
         }
 
-        let pieces_threatened_by_pawns = self.get_pieces_threatened_by_pawns(true).count_ones() as i16 - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
+        let pieces_threatened_by_pawns = self.get_pieces_threatened_by_pawns(true).count_ones() as i16
+            - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
         midgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.midgame;
         endgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.endgame;
 
@@ -229,16 +239,16 @@ impl Board {
 
         loop {
             // Check if the last move opened up an x-ray
-            if attacks_data.possible_rook_like_x_rays != 0 &&
-                (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
+            if attacks_data.possible_rook_like_x_rays != 0
+                && (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
             {
                 let new_attacks = lookup_rook_attack(to as u8, occupancy) & attacks_data.possible_rook_like_x_rays;
                 attacks_data.attackers |= new_attacks;
                 attacks_data.possible_rook_like_x_rays ^= new_attacks;
             }
 
-            if attacks_data.possible_bishop_like_x_rays != 0 &&
-                (last_attacker == PIECE_BISHOP as usize
+            if attacks_data.possible_bishop_like_x_rays != 0
+                && (last_attacker == PIECE_BISHOP as usize
                     || last_attacker == PIECE_QUEEN as usize
                     || last_attacker == PIECE_PAWN as usize)
             {
