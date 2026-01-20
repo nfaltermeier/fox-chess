@@ -367,7 +367,8 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     // The goal for how much to improve at each descent step
     for base_c in [0.1] {
         loop {
-            let mut any_changed_in_feature_set = false;
+            let mut changes_this_feature_set_loop = 0;
+            let mut starting_error_this_feature_set_loop = None;
             for feature_set in &FEATURE_SETS {
                 let feature_set_range = feature_set.lower..feature_set.upper;
 
@@ -395,6 +396,9 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
                     if starting_error.is_none() {
                         starting_error = Some(base_error);
+                    }
+                    if starting_error_this_feature_set_loop.is_none() {
+                        starting_error_this_feature_set_loop = Some(base_error);
                     }
 
                     let gradient = eval_gradient(&features, &mut params, scaling_constant, feature_set_range.clone(), quiet);
@@ -464,7 +468,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                                 changed_params = changes.iter().filter(|v| **v != 0).count();
                                 total_param_changes += changed_params;
                                 changed_since_step_size_reset = true;
-                                any_changed_in_feature_set = true;
+                                changes_this_feature_set_loop += changed_params;
                                 break;
                             }
 
@@ -534,11 +538,15 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                     iterations += 1;
                     let will_save = !quiet || last_disk_save.elapsed() > Duration::from_secs(30);
                     println!(
-                        "[{}] {}error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}",
+                        "[{}] {}error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, \
+                        changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, \
+                        step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}, \
+                        param changes this feature set loop: {changes_this_feature_set_loop}, error reduction this feature set loop: {:.8}",
                         humantime::format_rfc3339(SystemTime::now()),
                         if will_save { "Saving, " } else { "" },
                         starting_error.unwrap() - new_error,
                         feature_set.name,
+                        starting_error_this_feature_set_loop.unwrap() - new_error,
                     );
 
                     if will_save {
@@ -552,7 +560,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
                 }
             }
 
-            if !any_changed_in_feature_set {
+            if changes_this_feature_set_loop == 0 {
                 break;
             }
 
