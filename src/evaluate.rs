@@ -1,12 +1,17 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill},
+    bitboard::{
+        BIT_SQUARES, LIGHT_SQUARES, bitscan_forward_and_reset, generate_pawn_attack, lookup_knight_attack, north_fill,
+        south_fill,
+    },
     board::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
         PIECE_QUEEN, PIECE_ROOK,
     },
     eval_values::{
         BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
-        PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
+        MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME,
+        MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS,
+        ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
@@ -99,6 +104,10 @@ impl Board {
             - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
         midgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.midgame;
         endgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.endgame;
+
+        let mobility = self.calculate_mobility::<false>();
+        midgame_values += mobility.0;
+        endgame_values += mobility.1;
 
         let mut capped_game_stage = self.game_stage as i32;
         if capped_game_stage > MIN_GAME_STAGE_FULLY_MIDGAME as i32 {
@@ -284,6 +293,74 @@ impl Board {
 
         values[0] >= threshold
     }
+
+    /// Returns midgame and endgame values
+    fn calculate_mobility<const USE_TEST_VALUES: bool>(&self) -> (i16, i16) {
+        let not_other_side_pawn_guarded = [
+            !generate_pawn_attack(self.piece_bitboards[1][PIECE_PAWN as usize], false),
+            !generate_pawn_attack(self.piece_bitboards[0][PIECE_PAWN as usize], true),
+        ];
+        let not_own_pieces = [!self.side_occupancy[0], !self.side_occupancy[1]];
+
+        let mut midgame = 0;
+        let mut endgame = 0;
+
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut rooks = self.piece_bitboards[side][PIECE_ROOK as usize];
+            while rooks != 0 {
+                let rook = bitscan_forward_and_reset(&mut rooks) as u8;
+                let squares = lookup_rook_attack(rook, self.occupancy);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
+
+                if !USE_TEST_VALUES {
+                    midgame += MOBILITY_ROOK_MIDGAME[mobility as usize] * side_value_mult;
+                    endgame += MOBILITY_ROOK_ENDGAME[mobility as usize] * side_value_mult;
+                } else {
+                    midgame += mobility as i16 * side_value_mult;
+                    endgame += mobility as i16 * side_value_mult;
+                }
+            }
+        }
+
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut bishops = self.piece_bitboards[side][PIECE_BISHOP as usize];
+            while bishops != 0 {
+                let bishop = bitscan_forward_and_reset(&mut bishops) as u8;
+                let squares = lookup_bishop_attack(bishop, self.occupancy);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
+
+                if !USE_TEST_VALUES {
+                    midgame += MOBILITY_BISHOP_MIDGAME[mobility as usize] * side_value_mult;
+                    endgame += MOBILITY_BISHOP_ENDGAME[mobility as usize] * side_value_mult;
+                } else {
+                    midgame += mobility as i16 * side_value_mult;
+                    endgame += mobility as i16 * side_value_mult;
+                }
+            }
+        }
+
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut knights = self.piece_bitboards[side][PIECE_KNIGHT as usize];
+            while knights != 0 {
+                let knight = bitscan_forward_and_reset(&mut knights) as u8;
+                let squares = lookup_knight_attack(knight);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
+
+                if !USE_TEST_VALUES {
+                    midgame += MOBILITY_KNIGHT_MIDGAME[mobility as usize] * side_value_mult;
+                    endgame += MOBILITY_KNIGHT_ENDGAME[mobility as usize] * side_value_mult;
+                } else {
+                    midgame += mobility as i16 * side_value_mult;
+                    endgame += mobility as i16 * side_value_mult;
+                }
+            }
+        }
+
+        (midgame, endgame)
+    }
 }
 
 #[cfg(test)]
@@ -355,5 +432,50 @@ mod eval_tests {
         // I think the best is if everything gets traded off, this is the net change of that. It fails, not sure if that is because my bishop val != knight val
         // big_trade_both_xrays: ("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -", CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * 2 - CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] - CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize], "d3d4"),
         bench_is_at_least: ("3r1rk1/ppp1pp1p/6p1/3qb2P/3n4/4BN2/PP2BP2/R2Q1RK1 w - - 0 16", -CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize], "d1d4"),
+    }
+
+    macro_rules! mobility_test_greater_than {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen1, fen2) = $value;
+
+                    let board1 = Board::from_fen(fen1).unwrap();
+                    let board2 = Board::from_fen(fen2).unwrap();
+
+                    let flipped_board1 = board1.flip_and_invert_colors();
+                    let flipped_board2 = board2.flip_and_invert_colors();
+
+                    initialize_magic_bitboards();
+
+                    let mobility1 = board1.calculate_mobility::<true>();
+                    let mobility2 = board2.calculate_mobility::<true>();
+
+                    assert!(mobility1.0 > mobility2.0);
+                    assert!(mobility1.1 > mobility2.1);
+
+                    let mobility1 = flipped_board1.calculate_mobility::<true>();
+                    let mobility2 = flipped_board2.calculate_mobility::<true>();
+
+                    assert!(mobility1.0 < mobility2.0);
+                    assert!(mobility1.1 < mobility2.1);
+                }
+            )*
+        }
+    }
+
+    mobility_test_greater_than! {
+        mob_rook_blocked: ("8/8/k7/8/7R/K7/8/8 w - - 0 1", "8/8/k7/7P/6PR/K6P/8/8 w - - 0 1"),
+        mob_rook_blocked_by_opponent: ("8/8/k7/7p/6pR/K6p/8/8 w - - 0 1", "8/8/k7/7P/6PR/K6P/8/8 w - - 0 1"),
+        mob_rook_guarded_by_opponent: ("8/8/k7/8/7R/K7/8/8 w - - 0 1", "8/6p1/k5p1/4pp2/7R/K7/8/8 w - - 0 1"),
+        mob_bishop_centralized: ("8/8/k7/8/4B3/K7/8/8 w - - 0 1", "8/8/k7/8/8/K7/6B1/8 w - - 0 1"),
+        mob_bishop_blocked: ("8/8/k7/8/4B3/K7/8/8 w - - 0 1", "8/8/k7/3P1P2/4B3/K2P1P2/8/8 w - - 0 1"),
+        mob_bishop_blocked_by_opponent: ("8/8/k7/3p1p2/4B3/K2p1p2/8/8 w - - 0 1", "8/8/k7/3P1P2/4B3/K2P1P2/8/8 w - - 0 1"),
+        mob_bishop_guarded_by_opponent: ("8/8/k7/8/4B3/K7/8/8 w - - 0 1", "8/5p2/k3p3/8/4B1p1/K6p/8/8 w - - 0 1"),
+        mob_knight_centralized: ("8/8/k7/8/4N3/K7/8/8 w - - 0 1", "7N/8/k7/8/8/K7/8/8 w - - 0 1"),
+        mob_knight_blocked: ("8/8/k7/8/4N3/K7/8/8 w - - 0 1", "8/8/k2P1P2/2P3P1/4N3/K1P3P1/3P1P2/8 w - - 0 1"),
+        mob_knight_blocked_by_opponent: ("8/8/k2p1p2/2p3p1/4N3/K1p3p1/3p1p2/8 w - - 0 1", "8/8/k2P1P2/2P3P1/4N3/K1P3P1/3P1P2/8 w - - 0 1"),
+        mob_knight_guarded_by_opponent: ("8/8/k7/8/4N3/K7/8/8 w - - 0 1", "8/4p3/k7/8/4N3/K3p3/8/8 w - - 0 1"),
     }
 }

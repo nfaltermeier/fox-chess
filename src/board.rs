@@ -434,6 +434,29 @@ impl Board {
 
         result
     }
+
+    pub fn flip_and_invert_colors(&self) -> Board {
+        let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1").unwrap();
+
+        for i in 0..64 {
+            let piece = self.get_piece_64(i);
+            if piece != PIECE_NONE {
+                let piece_type = piece & PIECE_MASK;
+                let inverted_color = (piece & COLOR_FLAG_MASK) ^ COLOR_FLAG_MASK;
+
+                new_board.write_piece(piece_type | inverted_color, (i ^ 56) as usize);
+            }
+        }
+
+        new_board.white_to_move = !self.white_to_move;
+        new_board.halfmove_clock = self.halfmove_clock;
+        new_board.fullmove_counter = self.fullmove_counter;
+        new_board.en_passant_target_square_index = self.en_passant_target_square_index.map(|ep_index| ep_index ^ 56);
+
+        new_board.castling_rights = (self.castling_rights >> 2) | ((self.castling_rights & 0b11) << 2);
+
+        Self::from_fen(&new_board.to_fen()).unwrap()
+    }
 }
 
 impl Debug for Board {
@@ -539,4 +562,32 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
     board.hash ^= get_hash_value(piece_code, white, index, hash_values);
     board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
     board.piece_counts[if white { 0 } else { 1 }][piece_code as usize] += 1;
+}
+
+#[cfg(test)]
+mod moves_tests {
+    use crate::{Board, STARTING_FEN};
+
+    macro_rules! flip_and_invert_colors_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen1, expected_fen2) = $value;
+
+                    let board1 = Board::from_fen(fen1).unwrap();
+                    let board2 = board1.flip_and_invert_colors();
+
+                    assert_eq!(expected_fen2, board2.to_fen());
+                }
+            )*
+        }
+    }
+
+    flip_and_invert_colors_test! {
+        flip_start_pos: (STARTING_FEN, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"),
+        flip_pos1: ("r2qkb1r/3n1ppp/p2pbn2/1p2p3/4P3/1NN1BP2/PPPQ2PP/2KR1B1R b kq - 1 10", "2kr1b1r/pppq2pp/1nn1bp2/4p3/1P2P3/P2PBN2/3N1PPP/R2QKB1R w KQ - 1 10"),
+        flip_en_passant: ("r1bqkbnr/1p3ppp/p1np4/1BpPp3/4P3/5N2/PPP2PPP/RNBQK2R w KQkq e6 0 6", "rnbqk2r/ppp2ppp/5n2/4p3/1bPpP3/P1NP4/1P3PPP/R1BQKBNR b KQkq e3 0 6"),
+        flip_pos2: ("rn1q1rk1/pp4bp/2p1bp1n/4p1p1/2P1P3/Q1N2NB1/PP2BPPP/R3K2R w KQ - 2 14", "r3k2r/pp2bppp/q1n2nb1/2p1p3/4P1P1/2P1BP1N/PP4BP/RN1Q1RK1 b kq - 2 14"),
+    }
 }
