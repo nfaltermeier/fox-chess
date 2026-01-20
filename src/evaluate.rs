@@ -1,5 +1,19 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES, north_fill, south_fill}, board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK}, eval_values::CENTIPAWN_VALUES_MIDGAME, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move, texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature}
+    bitboard::{
+        BIT_SQUARES, LIGHT_SQUARES, bitscan_forward_and_reset, generate_pawn_attack, lookup_knight_attack, north_fill,
+        south_fill,
+    },
+    board::{
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
+    },
+    eval_values::{
+        BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
+        MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME,
+        MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS,
+        ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
+    },
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::Move, texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature},
 };
 
 /// Indexed with piece code, so index 0 is no piece
@@ -118,6 +132,8 @@ impl Board {
         };
 
         let net_pieces_threatened_by_pawns = self.get_pieces_threatened_by_pawns(true).count_ones() as i16 - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
+
+        self.calculate_mobility(&mut result, &mut misc_features_idx);
 
         if doubled_pawns != 0 {
             result.misc_features[misc_features_idx] = (doubled_pawns as i8, FeatureIndex::DoubledPawns as u16);
@@ -300,6 +316,74 @@ impl Board {
         }
 
         values[0] >= threshold
+    }
+
+    fn calculate_mobility(&self, features: &mut FeatureData, misc_features_idx: &mut usize) {
+        let not_other_side_pawn_guarded = [
+            !generate_pawn_attack(self.piece_bitboards[1][PIECE_PAWN as usize], false),
+            !generate_pawn_attack(self.piece_bitboards[0][PIECE_PAWN as usize], true),
+        ];
+        let not_own_pieces = [!self.side_occupancy[0], !self.side_occupancy[1]];
+
+        let mut net_rook_mobility_values = [0; 15];
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut rooks = self.piece_bitboards[side][PIECE_ROOK as usize];
+            while rooks != 0 {
+                let rook = bitscan_forward_and_reset(&mut rooks) as u8;
+                let squares = lookup_rook_attack(rook, self.occupancy);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
+
+                net_rook_mobility_values[mobility as usize] += side_value_mult;
+            }
+        }
+
+        for (i, v) in net_rook_mobility_values.iter().enumerate() {
+            if *v != 0 {
+                features.misc_features[*misc_features_idx] = (*v, FeatureIndex::RookMobility as u16 + 2 * (i as u16));
+                *misc_features_idx += 1;
+            }
+        }
+
+        let mut net_bishop_mobility_values = [0; 14];
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut bishops = self.piece_bitboards[side][PIECE_BISHOP as usize];
+            while bishops != 0 {
+                let bishop = bitscan_forward_and_reset(&mut bishops) as u8;
+                let squares = lookup_bishop_attack(bishop, self.occupancy);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
+
+                net_bishop_mobility_values[mobility as usize] += side_value_mult;
+            }
+        }
+
+        for (i, v) in net_bishop_mobility_values.iter().enumerate() {
+            if *v != 0 {
+                features.misc_features[*misc_features_idx] = (*v, FeatureIndex::BishopMobility as u16 + 2 * (i as u16));
+                *misc_features_idx += 1;
+            }
+        }
+
+        let mut net_knight_mobility_values = [0; 9];
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut knights = self.piece_bitboards[side][PIECE_KNIGHT as usize];
+            while knights != 0 {
+                let knight = bitscan_forward_and_reset(&mut knights) as u8;
+                let squares = lookup_knight_attack(knight);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
+
+                net_knight_mobility_values[mobility as usize] += side_value_mult;
+            }
+        }
+
+        for (i, v) in net_knight_mobility_values.iter().enumerate() {
+            if *v != 0 {
+                features.misc_features[*misc_features_idx] = (*v, FeatureIndex::KnightMobility as u16 + 2 * (i as u16));
+                *misc_features_idx += 1;
+            }
+        }
     }
 }
 

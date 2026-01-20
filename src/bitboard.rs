@@ -74,7 +74,7 @@ const fn generate_king_attack(mut king_position: u64) -> u64 {
     result
 }
 
-const fn generate_pawn_attack(pawn_position: u64, white: bool) -> u64 {
+pub const fn generate_pawn_attack(pawn_position: u64, white: bool) -> u64 {
     if white {
         north_east_one(pawn_position) | north_west_one(pawn_position)
     } else {

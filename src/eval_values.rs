@@ -191,4 +191,11 @@ pub const BISHOP_PAIR: EvalFeature = EvalFeature::new(28, 88);
 pub const PAWN_SHIELD: i16 = -8;
 pub const CONNECTED_PAWNS: EvalFeature = EvalFeature::new(8, 4);
 pub const PIECES_THREATENED_BY_PAWNS: EvalFeature = EvalFeature::new(56, 34);
-pub const ISOLATED_PAWN: EvalFeature = EvalFeature::new(-15, -5);
+pub const ISOLATED_PAWN: EvalFeature = EvalFeature::new(-11, -6);
+
+pub static MOBILITY_ROOK_MIDGAME: [i16; 15] = array![i => i as i16; 15];
+pub static MOBILITY_ROOK_ENDGAME: [i16; 15] = array![i => i as i16; 15];
+pub static MOBILITY_BISHOP_MIDGAME: [i16; 14] = array![i => i as i16; 14];
+pub static MOBILITY_BISHOP_ENDGAME: [i16; 14] = array![i => i as i16; 14];
+pub static MOBILITY_KNIGHT_MIDGAME: [i16; 9] = array![i => i as i16; 9];
+pub static MOBILITY_KNIGHT_ENDGAME: [i16; 9] = array![i => i as i16; 9];

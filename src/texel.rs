@@ -34,7 +34,6 @@ pub struct TexelPosition {
     pub result: f64,
 }
 
-pub const MAX_MISC_FEATURES: usize = 16;
 
 pub struct TaperedFeature {
     pub weight: i16,
@@ -48,6 +47,8 @@ impl Default for TaperedFeature {
         Self { weight: 0, idx: 0, taper_amount: 0, max_amount: 1 }
     }
 }
+
+pub const MAX_MISC_FEATURES: usize = 24;
 
 #[derive(Default)]
 pub struct FeatureData {
@@ -65,7 +66,7 @@ pub struct PositionFeatures {
     pub result: f64,
 }
 
-pub const EVAL_PARAM_COUNT: usize = 800;
+pub const EVAL_PARAM_COUNT: usize = 876;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
@@ -96,9 +97,12 @@ pub enum FeatureIndex {
     // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
     PawnsThreatenPieces = 796,
     IsolatedPawns = 798,
+    RookMobility = 800,
+    BishopMobility = 830,
+    KnightMobility = 858,
 }
 
-static FEATURE_SETS: [FeatureSet; 21] = [
+static FEATURE_SETS: [FeatureSet; 24] = [
     FeatureSet::new("MidgamePawn", FeatureIndex::MidgamePawn, FeatureIndex::MidgameKnight),
     FeatureSet::new("MidgameKnight", FeatureIndex::MidgameKnight, FeatureIndex::MidgameBishop),
     FeatureSet::new("MidgameBishop", FeatureIndex::MidgameBishop, FeatureIndex::MidgameRook),
@@ -119,43 +123,46 @@ static FEATURE_SETS: [FeatureSet; 21] = [
     FeatureSet::new_single("BishopPair", FeatureIndex::BishopPair),
     FeatureSet::new("PawnShield", FeatureIndex::PawnShield, FeatureIndex::ConnectedPawns),
     FeatureSet::new("ConnectedPawns", FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces),
-    FeatureSet::new_mixed("IsolatedPawns", FeatureIndex::IsolatedPawns, EVAL_PARAM_COUNT),
+    FeatureSet::new("IsolatedPawns", FeatureIndex::IsolatedPawns, FeatureIndex::RookMobility),
+    FeatureSet::new("RookMobility", FeatureIndex::RookMobility, FeatureIndex::BishopMobility),
+    FeatureSet::new("BishopMobility", FeatureIndex::BishopMobility, FeatureIndex::KnightMobility),
+    FeatureSet::new_mixed("KnightMobility", FeatureIndex::KnightMobility, EVAL_PARAM_COUNT),
 ];
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
         0,0,0,0,0,0,0,0,
         167,148,137,130,86,59,16,55,
-        41,52,51,47,52,67,74,33,
-        8,3,7,10,26,24,16,4,
-        -7,-8,-3,5,3,10,2,-10,
-        -12,-18,-14,-15,-7,-2,8,-8,
-        -10,-13,-13,-31,-17,16,27,-14,
+        41,52,51,47,52,67,74,34,
+        7,2,3,4,21,21,15,5,
+        -6,-8,-4,2,1,11,1,-8,
+        -11,-17,-15,-15,-5,-1,9,-7,
+        -8,-11,-14,-25,-15,16,28,-12,
         0,0,0,0,0,0,0,0,
         -124,-21,-7,-15,24,-46,-39,-118,
-        -10,4,22,40,36,38,-33,-10,
-        6,27,43,64,80,81,40,6,
-        1,14,41,62,37,64,28,32,
-        -13,7,28,17,31,24,32,-1,
-        -31,-9,3,16,27,9,12,-22,
-        -49,-23,-14,-4,-6,0,-15,-11,
-        -81,-40,-37,-25,-26,-18,-41,-66,
+        -10,2,20,41,34,38,-32,-10,
+        4,19,42,59,80,81,41,9,
+        1,9,37,55,28,58,28,35,
+        -10,7,22,14,29,25,36,6,
+        -30,-12,-3,12,26,5,9,-19,
+        -46,-23,-16,-1,-1,0,-15,-3,
+        -81,-34,-37,-21,-20,-12,-36,-66,
         -13,-29,-36,-18,-37,-57,-14,20,
-        -7,3,6,-9,9,4,-9,-19,
-        -1,17,27,35,37,66,39,27,
-        1,3,23,49,32,30,-1,-2,
-        -13,9,11,28,21,4,1,-4,
-        -18,5,7,8,7,4,5,1,
-        -13,-8,4,-13,-4,0,12,-15,
-        -37,-26,-31,-29,-23,-36,-23,-27,
-        50,47,43,38,35,36,47,40,
-        25,27,47,56,47,68,54,53,
-        11,23,29,36,44,65,50,23,
-        -7,-4,11,15,15,24,14,-4,
-        -23,-17,-10,-3,-5,-5,1,-21,
-        -30,-24,-21,-23,-18,-18,2,-22,
-        -34,-27,-16,-20,-18,-3,-17,-49,
-        -13,-14,-10,-8,-5,-3,-24,-21,
+        -8,0,1,-9,9,4,-13,-19,
+        -2,14,21,27,34,66,39,29,
+        -5,-1,16,44,23,27,-3,-2,
+        -12,1,7,26,16,-5,1,3,
+        -20,6,5,4,7,4,5,0,
+        -12,-5,4,-11,0,4,15,-13,
+        -36,-22,-21,-29,-18,-22,-23,-27,
+        46,46,40,38,35,37,47,40,
+        20,20,40,51,45,67,53,53,
+        9,20,25,33,45,66,51,23,
+        -9,-3,11,15,14,26,17,-2,
+        -23,-17,-11,-3,-5,-4,2,-21,
+        -29,-25,-22,-23,-17,-13,5,-22,
+        -34,-27,-17,-18,-18,-1,-14,-49,
+        -14,-13,-9,-6,-2,1,-20,-21,
         4,21,28,39,67,78,71,59,
         -7,-11,24,30,36,72,46,64,
         -2,6,20,35,54,105,87,59,
@@ -173,37 +180,37 @@ pub static DEFAULT_PARAMS: EvalParams = [
         13,1,9,-14,-6,-4,26,24,
         -40,12,0,-44,13,-34,33,21,
         0,0,0,0,0,0,0,0,
-        151,163,164,110,150,168,223,175,
-        91,80,53,31,10,19,34,43,
-        40,25,10,-21,-22,-18,-1,-4,
-        16,14,-12,-28,-23,-14,-10,-19,
-        10,2,-7,-15,-15,-15,-20,-21,
-        26,15,5,23,11,-9,-15,-5,
+        150,162,163,109,148,167,222,174,
+        91,80,53,31,9,19,34,42,
+        41,26,13,-18,-20,-15,0,-3,
+        17,16,-10,-26,-20,-13,-8,-18,
+        10,1,-6,-16,-15,-14,-19,-19,
+        25,13,6,23,11,-7,-15,-5,
         0,0,0,0,0,0,0,0,
-        19,1,5,10,-3,25,-5,-47,
-        -13,10,7,14,4,-19,9,-28,
-        -11,3,19,13,-12,-22,-9,-29,
-        -2,5,27,10,29,-5,11,-26,
-        -8,17,28,37,26,16,-15,-14,
-        -26,19,21,26,11,3,-15,-20,
-        -40,-15,7,14,4,-10,-22,-59,
-        -38,-57,-25,-9,-24,-39,-55,-81,
-        28,47,42,35,32,35,17,-12,
-        11,27,29,28,21,15,21,-15,
-        15,20,14,10,1,4,14,-5,
-        19,29,17,17,22,8,33,2,
-        15,28,32,25,32,30,19,5,
-        -7,13,31,26,39,14,-6,-20,
-        -18,-1,1,22,8,-4,-28,-51,
-        -10,13,-14,0,-4,-11,-6,4,
-        45,57,64,65,70,65,62,64,
-        70,72,64,55,62,41,47,44,
-        72,65,63,58,48,39,42,57,
-        71,73,67,62,51,50,49,60,
-        66,69,67,62,53,55,48,53,
-        42,44,46,40,40,35,21,34,
-        31,25,31,31,24,10,22,32,
-        44,41,55,54,36,32,57,40,
+        27,5,4,10,-3,26,-3,-40,
+        -11,12,1,6,-2,-26,9,-25,
+        -8,0,21,13,-13,-21,-18,-30,
+        -1,1,27,11,31,-5,5,-26,
+        -4,12,32,35,25,13,-20,-11,
+        -22,16,24,26,6,1,-20,-14,
+        -34,-12,3,7,-2,-16,-19,-58,
+        -25,-46,-20,-5,-21,-39,-44,-69,
+        28,44,39,30,27,33,16,-10,
+        11,21,23,18,11,7,16,-13,
+        13,14,7,2,-9,-8,4,-13,
+        17,22,11,8,15,-1,26,-1,
+        11,22,24,14,24,29,11,2,
+        -5,8,23,20,32,7,-8,-17,
+        -14,-2,0,19,-1,-12,-29,-44,
+        0,16,-8,5,-1,-15,0,13,
+        44,54,62,61,65,57,56,60,
+        70,72,63,54,57,34,42,42,
+        70,63,63,57,45,38,39,54,
+        71,70,64,58,50,47,45,60,
+        66,69,67,60,53,55,50,53,
+        44,45,47,43,40,36,21,35,
+        33,26,31,31,25,9,20,32,
+        42,36,49,46,27,24,52,45,
         95,114,127,142,99,81,73,83,
         92,134,142,147,151,88,103,49,
         67,104,117,132,116,58,45,25,
@@ -220,10 +227,20 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -47,-22,-3,9,12,10,-4,-16,
         -51,-18,-10,0,0,0,-19,-46,
         -3,-54,-24,-14,-47,-16,-64,-87,
-        0,0,79,121,293,293,313,313,
+        0,0,79,120,293,293,313,313,
         449,516,921,994,20000,20000,-10,-24,
-        7,15,37,2,19,36,28,88,
-        -8,-8,8,4,56,34,-11,-6,
+        7,16,32,1,16,34,29,88,
+        -9,-8,8,4,56,34,-11,-6,
+        -10,0,-7,1,-4,0,-1,-1,
+        -2,4,3,5,5,6,6,4,
+        9,8,12,11,13,15,15,15,
+        16,14,16,13,19,-2,-32,0,
+        -19,-6,-12,-12,-7,-6,0,1,
+        7,7,10,10,12,15,16,12,
+        19,13,16,10,14,10,12,12,
+        13,12,-38,0,-17,1,-6,2,
+        0,5,5,7,9,12,14,7,
+        15,5,5,-16,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
@@ -781,10 +798,13 @@ fn pretty_print_save_params(params: &EvalParams) {
     write_pair(&mut f, params, FeatureIndex::BishopPair as usize);
     writeln!(f, "{},\n", params[FeatureIndex::PawnShield as usize],).unwrap();
 
-    // Remaining values are all pairs
-    for i in (FeatureIndex::ConnectedPawns as usize..EVAL_PARAM_COUNT).step_by(2) {
+    for i in (FeatureIndex::ConnectedPawns as usize..FeatureIndex::RookMobility as usize).step_by(2) {
         write_pair(&mut f, params, i);
     }
+
+    write_deinterleaved(&mut f, &params[FeatureIndex::RookMobility as usize..FeatureIndex::BishopMobility as usize]);
+    write_deinterleaved(&mut f, &params[FeatureIndex::BishopMobility as usize..FeatureIndex::KnightMobility as usize]);
+    write_deinterleaved(&mut f, &params[FeatureIndex::KnightMobility as usize..EVAL_PARAM_COUNT]);
 }
 
 fn save_gradient(gradient: &Box<EvalGradient>) {
