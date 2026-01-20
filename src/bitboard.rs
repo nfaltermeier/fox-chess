@@ -344,7 +344,8 @@ impl Board {
         let side = if white { 0 } else { 1 };
         let other_side = if white { 1 } else { 0 };
 
-        generate_pawn_attack(self.piece_bitboards[side][PIECE_PAWN as usize], white) & (self.side_occupancy[other_side] & !self.piece_bitboards[other_side][PIECE_PAWN as usize])
+        generate_pawn_attack(self.piece_bitboards[side][PIECE_PAWN as usize], white)
+            & (self.side_occupancy[other_side] & !self.piece_bitboards[other_side][PIECE_PAWN as usize])
     }
 
     pub fn count_doubled_isolated_pawns(&self) -> (i16, i16) {
@@ -372,7 +373,10 @@ impl Board {
 
 #[cfg(test)]
 mod bitboard_tests {
-    use crate::{STARTING_FEN, board::{Board, PIECE_PAWN}};
+    use crate::{
+        STARTING_FEN,
+        board::{Board, PIECE_PAWN},
+    };
 
     #[test]
     pub fn basic_passed_pawns() {
@@ -542,15 +546,15 @@ mod bitboard_tests {
 
     doubled_pawns_test! {
         doubled_pawns_starting_position: (STARTING_FEN, 0),
-        white_two_doubled: ("rnbqkbnr/pppppppp/8/8/8/1P4P1/PP1PP1PP/RNBQKBNR w KQkq - 0 1", -2),
-        black_two_doubled: ("rnbqkbnr/1ppp1ppp/1p5p/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
-        white_tripled: ("rnbqkbnr/pppppppp/8/8/3P4/3P4/PP1P1PPP/RNBQKBNR w KQkq - 0 1", -2),
-        black_tripled: ("rnbqkbnr/1ppp1ppp/1p6/1p6/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2),
+        white_two_doubled: ("rnbqkbnr/pppppppp/8/8/8/1P4P1/PP1PP1PP/RNBQKBNR w KQkq - 0 1", 2),
+        black_two_doubled: ("rnbqkbnr/1ppp1ppp/1p5p/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", -2),
+        white_tripled: ("rnbqkbnr/pppppppp/8/8/3P4/3P4/PP1P1PPP/RNBQKBNR w KQkq - 0 1", 2),
+        black_tripled: ("rnbqkbnr/1ppp1ppp/1p6/1p6/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", -2),
         white_only_single_pawn: ("1k6/8/8/8/8/8/4P3/4K3 w - - 0 1", 0),
-        white_only_doubled_pawn: ("1k6/8/8/8/8/4P3/4P3/4K3 w - - 0 1", -1),
+        white_only_doubled_pawn: ("1k6/8/8/8/8/4P3/4P3/4K3 w - - 0 1", 1),
         black_only_single_pawn: ("1k6/1p6/8/8/8/8/8/4K3 w - - 0 1", 0),
-        black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", 1),
-        unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", -1),
-        unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", 1),
+        black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", -1),
+        unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", 1),
+        unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", -1),
     }
 }

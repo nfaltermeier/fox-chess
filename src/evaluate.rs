@@ -256,16 +256,16 @@ impl Board {
 
         loop {
             // Check if the last move opened up an x-ray
-            if attacks_data.possible_rook_like_x_rays != 0 &&
-                (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
+            if attacks_data.possible_rook_like_x_rays != 0
+                && (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
             {
                 let new_attacks = lookup_rook_attack(to as u8, occupancy) & attacks_data.possible_rook_like_x_rays;
                 attacks_data.attackers |= new_attacks;
                 attacks_data.possible_rook_like_x_rays ^= new_attacks;
             }
 
-            if attacks_data.possible_bishop_like_x_rays != 0 &&
-                (last_attacker == PIECE_BISHOP as usize
+            if attacks_data.possible_bishop_like_x_rays != 0
+                && (last_attacker == PIECE_BISHOP as usize
                     || last_attacker == PIECE_QUEEN as usize
                     || last_attacker == PIECE_PAWN as usize)
             {

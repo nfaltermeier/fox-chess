@@ -179,10 +179,7 @@ pub struct EvalFeature {
 
 impl EvalFeature {
     pub const fn new(midgame: i16, endgame: i16) -> Self {
-        Self {
-            midgame,
-            endgame,
-        }
+        Self { midgame, endgame }
     }
 }
 

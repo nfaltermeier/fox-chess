@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::mpsc::Receiver,
-    time::Instant,
-};
+use std::{collections::VecDeque, sync::mpsc::Receiver, time::Instant};
 
 use arrayvec::ArrayVec;
 use log::{debug, error};
@@ -11,6 +7,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
+    eval_values::CENTIPAWN_VALUES_MIDGAME,
     evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
     move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove},
     move_generator_struct::{GetMoveResult, MoveGenerator},
@@ -24,7 +21,6 @@ use crate::{
     uci::UciInterface,
     uci_required_options_helper::RequiredUciOptions,
 };
-use crate::eval_values::CENTIPAWN_VALUES_MIDGAME;
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
@@ -170,7 +166,12 @@ impl<'a> Searcher<'a> {
                         (black_time, black_increment)
                     };
 
-                    cutoff_times = Some(get_cutoff_times(time_left, increment, &start_time, 42));
+                    cutoff_times = Some(get_cutoff_times(
+                        time_left,
+                        increment,
+                        &start_time,
+                        42,
+                    ));
                     soft_cutoff_time = Some(cutoff_times.as_ref().unwrap().soft_cutoff);
                     self.hard_cutoff_time = Some(cutoff_times.as_ref().unwrap().hard_cutoff);
 
@@ -243,16 +244,15 @@ impl<'a> Searcher<'a> {
 
                 if self.stop_received
                     || (search_control != SearchControl::Infinite
-                        && (end_search
-                            || worst_pv.search_result.score.abs() >= MATE_THRESHOLD
-                            || depth >= max_depth))
+                        && (end_search || worst_pv.search_result.score.abs() >= MATE_THRESHOLD || depth >= max_depth))
                 {
                     return best_pv.search_result.clone();
                 }
 
                 if matches!(search_control, SearchControl::Time) {
                     if let Some(cutoff_times) = &cutoff_times {
-                        let pv_nodes_fraction = self.root_pv_branch_nodes as f32 / self.stats.current_iteration_total_nodes as f32;
+                        let pv_nodes_fraction =
+                            self.root_pv_branch_nodes as f32 / self.stats.current_iteration_total_nodes as f32;
 
                         if self.pv_nodes_fractions.len() >= 3 {
                             self.pv_nodes_fractions.pop_back();
@@ -880,7 +880,12 @@ impl<'a> Searcher<'a> {
     }
 
     fn eval_draw(&self) -> i16 {
-        self.contempt * if self.board.white_to_move ^ self.white_started_search { 1 } else { -1 }
+        self.contempt
+            * if self.board.white_to_move ^ self.white_started_search {
+                1
+            } else {
+                -1
+            }
     }
 }
 

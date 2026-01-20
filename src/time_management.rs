@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, time::{Duration, Instant}};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use build_info::chrono::TimeDelta;
 use log::error;
