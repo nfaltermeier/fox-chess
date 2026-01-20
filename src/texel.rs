@@ -1,4 +1,6 @@
 use std::fs;
+use std::io::Seek;
+use std::io::SeekFrom;
 use std::io::Write;
 use std::ops::Add;
 use std::ops::Range;
@@ -570,6 +572,7 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
 
     println!("Regression done");
     save_params(&params);
+    pretty_print_save_params(&params);
 }
 
 pub fn change_param_at_index(i: usize) -> bool {
@@ -719,6 +722,68 @@ fn save_params(params: &EvalParams) {
         } else {
             write!(f, "{v},").unwrap();
         }
+    }
+}
+
+fn pretty_print_save_params(params: &EvalParams) {
+    let mut f = File::create(format!(
+        "params/{}-pretty-print.txt",
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+    ))
+    .unwrap();
+
+    fn write_deinterleaved(f: &mut File, values: &[i16]) {
+        let mut second_set = String::new();
+
+        for (i, v) in values.iter().enumerate() {
+            if i % 2 == 1 {
+                second_set.push_str(format!("{v:4}, ").as_str());
+            } else {
+                write!(f, "{v:4}, ").unwrap();
+            }
+        }
+
+        // Remove trailing space
+        f.seek(SeekFrom::End(-1)).unwrap();
+        writeln!(f, "\n").unwrap();
+        f.seek(SeekFrom::End(-1)).unwrap();
+        write!(f, "{second_set}").unwrap();
+        writeln!(f, "\n").unwrap();
+    }
+
+    fn write_pair(f: &mut File, params: &EvalParams, index: usize) {
+        writeln!(f, "{}, {},\n", params[index], params[index + 1]).unwrap();
+    }
+
+    // All of the psqt tables
+    for piece in PIECE_PAWN..=PIECE_KING {
+        let i = (piece - 1) as usize;
+        // midgame and endgame values for the piece
+        let value_sets = [&params[i * 64..(i + 1) * 64], &params[(i + 6) * 64..(i + 1 + 6) * 64]];
+
+        for value_set in value_sets {
+            for (i, v) in value_set.iter().enumerate() {
+                if i % 8 == 7 {
+                    writeln!(f, "{v:4},").unwrap();
+                } else {
+                    write!(f, "{v:4}, ").unwrap();
+                }
+            }
+            write!(f, "\n").unwrap();
+        }
+    }
+
+    write_deinterleaved(&mut f, &params[FeatureIndex::PieceValues as usize..FeatureIndex::DoubledPawns as usize]);
+    write_pair(&mut f, params, FeatureIndex::DoubledPawns as usize);
+    write_pair(&mut f, params, FeatureIndex::PassedPawns as usize);
+    write_pair(&mut f, params, FeatureIndex::RookOpenFile as usize);
+    write_pair(&mut f, params, FeatureIndex::RookHalfOpenFile as usize);
+    write_pair(&mut f, params, FeatureIndex::BishopPair as usize);
+    writeln!(f, "{},\n", params[FeatureIndex::PawnShield as usize],).unwrap();
+
+    // Remaining values are all pairs
+    for i in (FeatureIndex::ConnectedPawns as usize..EVAL_PARAM_COUNT).step_by(2) {
+        write_pair(&mut f, params, i);
     }
 }
 
