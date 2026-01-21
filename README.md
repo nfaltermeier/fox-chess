@@ -64,6 +64,13 @@ cargo pgo optimize
 
 If you want to build a fully portable executable on x86_64-pc-windows-msvc then you will need to explicitly pass `x86-64-v1` for the target
 
+#### AVX2 without PEXT
+This note is mostly for myself, but to create an optimized build without any code changes for Ryzen 1000 and 3000 series CPUs, use
+```
+RUSTFLAGS=-Ctarget-cpu=x86-64-v3 cargo pgo run -- --no-default-features -- bench
+RUSTFLAGS=-Ctarget-cpu=x86-64-v3 cargo pgo optimize build -- --no-default-features
+```
+
 ## Credits
 Many thanks to the [Chess Programming Wiki](https://www.chessprogramming.org) for explaining the basic and advanced concepts of creating a chess engine
 
