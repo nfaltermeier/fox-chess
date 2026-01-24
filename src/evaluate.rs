@@ -10,8 +10,8 @@ use crate::{
     eval_values::{
         BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
         MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME,
-        MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS,
-        ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
+        MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME, MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS,
+        PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
@@ -343,6 +343,24 @@ impl Board {
 
         for side in 0..=1 {
             let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut queens = self.piece_bitboards[side][PIECE_QUEEN as usize];
+            while queens != 0 {
+                let queen = bitscan_forward_and_reset(&mut queens) as u8;
+                let squares = lookup_bishop_attack(queen, self.occupancy) | lookup_rook_attack(queen, self.occupancy);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones() / 2;
+
+                if !USE_TEST_VALUES {
+                    midgame += MOBILITY_QUEEN_MIDGAME[mobility as usize] * side_value_mult;
+                    endgame += MOBILITY_QUEEN_ENDGAME[mobility as usize] * side_value_mult;
+                } else {
+                    midgame += mobility as i16 * side_value_mult;
+                    endgame += mobility as i16 * side_value_mult;
+                }
+            }
+        }
+
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
             let mut knights = self.piece_bitboards[side][PIECE_KNIGHT as usize];
             while knights != 0 {
                 let knight = bitscan_forward_and_reset(&mut knights) as u8;
@@ -477,5 +495,10 @@ mod eval_tests {
         mob_knight_blocked: ("8/8/k7/8/4N3/K7/8/8 w - - 0 1", "8/8/k2P1P2/2P3P1/4N3/K1P3P1/3P1P2/8 w - - 0 1"),
         mob_knight_blocked_by_opponent: ("8/8/k2p1p2/2p3p1/4N3/K1p3p1/3p1p2/8 w - - 0 1", "8/8/k2P1P2/2P3P1/4N3/K1P3P1/3P1P2/8 w - - 0 1"),
         mob_knight_guarded_by_opponent: ("8/8/k7/8/4N3/K7/8/8 w - - 0 1", "8/4p3/k7/8/4N3/K3p3/8/8 w - - 0 1"),
+        mob_queen_blocked: ("8/8/8/k7/4Q3/K7/8/8 w - - 0 1", "8/8/2P1P3/k7/4Q2P/K7/6P1/8 w - - 0 1"),
+        mob_queen_rook_blocked: ("8/8/8/k7/4Q3/K7/8/8 w - - 0 1", "8/8/8/k3P3/3PQP2/K3P3/8/8 w - - 0 1"),
+        mob_queen_bishop_blocked: ("8/8/8/k7/4Q3/K7/8/8 w - - 0 1", "8/8/8/k2P1P2/4Q3/K2P1P2/8/8 w - - 0 1"),
+        mob_queen_blocked_by_opponent: ("8/8/2p1p3/k7/4Q2p/K7/6p1/8 w - - 0 1", "8/8/2P1P3/k7/4Q2P/K7/6P1/8 w - - 0 1"),
+        mob_queen_guarded_by_opponent: ("8/8/8/k7/4Q3/K7/8/8 w - - 0 1", "2p5/3p4/5p2/k1p5/4Q3/K7/8/8 w - - 0 1"),
     }
 }
