@@ -193,9 +193,11 @@ pub const CONNECTED_PAWNS: EvalFeature = EvalFeature::new(8, 4);
 pub const PIECES_THREATENED_BY_PAWNS: EvalFeature = EvalFeature::new(56, 34);
 pub const ISOLATED_PAWN: EvalFeature = EvalFeature::new(-11, -6);
 
-pub static MOBILITY_ROOK_MIDGAME: [i16; 15] = array![i => i as i16; 15];
-pub static MOBILITY_ROOK_ENDGAME: [i16; 15] = array![i => i as i16; 15];
-pub static MOBILITY_BISHOP_MIDGAME: [i16; 14] = array![i => i as i16; 14];
-pub static MOBILITY_BISHOP_ENDGAME: [i16; 14] = array![i => i as i16; 14];
-pub static MOBILITY_KNIGHT_MIDGAME: [i16; 9] = array![i => i as i16; 9];
-pub static MOBILITY_KNIGHT_ENDGAME: [i16; 9] = array![i => i as i16; 9];
+pub static MOBILITY_ROOK_MIDGAME: [i16; 15] = [-10, -7, -4, -1, -2, 3, 5, 6, 9, 12, 13, 15, 16, 16, 19];
+pub static MOBILITY_ROOK_ENDGAME: [i16; 15] = [0, 1, 0, -1, 4, 5, 6, 4, 8, 11, 15, 15, 14, 13, -2];
+pub static MOBILITY_BISHOP_MIDGAME: [i16; 14] = [-32, -19, -12, -7, 0, 7, 10, 12, 16, 19, 16, 14, 12, 13];
+pub static MOBILITY_BISHOP_ENDGAME: [i16; 14] = [0, -6, -12, -6, 1, 7, 10, 15, 12, 13, 10, 10, 12, 12];
+pub static MOBILITY_QUEEN_MIDGAME: [i16; 14] = [-32, -19, -12, -7, 0, 7, 10, 12, 16, 19, 16, 14, 12, 13];
+pub static MOBILITY_QUEEN_ENDGAME: [i16; 14] = [0, -6, -12, -6, 1, 7, 10, 15, 12, 13, 10, 10, 12, 12];
+pub static MOBILITY_KNIGHT_MIDGAME: [i16; 9] = [-38, -17, -6, 0, 5, 9, 14, 15, 5];
+pub static MOBILITY_KNIGHT_ENDGAME: [i16; 9] = [0, 1, 2, 5, 7, 12, 7, 5, -16];

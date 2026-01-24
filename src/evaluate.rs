@@ -7,10 +7,7 @@ use crate::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
     },
     eval_values::{
-        BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
-        MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME,
-        MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS,
-        ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
+        BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN, MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME, MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME, MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move, texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature},
@@ -361,6 +358,26 @@ impl Board {
         for (i, v) in net_bishop_mobility_values.iter().enumerate() {
             if *v != 0 {
                 features.misc_features[*misc_features_idx] = (*v, FeatureIndex::BishopMobility as u16 + 2 * (i as u16));
+                *misc_features_idx += 1;
+            }
+        }
+
+        let mut net_queen_mobility_values = [0; 14];
+        for side in 0..=1 {
+            let side_value_mult = if side == 0 { 1 } else { -1 };
+            let mut queens = self.piece_bitboards[side][PIECE_QUEEN as usize];
+            while queens != 0 {
+                let queen = bitscan_forward_and_reset(&mut queens) as u8;
+                let squares = lookup_bishop_attack(queen, self.occupancy) | lookup_rook_attack(queen, self.occupancy);
+                let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones() / 2;
+
+                net_queen_mobility_values[mobility as usize] += side_value_mult;
+            }
+        }
+
+        for (i, v) in net_queen_mobility_values.iter().enumerate() {
+            if *v != 0 {
+                features.misc_features[*misc_features_idx] = (*v, FeatureIndex::QueenMobility as u16 + 2 * (i as u16));
                 *misc_features_idx += 1;
             }
         }
