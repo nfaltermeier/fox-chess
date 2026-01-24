@@ -5,10 +5,10 @@ const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
  167, 148, 137, 130,  86,  59,  16,  55,
   41,  52,  51,  47,  52,  67,  74,  34,
-   7,   2,   3,   4,  21,  21,  15,   5,
-  -6,  -8,  -4,   2,   1,  11,   1,  -8,
- -11, -17, -15, -15,  -5,  -1,   9,  -7,
-  -8, -11, -14, -25, -15,  16,  28, -12,
+   7,   2,   3,   4,  20,  21,  15,   5,
+  -5,  -8,  -4,   2,   1,  11,   1,  -8,
+ -11, -16, -15, -14,  -5,  -1,   9,  -7,
+  -7, -11, -14, -24, -15,  17,  28, -12,
    0,   0,   0,   0,   0,   0,   0,   0,
 ];
 
@@ -98,26 +98,26 @@ const ROOK_ENDGAME_SQUARE_TABLE: [i16; 64] = [
 
 #[rustfmt::skip]
 const QUEEN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
-   4,  21,  28,  39,  67,  78,  71,  59,
-  -7, -11,  24,  30,  36,  72,  46,  64,
-  -2,   6,  20,  35,  54, 105,  87,  59,
-  -8,   1,  13,  23,  34,  40,  43,  35,
-  -7,   2,   9,  16,  20,  17,  23,  17,
-  -7,  -1,   3,   4,   4,  10,  19,  -1,
- -17,  -2,   4,   5,   8,   1, -16, -37,
- -11, -15,  -9,  -1,  -8, -38, -49, -27,
+   1,  21,  28,  36,  64,  78,  71,  59,
+  -9, -17,  20,  28,  36,  69,  44,  65,
+  -4,   4,  14,  31,  54, 107,  87,  66,
+  -9,   1,  13,  17,  32,  38,  48,  37,
+  -7,  -1,   8,  13,  18,  18,  26,  21,
+  -9,   0,   3,   4,   7,  14,  22,   2,
+ -16,  -1,   6,  12,  13,   6, -13, -34,
+  -9, -11,  -2,   5,   0, -37, -49, -27,
 ];
 
 #[rustfmt::skip]
 const QUEEN_ENDGAME_SQUARE_TABLE: [i16; 64] = [
-  95, 114, 127, 142,  99,  81,  73,  83,
-  92, 134, 142, 147, 151,  88, 103,  49,
-  67, 104, 117, 132, 116,  58,  45,  25,
-  65, 113, 134, 140, 134, 130, 102,  82,
-  71, 105, 104, 121, 114, 126,  98,  86,
-  58,  63, 103,  88,  88,  92,  86,  59,
-  53,  34,  61,  50,  33,  -2,  15,  50,
-  49,  46,  50,  28,  49,   8,  10,  -5,
+  91, 103, 116, 134,  93,  75,  70,  80,
+  95, 133, 134, 139, 143,  85,  98,  44,
+  69, 101, 117, 129, 107,  54,  47,  23,
+  66, 107, 125, 138, 132, 132, 102,  88,
+  75, 103, 101, 119, 114, 124,  94,  87,
+  57,  63,  98,  87,  84,  88,  86,  58,
+  51,  29,  62,  42,  31,  -6,  15,  52,
+  47,  42,  37,  17,  41,  11,  11,  -4,
 ];
 
 #[rustfmt::skip]
@@ -168,9 +168,9 @@ pub static PIECE_SQUARE_TABLES: [[[i16; 64]; 12]; 2] = [
 ];
 
 /// Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES_MIDGAME: [i16; 7] = [0, 79, 293, 313, 449, 921, 20000];
+pub static CENTIPAWN_VALUES_MIDGAME: [i16; 7] = [0, 78, 293, 313, 449, 921, 20000];
 /// Indexed with piece code, so index 0 is no piece
-pub static CENTIPAWN_VALUES_ENDGAME: [i16; 7] = [0, 120, 293, 313, 516, 994, 20000];
+pub static CENTIPAWN_VALUES_ENDGAME: [i16; 7] = [0, 119, 293, 313, 516, 994, 20000];
 
 pub struct EvalFeature {
     pub midgame: i16,
@@ -183,21 +183,29 @@ impl EvalFeature {
     }
 }
 
-pub const DOUBLED_PAWN: EvalFeature = EvalFeature::new(-17, -29);
-pub const PASSED_PAWNS: EvalFeature = EvalFeature::new(6, 13);
-pub const ROOK_OPEN_FILES: EvalFeature = EvalFeature::new(37, 2);
-pub const ROOF_HALF_OPEN_FILES: EvalFeature = EvalFeature::new(19, 36);
-pub const BISHOP_PAIR: EvalFeature = EvalFeature::new(28, 88);
-pub const PAWN_SHIELD: i16 = -8;
+pub const DOUBLED_PAWN: EvalFeature = EvalFeature::new(-10, -23);
+pub const PASSED_PAWNS: EvalFeature = EvalFeature::new(7, 16);
+pub const ROOK_OPEN_FILES: EvalFeature = EvalFeature::new(32, 1);
+pub const ROOF_HALF_OPEN_FILES: EvalFeature = EvalFeature::new(16, 34);
+pub const BISHOP_PAIR: EvalFeature = EvalFeature::new(29, 88);
+pub const PAWN_SHIELD: i16 = -9;
 pub const CONNECTED_PAWNS: EvalFeature = EvalFeature::new(8, 4);
 pub const PIECES_THREATENED_BY_PAWNS: EvalFeature = EvalFeature::new(56, 34);
-pub const ISOLATED_PAWN: EvalFeature = EvalFeature::new(-11, -6);
+pub const ISOLATED_PAWN: EvalFeature = EvalFeature::new(-10, -6);
 
-pub static MOBILITY_ROOK_MIDGAME: [i16; 15] = [-10, -7, -4, -1, -2, 3, 5, 6, 9, 12, 13, 15, 16, 16, 19];
-pub static MOBILITY_ROOK_ENDGAME: [i16; 15] = [0, 1, 0, -1, 4, 5, 6, 4, 8, 11, 15, 15, 14, 13, -2];
-pub static MOBILITY_BISHOP_MIDGAME: [i16; 14] = [-32, -19, -12, -7, 0, 7, 10, 12, 16, 19, 16, 14, 12, 13];
-pub static MOBILITY_BISHOP_ENDGAME: [i16; 14] = [0, -6, -12, -6, 1, 7, 10, 15, 12, 13, 10, 10, 12, 12];
-pub static MOBILITY_QUEEN_MIDGAME: [i16; 14] = [-32, -19, -12, -7, 0, 7, 10, 12, 16, 19, 16, 14, 12, 13];
-pub static MOBILITY_QUEEN_ENDGAME: [i16; 14] = [0, -6, -12, -6, 1, 7, 10, 15, 12, 13, 10, 10, 12, 12];
-pub static MOBILITY_KNIGHT_MIDGAME: [i16; 9] = [-38, -17, -6, 0, 5, 9, 14, 15, 5];
-pub static MOBILITY_KNIGHT_ENDGAME: [i16; 9] = [0, 1, 2, 5, 7, 12, 7, 5, -16];
+#[rustfmt::skip]
+pub static MOBILITY_ROOK_MIDGAME: [i16; 15] = [ -10,  -7,  -4,  -1,  -2,   3,   5,   6,   9,  12,  13,  15,  16,  16,  19];
+#[rustfmt::skip]
+pub static MOBILITY_ROOK_ENDGAME: [i16; 15] = [   0,   1,   0,  -1,   4,   5,   6,   4,   8,  11,  15,  15,  14,  13,  -2];
+#[rustfmt::skip]
+pub static MOBILITY_BISHOP_MIDGAME: [i16; 14] = [ -32, -19, -12,  -7,   0,   7,  10,  12,  16,  19,  16,  14,  12,  13];
+#[rustfmt::skip]
+pub static MOBILITY_BISHOP_ENDGAME: [i16; 14] = [   0,  -6, -12,  -6,   1,   7,  10,  15,  12,  13,  10,  10,  12,  12];
+#[rustfmt::skip]
+pub static MOBILITY_KNIGHT_MIDGAME: [i16; 9] = [ -38, -17,  -6,   0,   5,   9,  14,  15,   5];
+#[rustfmt::skip]
+pub static MOBILITY_KNIGHT_ENDGAME: [i16; 9] = [   0,   1,   2,   5,   7,  12,   7,   5, -16];
+#[rustfmt::skip]
+pub static MOBILITY_QUEEN_MIDGAME: [i16; 14] = [0,  -6,  -5,  -4,   0,   5,   9,  15,  22,  28,  34,  26,  13,  14];
+#[rustfmt::skip]
+pub static MOBILITY_QUEEN_ENDGAME: [i16; 14] = [1,   2,   3,   4,   5,   6,   7,  10,   9,  10,  10,  12,  13,  14];
