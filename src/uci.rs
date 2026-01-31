@@ -255,6 +255,12 @@ impl UciInterface {
                         }
                     } else if message.eq_ignore_ascii_case("bench") {
                         bench();
+                    } else if message.starts_with("eval") {
+                        if let Some(board) = &self.board {
+                            println!("Static eval: {}", board.evaluate_side_to_move_relative())
+                        } else {
+                            error!("Board must be set with position first");
+                        }
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
