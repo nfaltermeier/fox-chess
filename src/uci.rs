@@ -13,15 +13,7 @@ use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
-    STARTING_FEN,
-    bench::bench,
-    board::Board,
-    evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    get_build_info,
-    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
-    search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
-    transposition_table::{TTEntry, TranspositionTable},
-    uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
+    STARTING_FEN, bench::bench, board::Board, evaluate::{MATE_THRESHOLD, MATE_VALUE}, get_build_info, moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves}, search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher}, texel::DEFAULT_PARAMS, transposition_table::{TTEntry, TranspositionTable}, uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions}
 };
 
 pub struct UciInterface {
@@ -257,6 +249,12 @@ impl UciInterface {
                         }
                     } else if message.eq_ignore_ascii_case("bench") {
                         bench();
+                    } else if message.starts_with("eval") {
+                        if let Some(board) = &self.board {
+                            println!("Static eval: {}", board.evaluate_side_to_move_relative(&DEFAULT_PARAMS))
+                        } else {
+                            error!("Board must be set with position first");
+                        }
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }

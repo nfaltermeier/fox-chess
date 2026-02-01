@@ -30,6 +30,31 @@ pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
 pub const MATE_THRESHOLD: i16 = 20000;
 pub const MATE_VALUE: i16 = 25000;
 
+// The board as it appears here in the array is vertically flipped which changes the colors. a1 is a dark square.
+#[rustfmt::skip]
+static LIGHT_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
+    7, 6, 5, 4, 3, 2, 1, 0,
+    6, 7, 6, 5, 4, 3, 2, 1,
+    5, 6, 7, 6, 5, 4, 3, 2,
+    4, 5, 6, 7, 6, 5, 4, 3,
+    3, 4, 5, 6, 7, 6, 5, 4,
+    2, 3, 4, 5, 6, 7, 6, 5,
+    1, 2, 3, 4, 5, 6, 7, 6,
+    0, 1, 2, 3, 4, 5, 6, 7,
+];
+
+#[rustfmt::skip]
+static DARK_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
+    0, 1, 2, 3, 4, 5, 6, 7,
+    1, 2, 3, 4, 5, 6, 7, 6,
+    2, 3, 4, 5, 6, 7, 6, 5,
+    3, 4, 5, 6, 7, 6, 5, 4,
+    4, 5, 6, 7, 6, 5, 4, 3,
+    5, 6, 7, 6, 5, 4, 3, 2,
+    6, 7, 6, 5, 4, 3, 2, 1,
+    7, 6, 5, 4, 3, 2, 1, 0,
+];
+
 #[inline]
 /// for piece_type, pawn is 0
 fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usize {
@@ -132,6 +157,8 @@ impl Board {
 
         self.calculate_mobility(&mut result, &mut misc_features_idx);
 
+        result.endgame_bonus = self.kbnk_modifier();
+
         if doubled_pawns != 0 {
             result.misc_features[misc_features_idx] = (doubled_pawns as i8, FeatureIndex::DoubledPawns as u16);
             misc_features_idx += 1;
@@ -166,6 +193,34 @@ impl Board {
         }
 
         result
+    }
+
+    fn kbnk_modifier(&self) -> i16 {
+        if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
+            let white_has_piece = self.side_occupancy[0].count_ones() > 1;
+            let winning_side = if white_has_piece { 0 } else { 1 };
+
+            if self.piece_bitboards[winning_side][PIECE_QUEEN as usize] == 0
+                && self.piece_bitboards[winning_side][PIECE_ROOK as usize] == 0
+                && self.piece_bitboards[winning_side][PIECE_PAWN as usize] == 0
+                && self.piece_bitboards[winning_side][PIECE_BISHOP as usize].count_ones() == 1
+            {
+                let light_square_bishop =
+                    self.piece_bitboards[winning_side][PIECE_BISHOP as usize] & LIGHT_SQUARES != 0;
+                let table = if light_square_bishop {
+                    &LIGHT_SQUARE_BISHOP_CORNER_DISTANCE
+                } else {
+                    &DARK_SQUARE_BISHOP_CORNER_DISTANCE
+                };
+
+                let losing_side = if white_has_piece { 1 } else { 0 };
+                let losing_king = self.piece_bitboards[losing_side][PIECE_KING as usize].trailing_zeros();
+
+                return if white_has_piece { 1 } else { -1 } * (7 - table[losing_king as usize]) as i16 * 100;
+            }
+        }
+
+        return 0;
     }
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {

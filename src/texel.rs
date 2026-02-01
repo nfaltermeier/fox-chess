@@ -59,6 +59,7 @@ pub struct FeatureData {
     pub game_stage: i16,
     pub misc_features: [(i8, u16); MAX_MISC_FEATURES],
     pub pawn_shield: TaperedFeature,
+    pub endgame_bonus: i16,
 }
 
 pub struct PositionFeatures {
@@ -142,13 +143,13 @@ pub static DEFAULT_PARAMS: EvalParams = [
         -7,-11,-14,-24,-15,17,28,-12,
         0,0,0,0,0,0,0,0,
         -124,-21,-7,-15,24,-46,-39,-118,
-        -10,2,20,41,34,38,-32,-10,
-        4,19,42,59,80,81,41,9,
-        1,9,37,55,28,58,28,35,
-        -10,7,22,14,29,25,36,6,
-        -30,-12,-3,12,26,5,9,-19,
-        -46,-23,-16,-1,-1,0,-15,-3,
-        -81,-34,-37,-21,-20,-12,-36,-66,
+        -10,1,20,41,32,38,-32,-10,
+        3,17,40,56,80,80,41,10,
+        1,7,36,54,25,56,26,36,
+        -9,6,21,14,27,24,37,7,
+        -30,-12,-3,10,25,6,8,-18,
+        -45,-23,-16,1,1,0,-13,-1,
+        -81,-33,-37,-18,-17,-11,-35,-66,
         -13,-29,-36,-18,-37,-57,-14,20,
         -8,0,1,-9,9,4,-13,-19,
         -2,14,21,27,34,66,39,29,
@@ -189,22 +190,22 @@ pub static DEFAULT_PARAMS: EvalParams = [
         10,1,-6,-16,-15,-14,-19,-19,
         25,13,6,23,11,-7,-15,-5,
         0,0,0,0,0,0,0,0,
-        27,5,4,10,-3,26,-3,-40,
-        -11,12,1,6,-2,-26,9,-25,
-        -8,0,21,13,-13,-21,-18,-30,
-        -1,1,27,11,31,-5,5,-26,
-        -4,12,32,35,25,13,-20,-11,
-        -22,16,24,26,6,1,-20,-14,
-        -34,-12,3,7,-2,-16,-19,-58,
-        -25,-46,-20,-5,-21,-39,-44,-69,
-        28,44,39,30,27,33,16,-10,
-        11,21,23,18,11,7,16,-13,
-        13,14,7,2,-9,-8,4,-13,
-        17,22,11,8,15,-1,26,-1,
-        11,22,24,14,24,29,11,2,
-        -5,8,23,20,32,7,-8,-17,
-        -14,-2,0,19,-1,-12,-29,-44,
-        0,16,-8,5,-1,-15,0,13,
+        27,7,5,10,-5,26,-3,-40,
+        -13,12,2,6,-2,-27,9,-25,
+        -9,0,22,15,-14,-19,-18,-30,
+        -1,7,26,11,33,-4,6,-25,
+        -4,12,31,35,25,14,-21,-11,
+        -23,15,25,26,9,5,-19,-14,
+        -32,-14,2,5,-3,-17,-17,-57,
+        -24,-46,-20,-5,-21,-39,-42,-69,
+        31,47,40,30,27,33,16,-10,
+        14,21,23,19,9,7,17,-13,
+        11,16,9,4,-7,-1,6,-13,
+        19,23,8,12,19,0,31,0,
+        8,22,28,18,22,30,11,2,
+        -3,8,23,23,31,6,-5,-13,
+        -8,-5,-4,19,-2,-10,-23,-44,
+        2,18,-4,5,2,-14,2,15,
         44,54,62,61,65,57,56,60,
         70,72,63,54,57,34,42,42,
         70,63,63,57,45,38,39,54,
@@ -254,7 +255,7 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
 
     // Based on a blank line being inserted between each game by pgn-extract
     let file = File::open(filename).unwrap();
-    let games_count = BufReader::new(file).lines().filter(|l| l.as_ref().unwrap().is_empty()).count() + 1;
+    let mut games_count = BufReader::new(file).lines().filter(|l| l.as_ref().unwrap().is_empty()).count() + 1;
 
     let positions_per_game = positions_to_use / games_count;
     // Find out how many positions we will be short because of integer rounding
@@ -293,6 +294,7 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
             positions_per_game
         };
 
+        let mut first_position_from_game = true;
         for i in 0..positions_to_take {
             if current_game_positions.len() == 0 {
                 extra_positions_left += positions_to_take - i + 1;
@@ -326,6 +328,35 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
                 "0-1" => 0.0,
                 _ => panic!("Unexpected match result {match_result} on line {line}"),
             };
+
+            if first_position_from_game {
+                // Check for draws in KNBvK endgames and skip them.
+                // Most of my current training data was generated when it could not solve these endgames reliably,
+                // so they do not reflect the current state of the engine at all.
+                if match_result_value == 0.5 && current_game_positions.len() > 1 {
+                    // Assuming the positions have not been shuffled
+                    let second_last_position = &current_game_positions[current_game_positions.len() - 1];
+                    let pieces = &second_last_position[0..second_last_position.find(' ').unwrap()];
+                    let lowercase_pieces = pieces.to_ascii_lowercase();
+                    if !lowercase_pieces.contains('p')
+                        && !lowercase_pieces.contains('r')
+                        && !lowercase_pieces.contains('q') 
+                        && lowercase_pieces.contains('b') 
+                        && lowercase_pieces.contains('n') 
+                        && lowercase_pieces.chars().filter(|c| *c == 'b').count() == 1
+                    {
+                        if (pieces.contains('b') && pieces.contains('n'))
+                            || (pieces.contains('B') && pieces.contains('N'))
+                        {
+                            games_count -= 1;
+                            extra_positions_left += positions_to_take;
+                            break;
+                        }
+                    }
+                }
+
+                first_position_from_game = false;
+            }
 
             result.push(TexelPosition {
                 board,
@@ -841,7 +872,7 @@ impl FeatureData {
 
         let pawn_shield = (self.pawn_shield.taper_amount * self.pawn_shield.weight * params[self.pawn_shield.idx as usize]) / self.pawn_shield.max_amount;
 
-        position_score_final + pawn_shield
+        position_score_final + pawn_shield + self.endgame_bonus
     }
     
     pub fn sum_psqt_for_a_phase(white: &[u16; 16], black: &[u16; 16], misc_features: &[(i8, u16); MAX_MISC_FEATURES], params: &EvalParams, endgame: bool) -> i16 {
