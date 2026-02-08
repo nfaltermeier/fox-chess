@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::iter::repeat_n;
 use std::ops::Add;
 use std::ops::Range;
 use std::simd::i16x8;
@@ -17,6 +18,7 @@ use std::{
 #[allow(internal_features)]
 use std::intrinsics::fadd_algebraic;
 
+use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rayon::prelude::*;
@@ -67,6 +69,11 @@ pub struct PositionFeatures {
     pub result: f64,
 }
 
+enum PositionsType<'a> {
+    Quiet(&'a [PositionFeatures]),
+    Nonquiet(&'a mut [TexelPosition]),
+}
+
 pub const EVAL_PARAM_COUNT: usize = 904;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
@@ -104,13 +111,17 @@ pub enum FeatureIndex {
     QueenMobility = 876,
 }
 
-static FEATURE_SETS: [FeatureSet; 25] = [
-    FeatureSet::new("MidgamePawn", FeatureIndex::MidgamePawn, FeatureIndex::MidgameKnight),
-    FeatureSet::new("MidgameKnight", FeatureIndex::MidgameKnight, FeatureIndex::MidgameBishop),
-    FeatureSet::new("MidgameBishop", FeatureIndex::MidgameBishop, FeatureIndex::MidgameRook),
+static FEATURE_SETS: [FeatureSet; 29] = [
+    FeatureSet::new_usize("MidgamePawnClose", 24, FeatureIndex::MidgameKnight as usize),
+    FeatureSet::new_mixed("MidgamePawnFar", FeatureIndex::MidgamePawn, 24),
+    FeatureSet::new_usize("MidgameKnightClose", FeatureIndex::MidgameKnight as usize + 16, FeatureIndex::MidgameBishop as usize),
+    FeatureSet::new_mixed("MidgameKnightFar", FeatureIndex::MidgameKnight, FeatureIndex::MidgameKnight as usize + 16),
+    FeatureSet::new_usize("MidgameBishopClose", FeatureIndex::MidgameBishop as usize + 16, FeatureIndex::MidgameRook as usize),
+    FeatureSet::new_mixed("MidgameBishopFar", FeatureIndex::MidgameBishop, FeatureIndex::MidgameBishop as usize + 16),
     FeatureSet::new("MidgameRook", FeatureIndex::MidgameRook, FeatureIndex::MidgameQueen),
     FeatureSet::new("MidgameQueen", FeatureIndex::MidgameQueen, FeatureIndex::MidgameKing),
-    FeatureSet::new("MidgameKing", FeatureIndex::MidgameKing, FeatureIndex::EndgamePawn),
+    FeatureSet::new_usize("MidgameKingClose", FeatureIndex::MidgameKing as usize + 48, FeatureIndex::EndgamePawn as usize),
+    FeatureSet::new_mixed("MidgameKingFar", FeatureIndex::MidgameKing, FeatureIndex::EndgamePawn as usize + 48),
     FeatureSet::new("EndgamePawn", FeatureIndex::EndgamePawn, FeatureIndex::EndgameKnight),
     FeatureSet::new("EndgameKnight", FeatureIndex::EndgameKnight, FeatureIndex::EndgameBishop),
     FeatureSet::new("EndgameBishop", FeatureIndex::EndgameBishop, FeatureIndex::EndgameRook),
@@ -135,118 +146,118 @@ static FEATURE_SETS: [FeatureSet; 25] = [
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
         0,0,0,0,0,0,0,0,
-        167,148,137,130,86,59,16,55,
-        41,52,51,47,52,67,74,34,
-        7,2,3,4,20,21,15,5,
-        -5,-8,-4,2,1,11,1,-8,
-        -11,-16,-15,-14,-5,-1,9,-7,
-        -7,-11,-14,-24,-15,17,28,-12,
+        187,162,145,137,92,46,-25,35,
+        48,49,53,47,55,71,59,34,
+        8,4,3,8,23,22,9,4,
+        -3,-9,-1,4,4,13,1,-11,
+        -13,-15,-16,-15,-9,-5,6,-10,
+        -5,-8,-14,-17,-13,15,26,-13,
         0,0,0,0,0,0,0,0,
-        -124,-21,-7,-15,24,-46,-39,-118,
-        -10,1,20,41,32,38,-32,-10,
-        3,17,40,56,80,80,41,10,
-        1,7,36,54,25,56,26,36,
-        -9,6,21,14,27,24,37,7,
-        -30,-12,-3,10,25,6,8,-18,
-        -45,-23,-16,1,1,0,-13,-1,
-        -81,-33,-37,-18,-17,-11,-35,-66,
-        -13,-29,-36,-18,-37,-57,-14,20,
-        -8,0,1,-9,9,4,-13,-19,
-        -2,14,21,27,34,66,39,29,
-        -5,-1,16,44,23,27,-3,-2,
-        -12,1,7,26,16,-5,1,3,
-        -20,6,5,4,7,4,5,0,
-        -12,-5,4,-11,0,4,15,-13,
-        -36,-22,-21,-29,-18,-22,-23,-27,
-        46,46,40,38,35,37,47,40,
-        20,20,40,51,45,67,53,53,
-        9,20,25,33,45,66,51,23,
-        -9,-3,11,15,14,26,17,-2,
-        -23,-17,-11,-3,-5,-4,2,-21,
-        -29,-25,-22,-23,-17,-13,5,-22,
-        -34,-27,-17,-18,-18,-1,-14,-49,
-        -14,-13,-9,-6,-2,1,-20,-21,
-        1,21,28,36,64,78,71,59,
-        -9,-17,20,28,36,69,44,65,
-        -4,4,14,31,54,107,87,66,
-        -9,1,13,17,32,38,48,37,
-        -7,-1,8,13,18,18,26,21,
-        -9,0,3,4,7,14,22,2,
-        -16,-1,6,12,13,6,-13,-34,
-        -9,-11,-2,5,0,-37,-49,-27,
+        -114,-16,-24,-12,17,-18,-22,-153,
+        -12,-1,23,38,27,36,-15,12,
+        -5,13,32,52,77,76,42,12,
+        1,7,29,50,29,49,27,37,
+        -7,3,22,15,28,24,37,8,
+        -30,-13,-4,10,21,6,8,-13,
+        -40,-22,-14,3,5,-2,-9,-4,
+        -81,-26,-34,-14,-11,-10,-15,-66,
+        -18,-25,-18,-21,-5,-52,24,7,
+        -20,-6,-5,-1,9,-1,-25,-21,
+        -8,11,21,26,34,65,40,31,
+        -10,-3,16,43,24,29,0,-1,
+        -2,0,6,30,21,-3,0,9,
+        -16,8,7,7,8,6,6,2,
+        -8,-6,9,-8,1,5,13,-5,
+        -36,-8,-16,-20,-12,-18,-23,-26,
+        40,42,38,37,35,39,47,40,
+        22,21,37,43,46,66,53,53,
+        8,20,25,32,48,66,53,30,
+        -7,-3,13,18,20,26,23,6,
+        -20,-19,-12,-4,-3,-3,7,-19,
+        -29,-21,-24,-19,-14,-11,5,-24,
+        -37,-31,-18,-15,-15,-3,-13,-50,
+        -16,-14,-9,-6,-2,0,-20,-24,
+        5,26,27,39,55,79,76,67,
+        -9,-10,21,30,45,68,52,67,
+        0,6,20,29,61,100,92,67,
+        0,4,15,25,41,38,48,37,
+        -4,2,15,20,21,23,32,21,
+        -5,3,5,10,12,19,25,13,
+        -8,3,10,16,17,7,-5,-16,
+        -4,-3,1,11,2,-31,-51,-27,
         -28,52,32,-40,65,-14,51,-46,
         13,-2,54,-15,-38,37,-7,17,
-        -28,8,0,-4,-27,-29,-38,-40,
-        27,44,13,10,18,26,42,27,
-        16,40,36,32,30,25,6,-7,
-        3,21,16,15,15,8,7,-15,
-        13,1,9,-14,-6,-4,26,24,
-        -40,12,0,-44,13,-34,33,21,
+        -28,8,0,-4,-27,-29,-36,-40,
+        27,44,13,10,18,27,42,27,
+        16,39,36,33,29,26,11,-10,
+        3,19,16,15,9,7,2,-14,
+        -3,-8,12,-7,-6,-3,24,22,
+        -46,11,8,-40,12,-28,29,16,
         0,0,0,0,0,0,0,0,
-        150,162,163,109,148,167,222,174,
-        91,80,53,31,9,19,34,42,
-        41,26,13,-18,-20,-15,0,-3,
-        17,16,-10,-26,-20,-13,-8,-18,
-        10,1,-6,-16,-15,-14,-19,-19,
-        25,13,6,23,11,-7,-15,-5,
+        78,96,94,43,76,118,176,128,
+        84,80,46,23,9,15,41,42,
+        45,36,19,-7,-9,-5,14,6,
+        25,23,1,-17,-12,-1,7,-5,
+        18,10,5,-2,-2,2,-7,-5,
+        32,20,16,0,16,5,-3,6,
         0,0,0,0,0,0,0,0,
-        27,7,5,10,-5,26,-3,-40,
-        -13,12,2,6,-2,-27,9,-25,
-        -9,0,22,15,-14,-19,-18,-30,
-        -1,7,26,11,33,-4,6,-25,
-        -4,12,31,35,25,14,-21,-11,
-        -23,15,25,26,9,5,-19,-14,
-        -32,-14,2,5,-3,-17,-17,-57,
-        -24,-46,-20,-5,-21,-39,-42,-69,
-        31,47,40,30,27,33,16,-10,
-        14,21,23,19,9,7,17,-13,
-        11,16,9,4,-7,-1,6,-13,
-        19,23,8,12,19,0,31,0,
-        8,22,28,18,22,30,11,2,
-        -3,8,23,23,31,6,-5,-13,
-        -8,-5,-4,19,-2,-10,-23,-44,
-        2,18,-4,5,2,-14,2,15,
-        44,54,62,61,65,57,56,60,
-        70,72,63,54,57,34,42,42,
-        70,63,63,57,45,38,39,54,
-        71,70,64,58,50,47,45,60,
-        66,69,67,60,53,55,50,53,
-        44,45,47,43,40,36,21,35,
-        33,26,31,31,25,9,20,32,
-        42,36,49,46,27,24,52,45,
-        91,103,116,134,93,75,70,80,
-        95,133,134,139,143,85,98,44,
-        69,101,117,129,107,54,47,23,
-        66,107,125,138,132,132,102,88,
-        75,103,101,119,114,124,94,87,
-        57,63,98,87,84,88,86,58,
-        51,29,62,42,31,-6,15,52,
-        47,42,37,17,41,11,11,-4,
-        -69,-36,-2,23,-11,25,-2,-64,
-        -9,31,1,43,50,27,49,4,
-        19,38,48,51,59,73,78,48,
-        -6,15,34,39,40,39,27,5,
-        -35,-10,10,19,24,21,11,-12,
-        -47,-22,-3,9,12,10,-4,-16,
-        -51,-18,-10,0,0,0,-19,-46,
-        -3,-54,-24,-14,-47,-16,-64,-87,
-        0,0,78,119,293,293,313,313,
-        449,516,921,994,20000,20000,-10,-23,
-        7,16,32,1,16,34,29,88,
-        -9,-8,8,4,56,34,-10,-6,
-        -10,0,-7,1,-4,0,-1,-1,
-        -2,4,3,5,5,6,6,4,
-        9,8,12,11,13,15,15,15,
-        16,14,16,13,19,-2,-32,0,
-        -19,-6,-12,-12,-7,-6,0,1,
-        7,7,10,10,12,15,16,12,
-        19,13,16,10,14,10,12,12,
-        13,12,-38,0,-17,1,-6,2,
-        0,5,5,7,9,12,14,7,
-        15,5,5,-16,0,1,-6,2,
-        -5,3,-4,4,0,5,5,6,
-        9,7,15,10,22,9,28,10,
-        34,10,26,12,13,13,14,14,
+        56,44,41,43,20,35,31,24,
+        13,41,26,38,26,12,42,-14,
+        28,30,57,43,17,21,21,9,
+        24,33,57,42,58,33,30,-2,
+        24,32,60,63,48,46,9,15,
+        -2,31,49,49,34,23,1,5,
+        -2,19,14,18,12,-2,12,-40,
+        -10,-12,14,13,-3,-24,-21,-11,
+        51,66,51,51,29,47,23,15,
+        49,44,48,36,34,37,45,20,
+        35,39,28,18,21,16,23,4,
+        32,45,31,33,40,20,47,26,
+        26,42,47,32,31,43,33,11,
+        14,29,43,37,48,25,10,0,
+        10,9,12,35,14,13,-3,-24,
+        27,17,8,19,12,6,9,17,
+        79,91,98,95,102,94,88,90,
+        107,109,105,99,94,78,85,81,
+        110,104,102,97,85,76,81,88,
+        109,109,101,96,90,86,86,92,
+        103,108,107,97,92,92,80,90,
+        82,82,89,76,70,63,55,74,
+        71,74,71,61,55,40,56,69,
+        66,60,72,65,45,45,66,67,
+        150,148,169,173,172,125,113,117,
+        149,194,205,196,188,163,155,101,
+        125,174,191,205,173,117,105,107,
+        127,158,179,188,173,191,169,145,
+        127,155,154,168,159,163,133,158,
+        97,128,153,121,136,132,118,94,
+        87,86,100,71,71,59,59,71,
+        74,46,62,29,66,16,66,24,
+        -76,-32,1,30,-6,39,12,-112,
+        -19,36,14,43,52,39,61,-1,
+        21,47,50,56,62,78,82,51,
+        -7,21,40,40,40,41,32,8,
+        -33,-4,12,19,22,18,8,-10,
+        -48,-18,-3,9,11,6,-6,-20,
+        -39,-12,-15,-7,-7,-8,-27,-57,
+        -19,-49,-37,-21,-52,-25,-73,-93,
+        0,0,84,110,331,295,350,322,
+        503,535,1030,997,20000,20000,-13,-20,
+        7,18,29,-4,16,24,32,88,
+        -9,-8,8,4,55,34,-10,-9,
+        -18,0,-13,0,-9,-1,-5,-1,
+        -4,4,2,5,5,12,8,7,
+        11,13,14,14,18,17,19,17,
+        24,14,20,14,26,-3,-29,0,
+        -20,-9,-12,-15,-6,-6,0,1,
+        7,8,10,13,12,19,17,12,
+        19,15,17,10,15,10,12,12,
+        13,12,-41,0,-18,1,-6,2,
+        -1,5,6,11,11,17,16,13,
+        21,1,12,-16,2,1,-1,2,
+        0,3,3,4,8,5,13,6,
+        18,9,24,14,31,11,37,10,
+        38,10,26,12,13,13,14,14,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
@@ -372,6 +383,36 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
     result
 }
 
+pub fn load_preprocessed_positions(filename: &str) -> Vec<TexelPosition> {
+    let mut result = Vec::new();
+
+    let file = File::open(filename).unwrap();
+    for line in BufReader::new(file).lines() {
+        let line = line.unwrap();
+
+        if !line.is_empty() {
+            let semicolon_index = line.find(";").unwrap();
+            let fen = &line[0..semicolon_index];
+            let board = Board::from_fen(fen).unwrap();
+
+            let match_result = &line[semicolon_index + 1..];
+            let match_result_value = match match_result {
+                "1-0" => 1.0,
+                "1/2-1/2" => 0.5,
+                "0-1" => 0.0,
+                _ => panic!("Unexpected match result {match_result} on line {line}"),
+            };
+
+            result.push(TexelPosition {
+                board,
+                result: match_result_value,
+            });
+        }
+    }
+
+    result
+}
+
 fn sigmoid(eval: f64, scaling_constant: f64) -> f64 {
     let exp = -eval * scaling_constant / 400.0;
     1.0 / (1.0 + 10.0_f64.powf(exp))
@@ -385,7 +426,7 @@ struct Improvement {
 
 /// Uses gradient descent with backtracking line search
 /// https://en.wikipedia.org/wiki/Gradient_descent
-pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
+pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_positions: Option<Vec<TexelPosition>>) {
     if !fs::exists("params").unwrap() {
         fs::create_dir("params").unwrap();
     }
@@ -394,14 +435,18 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
         fs::create_dir("gradients").unwrap();
     }
 
+    if nonquiet_positions.is_none() && quiet_positions.is_none() {
+        panic!("One of nonquiet_positions or quiet_positions must have a value")
+    }
+
     // test starting from zeros
     let mut params = DEFAULT_PARAMS;
     // let mut params = [0; EVAL_PARAM_COUNT];
 
     // perturb(&mut params);
 
-    let quiet = true;
-    if quiet {
+    let quiet_logging = true;
+    if quiet_logging {
         println!("Running in quiet mode, skipping some printouts and saves");
     }
 
@@ -410,216 +455,323 @@ pub fn find_best_params(mut nonquiet_positions: Vec<TexelPosition>) {
     // step_size is scaled by this when Armijo–Goldstein condition is not filfilled. Should be within (0, 1).
     let tau = 0.95;
 
+    // Pass 0 to disable minibatching
+    let minibatches = 5;
+    assert_ne!(minibatches, 1);
+    let max_change_sets_per_minibatch = 3;
+    // Only minibatches will be used until this many loops of minibatches have been run
+    let max_minibatched_loops = 3;
+    let is_quiet_positions = nonquiet_positions.is_none();
+    let mut positions = nonquiet_positions.unwrap_or_else(|| quiet_positions.unwrap());
+    let positions_per_minibatch = positions.len() / minibatches.max(1);
+
     let mut iterations = 0;
     let mut changed_since_step_size_reset = false;
     let mut step_size_resets = 0;
     let mut total_param_changes = 0;
-    let mut starting_error = None;
     let mut feature_set_loops = 0;
-    let mut failures: usize = 0;
+    let mut failured_param_changes: usize = 0;
+    let mut succeeded_param_changes: usize = 0;
     let mut last_disk_save = Instant::now();
+    let mut fullbatch_base_error = None;
+    let mut rand = if minibatches > 0 {
+        StdRng::from_entropy()
+    } else {
+        // If minibatches are disabled then a reproducible result / fast exit may be desired
+        StdRng::seed_from_u64(0x88d885d4bb51ffc2)
+    };
 
     // The goal for how much to improve at each descent step
     for base_c in [0.1] {
-        loop {
-            let mut changes_this_feature_set_loop = 0;
-            let mut starting_error_this_feature_set_loop = None;
-            for feature_set in &FEATURE_SETS {
-                let feature_set_range = feature_set.lower..feature_set.upper;
+        for minibatched_loops_run in 0..=max_minibatched_loops {
+            if minibatches >= 2 && minibatched_loops_run < max_minibatched_loops {
+                let mut rng = StdRng::from_entropy();
+                positions.shuffle(&mut rng);
+            }
 
-                {
-                    let mut any_can_change = false;
-                    for i in feature_set_range.clone() {
-                        if change_param_at_index(i) {
-                            any_can_change = true;
-                            break;
-                        }
-                    }
+            let quiet_pos_features = if is_quiet_positions {
+                Some(get_features_for_quiet_positions(&positions))
+            } else {
+                None
+            };
 
-                    if !any_can_change {
+            let mut starting_errors = Vec::with_capacity(minibatches + 1);
+            // When true, the only work done is setting starting_errors for each batch
+            for is_initializing_starting_errors in [true, false] {
+                for batch_num in 1..=(minibatches + 1) {
+                    let is_fullbatch = batch_num == minibatches + 1;
+
+                    if !is_fullbatch && minibatched_loops_run >= max_minibatched_loops {
                         continue;
                     }
-                }
 
-                let (c, default_step_size) = if feature_set_range.end - feature_set_range.start > 100 { (base_c, 10_000_000.0) } else { (3.0 * base_c, 100_000_000.0) };
-                step_size = default_step_size;
-                
-                loop {
-                    let features = qsearch_for_features(&mut nonquiet_positions, &params);
-
-                    let base_error = find_error_for_features(&features, &params, scaling_constant);
-                    println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
-                    if starting_error.is_none() {
-                        starting_error = Some(base_error);
-                    }
-                    if starting_error_this_feature_set_loop.is_none() {
-                        starting_error_this_feature_set_loop = Some(base_error);
+                    if is_initializing_starting_errors && is_fullbatch && let Some(fullbatch_base_error) = fullbatch_base_error {
+                        starting_errors.extend(repeat_n(0.0, starting_errors.len() - minibatches));
+                        starting_errors.push(fullbatch_base_error);
+                        continue;
                     }
 
-                    let gradient = eval_gradient(&features, &mut params, scaling_constant, feature_set_range.clone(), quiet);
-                    let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
-                    let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
-                    let mut sorted = gradient.clone();
-                    sorted.sort_unstable_by(f64::total_cmp);
-                    let median_gradient_value = sorted[gradient.len() / 2];
-                    println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}, avg is {avg_gradient_value}, median is {median_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
-                    save_gradient(&gradient);
+                    // batch_data should not have the value it contains changed. The inner value of &&mut cannot be changed,
+                    // so batch_data must be mut so instead I end up with &mut &mut where the inner value can be changed.
+                    let (mut batch_data, batch_description) = if !is_fullbatch {
+                        let start = (batch_num - 1) * positions_per_minibatch;
+                        let end = if batch_num != minibatches { batch_num * positions_per_minibatch } else { positions.len() };
+                        let batch_data = if is_quiet_positions {
+                            PositionsType::Quiet(&quiet_pos_features.as_ref().unwrap()[start..end])
+                        } else {
+                            PositionsType::Nonquiet(&mut positions[start..end])
+                        };
+                        (batch_data, format!("Batch {}", batch_num))
+                    } else {
+                        let batch_data = if is_quiet_positions {
+                            PositionsType::Quiet(&quiet_pos_features.as_ref().unwrap()[..])
+                        } else {
+                            PositionsType::Nonquiet(&mut positions[..])
+                        };
+                        (batch_data, "Full batch".to_string())
+                    };
 
-                    // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
-                    let m = calc_m(&gradient);
-                    let t = -c * m;
+                    'outer: loop {
+                        let mut changes_this_feature_set_loop = 0;
+                        let mut starting_error_this_feature_set_loop = None;
+                        let mut working_feature_sets = Vec::new();
+                        working_feature_sets.extend_from_slice(&FEATURE_SETS);
 
-                    let mut updated_params;
-                    let mut new_error = base_error;
-                    let mut biggest_change;
-                    let mut changed_params = 0;
-                    let mut found_improvement = false;
-                    let mut best_improvement: Option<Improvement> = None;
-                    let mut lowest_step_size_improvement = None;
-                    let mut search_up = 0;
-                    let mut search_down = 0;
-                    let mut final_loop = false;
-                    loop {
-                        updated_params = params;
-                        let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
-                        gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
-                        biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
+                        while !working_feature_sets.is_empty() {
+                            let feature_set = working_feature_sets.swap_remove(rand.gen_range(0..working_feature_sets.len()));
+                            let feature_set_range = feature_set.lower..feature_set.upper;
 
-                        // if biggest_change >= 100 {
-                        //     panic!("Biggest change {biggest_change} could cause an overflow")
-                        // } else
-                        if biggest_change == 0 {
-                            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
-
-                            if found_improvement {
-                                final_loop = true;
-                                step_size = best_improvement.as_ref().unwrap().step_size;
-                                continue;
-                            } else if changed_since_step_size_reset {
-                                // Maybe the bigger derivatives have settled down now,
-                                // retry from the start to give the smaller derivatives a chance to change.
-                                // Params have not changed so reuse the gradient.
-                                step_size = default_step_size;
-                                changed_since_step_size_reset = false;
-                                step_size_resets += 1;
-                                println!("[{}] ##### Resetting step size for the {step_size_resets}{} time #####", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
-
-                                continue;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
-
-                        // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
-                        new_error = find_error_for_features(&features, &updated_params, scaling_constant);
-
-                        if base_error - new_error >= step_size * t {
-                            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
-                            println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
-
-                            if final_loop {
-                                changed_params = changes.iter().filter(|v| **v != 0).count();
-                                total_param_changes += changed_params;
-                                changed_since_step_size_reset = true;
-                                changes_this_feature_set_loop += changed_params;
-                                break;
-                            }
-
-                            let improvement = base_error - new_error;
-                            if !found_improvement {
-                                /*
-                                * Testing step size is way *way* faster than recalculating a gradient so once a step_size that improves the error is found,
-                                * do some searching around to find if a nearby step size improves it even more.
-                                */
-                                best_improvement = Some(Improvement {
-                                    step_size,
-                                    improvement,
-                                });
-                                lowest_step_size_improvement = best_improvement.clone();
-                                found_improvement = true;
-                                search_up = 6;
-                                search_down = 6;
-                            } else {
-                                if improvement > best_improvement.as_ref().unwrap().improvement {
-                                    best_improvement = Some(Improvement {
-                                        step_size,
-                                        improvement,
-                                    });
-
-                                    // Let it keep searching for an improvement
-                                    if search_up > 1 {
-                                        search_up += 1;
-                                    } else {
-                                        search_down += 1;
+                            {
+                                let mut any_can_change = false;
+                                for i in feature_set_range.clone() {
+                                    if change_param_at_index(i) {
+                                        any_can_change = true;
+                                        break;
                                     }
                                 }
-                            }
-                        } else {
-                            failures += 1;
-                            if !quiet || failures % 5 == 0 {
-                                println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
-                                println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
-                            }
-                            step_size *= tau;
-                        }
 
-                        if found_improvement {
-                            if search_up > 1 {
-                                step_size /= tau;
-                                search_up -= 1;
-
-                                if search_up == 0 {
-                                    step_size = lowest_step_size_improvement.as_ref().unwrap().step_size;
+                                if !any_can_change {
+                                    continue;
                                 }
-                            } else if search_down > 1 {
-                                step_size *= tau;
-                                search_down -= 1;
-                            } else {
-                                final_loop = true;
-                                step_size = best_improvement.as_ref().unwrap().step_size;
+                            }
+
+                            let (c, default_step_size) = if feature_set_range.end - feature_set_range.start > 100 { (base_c, 10_000_000.0) } else { (3.0 * base_c, 100_000_000.0) };
+                            step_size = default_step_size;
+                            let mut change_sets_this_feature = 0;
+                            
+                            loop {
+                                let mut nonquiet_pos_features = None;
+                                let features = match &mut batch_data {
+                                    PositionsType::Quiet(items) => *items,
+                                    PositionsType::Nonquiet(items) => {
+                                        nonquiet_pos_features = Some(qsearch_for_features(*items, &params));
+                                        &nonquiet_pos_features.unwrap()
+                                    },
+                                };
+
+                                let base_error = find_error_for_features(features, &params, scaling_constant);
+
+                                if is_initializing_starting_errors {
+                                    starting_errors.push(base_error);
+                                    if is_fullbatch && fullbatch_base_error.is_none() {
+                                        fullbatch_base_error = Some(base_error);
+                                    }
+                                    // First establish all of the base error values
+                                    break 'outer;
+                                } else if minibatches > 0 && is_fullbatch && minibatched_loops_run < max_minibatched_loops {
+                                    let msg = format!("[{}] ###### Fullbatch total error progress: {:.8} ######", humantime::format_rfc3339(SystemTime::now()), fullbatch_base_error.unwrap() - base_error);
+                                    
+                                    for _ in 0..3 {
+                                        println!("{msg}");
+                                    }
+
+                                    break 'outer;
+                                }
+
+                                println!("[{}] Starting new loop, new error is {base_error:.8}", humantime::format_rfc3339(SystemTime::now()));
+                                if starting_error_this_feature_set_loop.is_none() {
+                                    starting_error_this_feature_set_loop = Some(base_error);
+                                }
+
+                                let gradient = eval_gradient(features, &mut params, scaling_constant, feature_set_range.clone(), quiet_logging);
+                                let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
+                                let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
+                                let mut sorted = gradient.clone();
+                                sorted.sort_unstable_by(f64::total_cmp);
+                                let median_gradient_value = sorted[gradient.len() / 2];
+                                println!("[{}] Calculated gradient, biggest gradient value is {biggest_gradient_value}, avg is {avg_gradient_value}, median is {median_gradient_value}", humantime::format_rfc3339(SystemTime::now()));
+
+                                // Find appropriate learning rate https://en.wikipedia.org/wiki/Backtracking_line_search
+                                let m = calc_m(&gradient);
+                                let t = -c * m;
+
+                                let mut updated_params;
+                                let mut new_error = base_error;
+                                let mut biggest_change;
+                                let mut changed_params = 0;
+                                let mut found_improvement = false;
+                                let mut best_improvement: Option<Improvement> = None;
+                                let mut lowest_step_size_improvement = None;
+                                let mut search_up = 0;
+                                let mut search_down = 0;
+                                let mut final_loop = false;
+                                loop {
+                                    updated_params = params;
+                                    let mut changes = Vec::with_capacity(EVAL_PARAM_COUNT);
+                                    gradient.par_iter().map(|v| (-v * step_size).round() as i16).collect_into_vec(&mut changes);
+                                    biggest_change = changes.iter().map(|v| v.abs()).max().unwrap();
+
+                                    // if biggest_change >= 100 {
+                                    //     panic!("Biggest change {biggest_change} could cause an overflow")
+                                    // } else
+                                    if biggest_change == 0 {
+                                        println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
+
+                                        if found_improvement {
+                                            final_loop = true;
+                                            step_size = best_improvement.as_ref().unwrap().step_size;
+                                            continue;
+                                        } else if changed_since_step_size_reset {
+                                            // Maybe the bigger derivatives have settled down now,
+                                            // retry from the start to give the smaller derivatives a chance to change.
+                                            // Params have not changed so reuse the gradient.
+                                            step_size = default_step_size;
+                                            changed_since_step_size_reset = false;
+                                            step_size_resets += 1;
+                                            println!("[{}] Resetting step size for the {step_size_resets}{} time", humantime::format_rfc3339(SystemTime::now()), get_ordinal_suffix(step_size_resets));
+
+                                            continue;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+
+                                    updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
+
+                                    // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
+                                    new_error = find_error_for_features(&features, &updated_params, scaling_constant);
+
+                                    if base_error - new_error >= step_size * t {
+                                        succeeded_param_changes += 1;
+                                        if !quiet_logging || is_fullbatch || succeeded_param_changes % 3 == 0 {
+                                            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
+                                            println!("[{}] Armijo-Goldstein condition passed: {} >= {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+                                        }
+
+                                        if final_loop {
+                                            changed_params = changes.iter().filter(|v| **v != 0).count();
+                                            total_param_changes += changed_params;
+                                            changed_since_step_size_reset = true;
+                                            changes_this_feature_set_loop += changed_params;
+                                            break;
+                                        }
+
+                                        let improvement = base_error - new_error;
+                                        if !found_improvement {
+                                            /*
+                                            * Testing step size is way *way* faster than recalculating a gradient so once a step_size that improves the error is found,
+                                            * do some searching around to find if a nearby step size improves it even more.
+                                            */
+                                            best_improvement = Some(Improvement {
+                                                step_size,
+                                                improvement,
+                                            });
+                                            lowest_step_size_improvement = best_improvement.clone();
+                                            found_improvement = true;
+                                            search_up = 6;
+                                            search_down = 6;
+                                        } else {
+                                            if improvement > best_improvement.as_ref().unwrap().improvement {
+                                                best_improvement = Some(Improvement {
+                                                    step_size,
+                                                    improvement,
+                                                });
+
+                                                // Let it keep searching for an improvement
+                                                if search_up > 1 {
+                                                    search_up += 1;
+                                                } else {
+                                                    search_down += 1;
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        failured_param_changes += 1;
+                                        if !quiet_logging || failured_param_changes % if is_fullbatch { 5 } else { 15 } == 0 {
+                                            println!("[{}] Biggest change {biggest_change} for step size {step_size}", humantime::format_rfc3339(SystemTime::now()));
+                                            println!("[{}] Armijo-Goldstein condition failed: {} < {}", humantime::format_rfc3339(SystemTime::now()), base_error - new_error, step_size * t);
+                                        }
+                                        step_size *= tau;
+                                    }
+
+                                    if found_improvement {
+                                        if search_up > 1 {
+                                            step_size /= tau;
+                                            search_up -= 1;
+
+                                            if search_up == 0 {
+                                                step_size = lowest_step_size_improvement.as_ref().unwrap().step_size;
+                                            }
+                                        } else if search_down > 1 {
+                                            step_size *= tau;
+                                            search_down -= 1;
+                                        } else {
+                                            final_loop = true;
+                                            step_size = best_improvement.as_ref().unwrap().step_size;
+                                        }
+                                    }
+                                }
+
+                                // To find the appropriate step size we descend the gradient, so we just use that value as our next value
+                                params = updated_params;
+
+                                if biggest_change == 0 {
+                                    new_error = base_error;
+                                } else {
+                                    change_sets_this_feature += 1;
+                                }
+
+                                iterations += 1;
+                                let will_save = !quiet_logging || last_disk_save.elapsed() > Duration::from_secs(30);
+                                println!(
+                                    "[{}] {}error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, \
+                                    changed {changed_params} params, total param changes {total_param_changes}, {} error reduction {:.8}, \
+                                    step_size_resets: {step_size_resets}, feature_set: {} ({} left), feature_set_loops: {feature_set_loops}, base_c: {base_c}, \
+                                    param changes this feature set loop: {changes_this_feature_set_loop}, error reduction this feature set loop: {:.8}, \
+                                    batch: {batch_description}, minibatched_loops_run: {minibatched_loops_run}",
+                                    humantime::format_rfc3339(SystemTime::now()),
+                                    if will_save { "Saving, " } else { "" },
+                                    if is_fullbatch { "total" } else { "batch" },
+                                    starting_errors[batch_num - 1] - new_error,
+                                    feature_set.name,
+                                    working_feature_sets.len(),
+                                    starting_error_this_feature_set_loop.unwrap() - new_error,
+                                );
+
+                                if will_save {
+                                    save_params(&params);
+                                    save_gradient(&gradient);
+                                    last_disk_save = Instant::now();
+                                }
+
+                                if biggest_change == 0 || (!is_fullbatch && change_sets_this_feature >= max_change_sets_per_minibatch) {
+                                    break;
+                                }
                             }
                         }
-                    }
 
-                    // To find the appropriate step size we descend the gradient, so we just use that value as our next value
-                    params = updated_params;
+                        if !is_fullbatch || changes_this_feature_set_loop == 0 {
+                            break;
+                        }
 
-                    if biggest_change == 0 {
-                        new_error = base_error;
-                    }
-
-                    iterations += 1;
-                    let will_save = !quiet || last_disk_save.elapsed() > Duration::from_secs(30);
-                    println!(
-                        "[{}] {}error: {new_error:.8}, iterations: {iterations}, step size: {step_size:.1}, biggest change: {biggest_change}, \
-                        changed {changed_params} params, total param changes {total_param_changes}, total error reduction {:.8}, \
-                        step_size_resets: {step_size_resets}, feature_set: {}, feature_set_loops: {feature_set_loops}, base_c: {base_c}, \
-                        param changes this feature set loop: {changes_this_feature_set_loop}, error reduction this feature set loop: {:.8}",
-                        humantime::format_rfc3339(SystemTime::now()),
-                        if will_save { "Saving, " } else { "" },
-                        starting_error.unwrap() - new_error,
-                        feature_set.name,
-                        starting_error_this_feature_set_loop.unwrap() - new_error,
-                    );
-
-                    if will_save {
+                        feature_set_loops += 1;
                         save_params(&params);
+                        pretty_print_save_params(&params);
                         last_disk_save = Instant::now();
                     }
-
-                    if biggest_change == 0 {
-                        break;
-                    }
                 }
-            }
 
-            if changes_this_feature_set_loop == 0 {
-                break;
             }
-
-            feature_set_loops += 1;
         }
     }
 
@@ -653,10 +805,10 @@ pub fn change_param_at_index(i: usize) -> bool {
         return false;
     }
 
-    return !value_is_between(i, FeatureIndex::PieceValues, FeatureIndex::DoubledPawns) || is_piece_type(i, PIECE_PAWN);
+    return true;
 }
 
-fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalParams, scaling_constant: f64) -> f64 {
+fn search_error_for_params(positions: &mut [TexelPosition], params: &EvalParams, scaling_constant: f64) -> f64 {
     let mut errors = Vec::with_capacity(positions.len());
     positions
         .par_iter_mut()
@@ -678,7 +830,7 @@ fn search_error_for_params(positions: &mut Vec<TexelPosition>, params: &EvalPara
     sum_orlp(&errors[..]) / positions.len() as f64
 }
 
-fn qsearch_for_features(positions: &mut Vec<TexelPosition>, params: &EvalParams) -> Vec<PositionFeatures> {
+fn qsearch_for_features(positions: &mut [TexelPosition], params: &EvalParams) -> Vec<PositionFeatures> {
     let mut result = Vec::with_capacity(positions.len());
     positions
         .par_iter_mut()
@@ -705,8 +857,26 @@ fn qsearch_for_features(positions: &mut Vec<TexelPosition>, params: &EvalParams)
     result
 }
 
+fn get_features_for_quiet_positions(positions: &[TexelPosition]) -> Vec<PositionFeatures> {
+    let mut result = Vec::with_capacity(positions.len());
+    positions
+        .par_iter()
+        .map(|p| {
+            let features = p
+                .board.get_eval_features();
+
+            PositionFeatures {
+                features,
+                result: p.result,
+            }
+        })
+        .collect_into_vec(&mut result);
+
+    result
+}
+
 fn find_error_for_features(
-    features: &Vec<PositionFeatures>,
+    features: &[PositionFeatures],
     params: &EvalParams,
     scaling_constant: f64,
 ) -> f64 {
@@ -724,7 +894,7 @@ fn find_error_for_features(
 }
 
 /// params should be unchanged when this method returns
-fn eval_gradient(features: &Vec<PositionFeatures>, params: &mut EvalParams, scaling_constant: f64, feature_set_range: Range<usize>, quiet: bool) -> Box<EvalGradient> {
+fn eval_gradient(features: &[PositionFeatures], params: &mut EvalParams, scaling_constant: f64, feature_set_range: Range<usize>, quiet: bool) -> Box<EvalGradient> {
     let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in feature_set_range {
@@ -796,11 +966,12 @@ fn pretty_print_save_params(params: &EvalParams) {
             }
         }
 
-        // Remove trailing space
+        // Remove trailing comma
         f.seek(SeekFrom::End(-1)).unwrap();
         writeln!(f, "\n").unwrap();
-        f.seek(SeekFrom::End(-1)).unwrap();
         write!(f, "{second_set}").unwrap();
+        // Remove trailing comma
+        f.seek(SeekFrom::End(-1)).unwrap();
         writeln!(f, "\n").unwrap();
     }
 
@@ -915,6 +1086,7 @@ impl Add<u16> for FeatureIndex {
     }
 }
 
+#[derive(Clone)]
 pub struct FeatureSet<'a> {
     pub name: &'a str,
     /// inclusive lower bound

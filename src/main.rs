@@ -7,7 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{bench::bench, texel::{find_best_params, load_positions}};
+use crate::{bench::bench, texel::{find_best_params, load_positions, load_preprocessed_positions}};
 use board::{Board, HASH_VALUES};
 use build_info::build_info;
 use clap::{Parser, Subcommand};
@@ -85,14 +85,15 @@ fn main() {
     // rayon::ThreadPoolBuilder::new().num_threads(5).build_global().unwrap();
 
     println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
-    let positions = load_positions(r"C:\Programming\git\fox-chess\target\release\s5.epd");
+    // let positions = load_positions("s6.epd");
+    let positions = load_preprocessed_positions("s6_q_9m.data");
     println!(
         "[{}] {} Positions loaded",
         humantime::format_rfc3339(SystemTime::now()),
         positions.len()
     );
     // find_scaling_constant(positions.positions);
-    find_best_params(positions);
+    find_best_params(None, Some(positions));
 
     // hash_values_edit_distance();
 }
