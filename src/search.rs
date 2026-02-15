@@ -90,6 +90,7 @@ pub struct Searcher<'a> {
     pv_nodes_fractions: VecDeque<f32>,
     contempt: i16,
     white_started_search: bool,
+    excluded_move: Vec<Option<Move>>,
 }
 
 impl<'a> Searcher<'a> {
@@ -134,6 +135,7 @@ impl<'a> Searcher<'a> {
             pv_nodes_fractions: VecDeque::new(),
             contempt,
             white_started_search,
+            excluded_move: Vec::new(),
         }
     }
 
@@ -436,9 +438,13 @@ impl<'a> Searcher<'a> {
         let is_pv = alpha + 1 != beta;
 
         let mut move_gen = MoveGenerator::new();
-        let tt_entry = self
-            .transposition_table
-            .get_entry(self.board.hash, self.starting_fullmove);
+        let excluded_move = self.excluded_move.get(ply as usize).unwrap_or(&None).clone();
+        let tt_entry = if excluded_move.is_none() {
+            self.transposition_table
+                .get_entry(self.board.hash, self.starting_fullmove)
+        } else {
+            None
+        };
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
@@ -481,7 +487,7 @@ impl<'a> Searcher<'a> {
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
 
         let mut futility_prune = false;
-        if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 {
+        if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
             let eval = self.board.evaluate_side_to_move_relative();
 
             // Reverse futility pruning
@@ -507,6 +513,7 @@ impl<'a> Searcher<'a> {
             && beta < i16::MAX
             && draft > 4
             && !in_check
+            && excluded_move.is_none()
             && tt_entry.is_none_or(|e| e.move_type != MoveType::FailLow && e.get_score(ply) >= beta)
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
@@ -592,6 +599,10 @@ impl<'a> Searcher<'a> {
                 GetMoveResult::NoMoves => break,
             };
 
+            if excluded_move.is_some_and(|em| em == r#move.m) {
+                continue;
+            }
+
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 let see_margin = draft as i16 * -50;
                 if !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
@@ -622,6 +633,50 @@ impl<'a> Searcher<'a> {
             {
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
                 continue;
+            }
+
+            let mut extension = 0;
+            if ply != 0
+                && draft >= 5
+                && excluded_move.is_none()
+                && tt_entry.is_some_and(|tt_entry| {
+                    tt_entry.important_move == r#move.m
+                        && tt_entry.draft >= draft - 3
+                        && tt_entry.move_type != MoveType::FailLow
+                        && tt_entry.get_score(ply).abs() < MATE_THRESHOLD - 2600
+                })
+            {
+                self.board.unmake_move(&r#move.m, &mut self.rollback);
+
+                while self.excluded_move.len() <= ply as usize {
+                    self.excluded_move.push(None);
+                }
+                self.excluded_move[ply as usize] = Some(r#move.m);
+
+                let verification_draft = draft / 2;
+                let verification_beta = tt_entry.unwrap().get_score(ply) - draft as i16 * 10;
+                let beginning_nodes = self.stats.current_iteration_total_nodes;
+
+                let verification_score = self.alpha_beta_recurse(
+                    verification_beta - 1,
+                    verification_beta,
+                    verification_draft,
+                    ply,
+                    killers,
+                    in_check,
+                    can_null_move,
+                    parent_pv,
+                )?;
+
+                // If there is only one move
+                if self.stats.current_iteration_total_nodes == beginning_nodes + 1 {
+                    extension = 1;
+                } else if verification_score < verification_beta {
+                    extension = 1;
+                }
+
+                self.excluded_move[ply as usize] = None;
+                self.board.make_move(&r#move.m, &mut self.rollback);
             }
 
             self.move_history.push(r#move.m);
@@ -657,7 +712,7 @@ impl<'a> Searcher<'a> {
                 score = -self.alpha_beta_recurse(
                     -beta,
                     -alpha,
-                    draft - reduction - 1,
+                    draft - reduction - 1 + extension,
                     ply + 1,
                     &mut new_killers,
                     gives_check,
@@ -670,7 +725,7 @@ impl<'a> Searcher<'a> {
                     score = -self.alpha_beta_recurse(
                         -beta,
                         -alpha,
-                        draft - 1,
+                        draft - 1 + extension,
                         ply + 1,
                         &mut new_killers,
                         gives_check,
@@ -683,7 +738,7 @@ impl<'a> Searcher<'a> {
                 score = -self.alpha_beta_recurse(
                     -alpha - 1,
                     -alpha,
-                    draft - reduction - 1,
+                    draft - reduction - 1 + extension,
                     ply + 1,
                     &mut new_killers,
                     gives_check,
@@ -696,7 +751,7 @@ impl<'a> Searcher<'a> {
                     score = -self.alpha_beta_recurse(
                         -beta,
                         -alpha,
-                        draft - 1,
+                        draft - 1 + extension,
                         ply + 1,
                         &mut new_killers,
                         gives_check,
@@ -751,15 +806,17 @@ impl<'a> Searcher<'a> {
                     self.root_pvs.insert(index, pv_data);
                 }
 
-                self.transposition_table.store_entry(TTEntry::new(
-                    self.board.hash,
-                    r#move.m,
-                    MoveType::FailHigh,
-                    score,
-                    draft,
-                    ply,
-                    self.starting_fullmove,
-                ));
+                if excluded_move.is_none() {
+                    self.transposition_table.store_entry(TTEntry::new(
+                        self.board.hash,
+                        r#move.m,
+                        MoveType::FailHigh,
+                        score,
+                        draft,
+                        ply,
+                        self.starting_fullmove,
+                    ));
+                }
 
                 return Ok(score);
             }
@@ -844,20 +901,22 @@ impl<'a> Searcher<'a> {
             improved_alpha |= best_score > alpha;
         }
 
-        let entry_type = if improved_alpha {
-            MoveType::Best
-        } else {
-            MoveType::FailLow
-        };
-        self.transposition_table.store_entry(TTEntry::new(
-            self.board.hash,
-            best_move.unwrap(),
-            entry_type,
-            best_score,
-            draft,
-            ply,
-            self.starting_fullmove,
-        ));
+        if excluded_move.is_none() {
+            let entry_type = if improved_alpha {
+                MoveType::Best
+            } else {
+                MoveType::FailLow
+            };
+            self.transposition_table.store_entry(TTEntry::new(
+                self.board.hash,
+                best_move.unwrap(),
+                entry_type,
+                best_score,
+                draft,
+                ply,
+                self.starting_fullmove,
+            ));
+        }
 
         Ok(best_score)
     }
