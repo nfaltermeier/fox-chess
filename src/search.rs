@@ -654,7 +654,7 @@ impl<'a> Searcher<'a> {
                 self.excluded_move[ply as usize] = Some(r#move.m);
 
                 let verification_draft = draft / 2;
-                let verification_beta = tt_entry.unwrap().get_score(ply) - draft as i16 * 10;
+                let verification_beta = tt_entry.unwrap().get_score(ply) - draft as i16 * 2;
                 let beginning_nodes = self.stats.current_iteration_total_nodes;
 
                 let verification_score = self.alpha_beta_recurse(
