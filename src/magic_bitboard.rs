@@ -98,7 +98,7 @@ pub fn initialize_magic_bitboards() {
                     let attack_index = get_index(occupancy, entry);
 
                     let attack = generate_occluded_rook_attack(i as u8, occupancy);
-                    let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
+                    let attack_list_entry = &mut (&mut (*attacks))[attacks_offset + attack_index as usize];
                     debug_assert!(*attack_list_entry == 0 || *attack_list_entry == attack);
                     // if *attack_list_entry != 0 && *attack_list_entry != attack {
                     //     debug!("root_position_num: {i}");
@@ -131,7 +131,7 @@ pub fn initialize_magic_bitboards() {
                     let attack_index = get_index(occupancy, entry);
 
                     let attack = generate_occluded_bishop_attack(i as u8, occupancy);
-                    let attack_list_entry = &mut (*attacks)[attacks_offset + attack_index as usize];
+                    let attack_list_entry = &mut (&mut (*attacks))[attacks_offset + attack_index as usize];
                     debug_assert!(*attack_list_entry == 0 || *attack_list_entry == attack);
                     *attack_list_entry = attack;
                 }

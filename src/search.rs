@@ -2,36 +2,45 @@ use std::{
     io::{self, Write},
     sync::mpsc::Receiver,
     time::{Duration, Instant},
+    collections::VecDeque,
 };
 
+use arrayvec::ArrayVec;
 use log::{debug, error};
-use tinyvec::{ArrayVec, TinyVec, array_vec, tiny_vec};
+use tinyvec::{TinyVec, array_vec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
-    evaluate::{CENTIPAWN_VALUES, ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, ScoredMove},
+    eval_values::CENTIPAWN_VALUES_MIDGAME,
+    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
+    move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove},
+    move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
     },
     repetition_tracker::RepetitionTracker,
-    transposition_table::{self, MoveType, TTEntry, TableType, TranspositionTable},
+    time_management::{get_cutoff_times, modify_cutoff_time},
+    transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
+    uci_required_options_helper::RequiredUciOptions,
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 
+pub type ContinuationHistoryTable = [[[[[i16; 64]; 6]; 64]; 6]; 2];
+
 /// Each value is in addition to the last
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
-const EMPTY_MOVE: Move = Move { data: 0 };
+pub const EMPTY_MOVE: Move = Move { data: 0 };
 
 #[derive(Default)]
 pub struct SearchStats {
     pub depth: u8,
-    pub total_nodes: u64,
+    pub current_iteration_total_nodes: u64,
+    pub previous_iterations_total_nodes: u64,
     pub total_search_leaves: u64,
     pub aspiration_researches: u8,
 }
@@ -57,19 +66,35 @@ pub struct AlphaBetaResult {
     pub pv: TinyVec<[Move; 32]>,
 }
 
+struct PvData {
+    /// PVs are stored as a stack, FILO
+    pub pv: TinyVec<[Move; 32]>,
+    pub search_result: SearchResult,
+}
+
 pub struct Searcher<'a> {
     board: &'a mut Board,
     rollback: MoveRollback,
     pub stats: SearchStats,
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
-    starting_halfmove: u8,
-    cancel_search_at: Option<Instant>,
-    end_search: bool,
+    starting_fullmove: u8,
+    hard_cutoff_time: Option<Instant>,
+    single_root_move: bool,
     starting_in_check: bool,
     stop_rx: &'a Receiver<()>,
     stop_received: bool,
-    max_nodes: u64,
+    total_max_nodes: u64,
+    max_nodes_for_current_iteration: u64,
+    continuation_history: &'a mut ContinuationHistoryTable,
+    move_history: Vec<Move>,
+    multi_pv: u8,
+    root_pvs: VecDeque<PvData>,
+    extra_uci_options: RequiredUciOptions,
+    root_pv_branch_nodes: u64,
+    pv_nodes_fractions: VecDeque<f32>,
+    contempt: i16,
+    white_started_search: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -78,10 +103,18 @@ impl<'a> Searcher<'a> {
         transposition_table: &'a mut TranspositionTable,
         history_table: &'a mut HistoryTable,
         stop_rx: &'a Receiver<()>,
+        continuation_history: &'a mut ContinuationHistoryTable,
+        multi_pv: u8,
+        extra_uci_options: RequiredUciOptions,
+        contempt: i16,
     ) -> Self {
-        let starting_halfmove = board.halfmove_clock;
+        let starting_fullmove = board.fullmove_counter as u8;
 
         let starting_in_check = board.is_in_check(false);
+
+        let white_started_search = board.white_to_move;
+
+        assert!(multi_pv >= 1);
 
         Self {
             board,
@@ -89,13 +122,23 @@ impl<'a> Searcher<'a> {
             stats: SearchStats::default(),
             transposition_table,
             history_table,
-            starting_halfmove,
-            cancel_search_at: None,
-            end_search: false,
+            starting_fullmove,
+            hard_cutoff_time: None,
+            single_root_move: false,
             starting_in_check,
             stop_rx,
             stop_received: false,
-            max_nodes: u64::MAX,
+            total_max_nodes: u64::MAX,
+            max_nodes_for_current_iteration: u64::MAX,
+            continuation_history,
+            move_history: vec![],
+            multi_pv,
+            root_pvs: VecDeque::with_capacity(multi_pv as usize),
+            extra_uci_options,
+            root_pv_branch_nodes: 0,
+            pv_nodes_fractions: VecDeque::new(),
+            contempt,
+            white_started_search,
         }
     }
 
@@ -105,11 +148,12 @@ impl<'a> Searcher<'a> {
         search: &Option<UciSearchControl>,
     ) -> SearchResult {
         let start_time = Instant::now();
-        let mut target_dur = None;
+        let mut soft_cutoff_time = None;
         let mut search_control: SearchControl;
         let mut max_depth = 40;
-        let use_stricter_time_cutoff;
+        let mut cutoff_times = None;
 
+        self.hard_cutoff_time = None;
         if let Some(t) = time {
             match t {
                 UciTimeControl::TimeLeft {
@@ -126,54 +170,32 @@ impl<'a> Searcher<'a> {
                         (black_time, black_increment)
                     };
 
-                    if time_left.is_none() {
-                        error!("No time left value provided when searching");
-                        panic!("No time left value provided when searching");
-                    }
-
-                    let divisor = if self.board.fullmove_counter < 15 {
-                        25
-                    } else if self.board.fullmove_counter < 25 {
-                        20
-                    } else {
-                        30
-                    };
-
-                    let time_left = time_left.as_ref().unwrap().to_std().unwrap();
-                    target_dur = Some(time_left.checked_div(divisor).unwrap());
-
-                    if let Some(inc) = increment {
-                        let inc = inc.to_std().unwrap();
-
-                        if time_left > inc.saturating_mul(2) {
-                            target_dur = Some(target_dur.unwrap().saturating_add(inc.mul_f32(0.7)));
-
-                            use_stricter_time_cutoff = time_left < Duration::from_secs(1);
-                        } else {
-                            use_stricter_time_cutoff = true;
-                        }
-                    } else {
-                        use_stricter_time_cutoff = time_left < Duration::from_secs(5);
-                    }
+                    cutoff_times = Some(get_cutoff_times(
+                        time_left,
+                        increment,
+                        &start_time,
+                        self.board.fullmove_counter,
+                    ));
+                    soft_cutoff_time = Some(cutoff_times.as_ref().unwrap().soft_cutoff);
+                    self.hard_cutoff_time = Some(cutoff_times.as_ref().unwrap().hard_cutoff);
 
                     search_control = SearchControl::Time;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
-                    target_dur = Some(time_delta.to_std().unwrap());
+                    let target_dur = time_delta.to_std().unwrap();
+                    soft_cutoff_time = Some(target_dur);
+                    self.hard_cutoff_time = Some(start_time.checked_add(target_dur).unwrap());
                     search_control = SearchControl::Time;
-                    use_stricter_time_cutoff = true;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
                 }
                 UciTimeControl::Infinite => {
                     search_control = SearchControl::Infinite;
-                    use_stricter_time_cutoff = false;
                 }
             }
         } else {
             search_control = SearchControl::Unknown;
-            use_stricter_time_cutoff = false;
         }
 
         if let Some(s) = search {
@@ -186,7 +208,7 @@ impl<'a> Searcher<'a> {
                 if search_control == SearchControl::Unknown {
                     search_control = SearchControl::Nodes;
                 }
-                self.max_nodes = s.nodes.unwrap();
+                self.total_max_nodes = s.nodes.unwrap();
             }
         }
 
@@ -195,50 +217,62 @@ impl<'a> Searcher<'a> {
             panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
         }
 
-        let cutoff;
-        match target_dur {
-            Some(d) => {
-                cutoff = Some(d.mul_f32(if use_stricter_time_cutoff { 0.3 } else { 0.5 }));
-                self.cancel_search_at = Some(
-                    start_time
-                        .checked_add(d.mul_f32(if use_stricter_time_cutoff { 1.1 } else { 2.0 }))
-                        .unwrap(),
-                );
-            }
-            None => {
-                cutoff = None;
-                self.cancel_search_at = None;
-            }
-        }
-
         let mut depth = 1;
         let mut latest_result = None;
         loop {
-            let result = self.alpha_beta_init(depth, latest_result.clone());
-            if let Some(search_result) = result.search_result {
+            let end_search = self.alpha_beta_init(depth, latest_result.clone());
+            if let Some(best_pv) = self.root_pvs.front()
+                && let Some(worst_pv) = self.root_pvs.back()
+            {
                 // Max nodes are infrequently checked in the search so do an additional check here
-                if self.stats.total_nodes >= self.max_nodes {
+                if self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration {
                     return latest_result
                         .expect("iterative_deepening_search exceeded max nodes before completing any searches");
                 }
 
                 let elapsed = start_time.elapsed();
 
-                UciInterface::print_search_info(search_result.score, &self.stats, &elapsed, &result.pv);
+                for (i, pv) in self.root_pvs.iter().enumerate() {
+                    UciInterface::print_search_info(
+                        pv.search_result.score,
+                        &self.stats,
+                        &elapsed,
+                        &self.transposition_table,
+                        &pv.pv,
+                        self.starting_fullmove,
+                        i as u8 + 1,
+                    );
+                }
 
                 self.stats.aspiration_researches = 0;
 
                 if self.stop_received
                     || (search_control != SearchControl::Infinite
-                        && (result.end_search
-                            || search_result.score.abs() >= MATE_THRESHOLD
-                            || depth >= max_depth
-                            || (matches!(search_control, SearchControl::Time) && elapsed >= cutoff.unwrap())))
+                        && (end_search || worst_pv.search_result.score.abs() >= MATE_THRESHOLD || depth >= max_depth))
                 {
-                    return search_result;
+                    return best_pv.search_result.clone();
                 }
 
-                latest_result = Some(search_result);
+                if matches!(search_control, SearchControl::Time) {
+                    if let Some(cutoff_times) = &cutoff_times {
+                        let pv_nodes_fraction =
+                            self.root_pv_branch_nodes as f32 / self.stats.current_iteration_total_nodes as f32;
+
+                        if self.pv_nodes_fractions.len() >= 3 {
+                            self.pv_nodes_fractions.pop_back();
+                        }
+
+                        self.pv_nodes_fractions.push_front(pv_nodes_fraction);
+
+                        soft_cutoff_time = Some(modify_cutoff_time(cutoff_times, &self.pv_nodes_fractions));
+                    }
+
+                    if elapsed >= soft_cutoff_time.unwrap() {
+                        return best_pv.search_result.clone();
+                    }
+                }
+
+                latest_result = Some(best_pv.search_result.clone());
             } else {
                 if !self.stop_received {
                     debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
@@ -252,10 +286,10 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> AlphaBetaResult {
+    pub fn alpha_beta_init(&mut self, draft: u8, last_result: Option<SearchResult>) -> bool {
         self.rollback = MoveRollback::default();
         self.stats.depth = draft;
-        self.end_search = false;
+        self.single_root_move = false;
 
         let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
 
@@ -278,7 +312,12 @@ impl<'a> Searcher<'a> {
 
         let mut pv = tiny_vec!();
 
-        let score = loop {
+        loop {
+            self.root_pvs.clear();
+            self.stats.previous_iterations_total_nodes += self.stats.current_iteration_total_nodes;
+            self.stats.current_iteration_total_nodes = 0;
+            self.max_nodes_for_current_iteration = self.total_max_nodes - self.stats.previous_iterations_total_nodes;
+
             let result = self.alpha_beta_recurse(
                 alpha,
                 beta,
@@ -290,56 +329,57 @@ impl<'a> Searcher<'a> {
                 &mut pv,
             );
 
-            let score;
-            if let Ok(e) = result {
-                score = e;
-            } else {
+            if result.is_err() {
+                self.move_history.clear();
+                self.root_pvs.clear();
+
                 // In this case the state of the board will not been reset back to the starting state
-                return AlphaBetaResult {
-                    search_result: None,
-                    end_search: true,
-                    pv,
-                };
+                return true;
             }
 
             debug_assert!(self.rollback.is_empty());
+            debug_assert!(self.move_history.is_empty());
 
-            if score <= alpha {
+            let low_score = self
+                .root_pvs
+                .back()
+                .expect("No root pv found in alpha_beta_init after successful search")
+                .search_result
+                .score;
+            let high_score = self
+                .root_pvs
+                .front()
+                .expect("No root pv found in alpha_beta_init after successful search")
+                .search_result
+                .score;
+
+            if low_score <= alpha {
                 self.stats.aspiration_researches += 1;
 
-                while score <= alpha {
+                while low_score <= alpha {
                     alpha = alpha
                         .saturating_sub(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
                         .min(-i16::MAX);
                     alpha_window_index += 1;
                 }
-            } else if score >= beta {
+            } else if high_score >= beta {
                 self.stats.aspiration_researches += 1;
 
-                while score >= beta {
+                while high_score >= beta {
                     beta = beta.saturating_add(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
                     beta_window_index += 1;
                 }
             } else {
-                break score;
+                break;
             }
-        };
+        }
 
         if pv.is_empty() {
             error!("PV is empty in alpha_beta_init");
             panic!("PV is empty in alpha_beta_init")
         }
 
-        let best_move = pv.last().unwrap();
-
-        AlphaBetaResult {
-            search_result: Some(SearchResult {
-                best_move: *best_move,
-                score,
-            }),
-            end_search: self.end_search,
-            pv,
-        }
+        self.single_root_move
     }
 
     fn alpha_beta_recurse(
@@ -353,14 +393,17 @@ impl<'a> Searcher<'a> {
         can_null_move: bool,
         parent_pv: &mut TinyVec<[Move; 32]>,
     ) -> Result<i16, ()> {
-        self.stats.total_nodes += 1;
+        debug_assert!(alpha <= beta);
 
-        if self.board.halfmove_clock >= 100
-            || RepetitionTracker::test_threefold_repetition(self.board)
-            || self.board.is_insufficient_material()
+        self.stats.current_iteration_total_nodes += 1;
+
+        if ply != 0
+            && (self.board.halfmove_clock >= 100
+                || RepetitionTracker::test_repetition(self.board)
+                || self.board.is_insufficient_material())
         {
             parent_pv.clear();
-            return Ok(0);
+            return Ok(self.eval_draw());
         }
 
         if in_check {
@@ -373,8 +416,8 @@ impl<'a> Searcher<'a> {
             if self.stats.total_search_leaves % 16384 == 16383 {
                 let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
                 if stop_received
-                    || self.cancel_search_at.is_some_and(|t| Instant::now() >= t)
-                    || self.stats.total_nodes >= self.max_nodes
+                    || self.hard_cutoff_time.is_some_and(|t| Instant::now() >= t)
+                    || self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration
                 {
                     if stop_received {
                         self.stop_received = stop_received;
@@ -386,16 +429,18 @@ impl<'a> Searcher<'a> {
 
             parent_pv.clear();
 
-            return Ok(self.quiescense_side_to_move_relative(alpha, beta, 255));
+            return Ok(self.quiescense_side_to_move_relative(alpha, beta, ply + 1));
         }
 
-        let mut best_score = -i16::MAX;
+        // When at the root and with multi-pv enabled then this will be the lowest PV score
+        let mut best_score = i16::MIN;
+        // When at the root and with multi-pv enabled then this may not be the actual best move
         let mut best_move = None;
         let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let is_pv = alpha + 1 != beta;
         let fen = self.board.to_fen();
-        const POSITION_TO_FIND: &'static str = "r1bq1rk1/1p2ppbp/p2p2p1/8/B2BnP2/2N2N2/PnP1Q1PP/R4RK1 w";
+        const POSITION_TO_FIND: &'static str = "8/3p1kp1/2b4p/2q5/6P1/2B2p1P/4r3/3R2QK w";
         const REQUIRE_IS_PV: bool = false;
         let position_to_debug = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
         if position_to_debug {
@@ -403,18 +448,31 @@ impl<'a> Searcher<'a> {
             io::stderr().flush().unwrap();
         }
 
-        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
+        let mut move_gen = MoveGenerator::new();
         let tt_entry = self
             .transposition_table
-            .get_entry(self.board.hash, TableType::Main, self.starting_halfmove);
+            .get_entry(self.board.hash, self.starting_fullmove);
         if let Some(tt_data) = tt_entry {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
 
-                match tt_data.get_move_type() {
+                match MoveType::from(tt_data.move_type) {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
-                            self.update_killers_and_history(killers, &tt_data.important_move, ply);
+                            // should history be updated here?
+                            let mut relevant_cont_hist = get_relevant_cont_hist(
+                                &self.move_history,
+                                &self.board,
+                                &mut *self.continuation_history,
+                            );
+                            update_killers_and_history(
+                                &self.board,
+                                &mut self.history_table,
+                                killers,
+                                &tt_data.important_move,
+                                ply,
+                                &mut relevant_cont_hist,
+                            );
 
                             if position_to_debug {
                                 debug!("TT cutoff by stored fail high with score {tt_score} and beta {beta}");
@@ -442,12 +500,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            moves = tiny_vec!(ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            });
-        } else {
-            moves = tiny_vec!();
+            move_gen.set_tt_move(tt_data.important_move);
         }
 
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
@@ -457,15 +510,22 @@ impl<'a> Searcher<'a> {
             let eval = self.board.evaluate_side_to_move_relative();
 
             // Reverse futility pruning
-            if eval - 150 * (draft as i16) >= beta {
+            if eval - 120 - 128 * (draft - 1) as i16 >= beta {
                 if position_to_debug {
                     debug!("Reverse futility pruning with eval {eval}");
                 }
-
                 return Ok((eval + beta) / 2);
             }
 
-            futility_prune = (eval + 300 + 200 * (draft - 1) as i16) < alpha;
+            futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
+
+            // Razoring
+            if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
+                let score = self.quiescense_side_to_move_relative(alpha, beta, ply + 1);
+                if score < alpha {
+                    return Ok(score);
+                }
+            }
         }
 
         // Null move pruning
@@ -475,12 +535,14 @@ impl<'a> Searcher<'a> {
             && beta < i16::MAX
             && draft > 4
             && !in_check
+            && tt_entry.is_none_or(|e| e.move_type != MoveType::FailLow as u8 && e.get_score(ply) >= beta)
             && self.board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
                 != self.board.side_occupancy[our_side]
         {
             let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
+            self.move_history.push(EMPTY_MOVE);
 
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
@@ -497,6 +559,7 @@ impl<'a> Searcher<'a> {
             )?;
 
             self.board.unmake_null_move(&mut self.rollback);
+            self.move_history.pop();
 
             if nmp_score >= beta {
                 if position_to_debug {
@@ -507,89 +570,166 @@ impl<'a> Searcher<'a> {
             }
         }
 
+        // Internal Iterative Deepening
+        if tt_entry.is_none() && is_pv && draft > 5 {
+            let mut iid_pv = tiny_vec!();
+            self.alpha_beta_recurse(
+                alpha,
+                beta,
+                draft - 2,
+                ply,
+                killers,
+                in_check,
+                can_null_move,
+                &mut iid_pv,
+            )?;
+
+            let tt_entry = self
+                .transposition_table
+                .get_entry(self.board.hash, self.starting_fullmove);
+            if let Some(tt_data) = tt_entry {
+                move_gen.set_tt_move(tt_data.important_move);
+            }
+        }
+
+        if !in_check {
+            move_gen.generate_moves_pseudo_legal(self.board);
+        } else {
+            move_gen.generate_moves_check_evasion(
+                self.board,
+                Some(self.history_table),
+                Some(&self.move_history),
+                Some(self.continuation_history),
+                Some(killers),
+            );
+        }
+
         let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
         let mut has_legal_move = false;
         let mut improved_alpha = false;
-
-        // Round 0 is the tt move, round 1 is regular move gen
-        for round in 0..2 {
-            for move_index in 0..moves.len() {
-                Self::select_best(move_index, &mut moves);
-                let r#move = &moves[move_index];
-
-                let move_string = r#move.m.pretty_print(Some(&self.board));
-
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+        loop {
+            let r#move = match move_gen.get_next_move() {
+                GetMoveResult::Move(scored_move) => scored_move,
+                GetMoveResult::GenerateMoves => {
+                    move_gen.generate_more_moves(
+                        self.board,
+                        Some(self.history_table),
+                        Some(&self.move_history),
+                        Some(self.continuation_history),
+                        Some(killers),
+                    );
                     continue;
                 }
+                GetMoveResult::NoMoves => break,
+            };
 
-                let (legal, move_made) = self
-                    .board
-                    .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
-                if !legal {
-                    if move_made {
-                        self.board.unmake_move(&r#move.m, &mut self.rollback);
-                    }
+            let move_string = r#move.m.pretty_print(Some(&self.board));
+
+            if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+                let see_margin = draft as i16 * -50;
+                if !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
+                    debug!("{searched_moves:2}    Move {move_string} skipped by static exchange eval");
 
                     continue;
                 }
+            }
 
-                has_legal_move = true;
-                let gives_check = self.board.is_in_check(false);
-
-                // Futility pruning and late move pruning
-                if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -1000))
-                    && searched_moves >= 1
-                    && !gives_check
-                    && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
-                {
+            let (legal, move_made) = self
+                .board
+                .test_legality_and_maybe_make_move(r#move.m, &mut self.rollback);
+            if !legal {
+                if move_made {
                     self.board.unmake_move(&r#move.m, &mut self.rollback);
-
-                    if position_to_debug {
-                        debug!(
-                            "{searched_moves:2}    Move {move_string} skipped by {}",
-                            if futility_prune {
-                                "futility pruning"
-                            } else {
-                                "late move pruning"
-                            }
-                        );
-                    }
-
-                    continue;
                 }
 
-                let mut reduction = 0;
-                // Late move reduction
-                if draft > 2 && searched_moves > 3 {
-                    let flags = r#move.m.flags();
+                continue;
+            }
 
-                    // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
-                    reduction = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0 {
-                        (0.7844 + (draft as f32).ln() * (searched_moves as f32).ln() / 2.4696).round() as u8
-                    } else {
-                        3
-                    };
+            has_legal_move = true;
+            let gives_check = self.board.is_in_check(false);
 
-                    if is_pv && reduction > 0 {
-                        reduction -= 1;
-                    }
+            // Futility pruning and late move pruning
+            if (futility_prune
+                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -750 - 50 * draft as i16))
+                && searched_moves >= 1
+                && !gives_check
+                && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+            {
+                self.board.unmake_move(&r#move.m, &mut self.rollback);
 
-                    if in_check && reduction > 0 {
-                        reduction -= 1;
-                    }
-
-                    reduction = reduction.clamp(0, draft - 1)
+                if position_to_debug {
+                    debug!(
+                        "{searched_moves:2}    Move {move_string} skipped by {}",
+                        if futility_prune {
+                            "futility pruning"
+                        } else {
+                            "late move pruning"
+                        }
+                    );
                 }
 
-                let mut score;
-                if searched_moves == 0 || ply == 0 {
-                    // Use reduction
+                continue;
+            }
+
+            self.move_history.push(r#move.m);
+
+            let mut reduction = 0;
+            // Late move reduction
+            if draft > 2 && searched_moves > 3 {
+                let flags = r#move.m.flags();
+
+                // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
+                reduction = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0 {
+                    (0.7844 + (draft as f32).ln() * (searched_moves as f32).ln() / 2.4696).round() as u8
+                } else {
+                    3
+                };
+
+                if is_pv && reduction > 0 {
+                    reduction -= 1;
+                }
+
+                if in_check && reduction > 0 {
+                    reduction -= 1;
+                }
+
+                reduction = reduction.clamp(0, draft - 1)
+            }
+
+            let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+
+            let mut score;
+            if searched_moves == 0 || ply == 0 {
+                // Use reduction
+                score = -self.alpha_beta_recurse(
+                    -beta,
+                    -alpha,
+                    draft - reduction - 1,
+                    ply + 1,
+                    &mut new_killers,
+                    gives_check,
+                    can_null_move,
+                    &mut pv,
+                )?;
+
+                if position_to_debug {
+                    let str_pv = pv
+                        .iter()
+                        .rev()
+                        .map(|m| m.simple_long_algebraic_notation())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    let r_str = if reduction > 0 { "r" } else { " " };
+                    debug!("{searched_moves:2} {r_str}  Move {move_string} score {score:4} pv {str_pv}");
+                }
+
+                if score > alpha && reduction > 0 {
+                    // Do a full search
                     score = -self.alpha_beta_recurse(
                         -beta,
                         -alpha,
-                        draft - reduction - 1,
+                        draft - 1,
                         ply + 1,
                         &mut new_killers,
                         gives_check,
@@ -604,39 +744,39 @@ impl<'a> Searcher<'a> {
                             .map(|m| m.simple_long_algebraic_notation())
                             .collect::<Vec<String>>()
                             .join(" ");
-                        let r_str = if reduction > 0 { "r" } else { " " };
-                        debug!("{searched_moves:2} {r_str}  Move {move_string} score {score:4} pv {str_pv}");
+                        debug!("{searched_moves:2}    Move {move_string} score {score:4} pv {str_pv}");
                     }
+                }
+            } else {
+                // Use null window and reduction
+                score = -self.alpha_beta_recurse(
+                    -alpha - 1,
+                    -alpha,
+                    draft - reduction - 1,
+                    ply + 1,
+                    &mut new_killers,
+                    gives_check,
+                    can_null_move,
+                    &mut pv,
+                )?;
 
-                    if score > alpha && reduction > 0 {
-                        // Do a full search
-                        score = -self.alpha_beta_recurse(
-                            -beta,
-                            -alpha,
-                            draft - 1,
-                            ply + 1,
-                            &mut new_killers,
-                            gives_check,
-                            can_null_move,
-                            &mut pv,
-                        )?;
+                if position_to_debug {
+                    let str_pv = pv
+                        .iter()
+                        .rev()
+                        .map(|m| m.simple_long_algebraic_notation())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    let r_str = if reduction > 0 { "r" } else { " " };
+                    debug!("{searched_moves:2} {r_str}z Move {move_string} score {score:4} pv {str_pv}");
+                }
 
-                        if position_to_debug {
-                            let str_pv = pv
-                                .iter()
-                                .rev()
-                                .map(|m| m.simple_long_algebraic_notation())
-                                .collect::<Vec<String>>()
-                                .join(" ");
-                            debug!("{searched_moves:2}    Move {move_string} score {score:4} pv {str_pv}");
-                        }
-                    }
-                } else {
-                    // Use null window and reduction
+                if score > alpha {
+                    // Do a full search
                     score = -self.alpha_beta_recurse(
-                        -alpha - 1,
+                        -beta,
                         -alpha,
-                        draft - reduction - 1,
+                        draft - 1,
                         ply + 1,
                         &mut new_killers,
                         gives_check,
@@ -651,115 +791,120 @@ impl<'a> Searcher<'a> {
                             .map(|m| m.simple_long_algebraic_notation())
                             .collect::<Vec<String>>()
                             .join(" ");
-                        let r_str = if reduction > 0 { "r" } else { " " };
-                        debug!("{searched_moves:2} {r_str}z Move {move_string} score {score:4} pv {str_pv}");
-                    }
-
-                    if score > alpha {
-                        // Do a full search
-                        score = -self.alpha_beta_recurse(
-                            -beta,
-                            -alpha,
-                            draft - 1,
-                            ply + 1,
-                            &mut new_killers,
-                            gives_check,
-                            can_null_move,
-                            &mut pv,
-                        )?;
-
-                        if position_to_debug {
-                            let str_pv = pv
-                                .iter()
-                                .rev()
-                                .map(|m| m.simple_long_algebraic_notation())
-                                .collect::<Vec<String>>()
-                                .join(" ");
-                            debug!("{searched_moves:2}    Move {move_string} score {score:4} pv {str_pv}");
-                        }
+                        debug!("{searched_moves:2}    Move {move_string} score {score:4} pv {str_pv}");
                     }
                 }
+            }
 
-                self.board.unmake_move(&r#move.m, &mut self.rollback);
-                searched_moves += 1;
+            self.board.unmake_move(&r#move.m, &mut self.rollback);
+            self.move_history.pop();
+            searched_moves += 1;
 
-                if score >= beta {
-                    self.update_killers_and_history(killers, &r#move.m, ply);
+            if score >= beta {
+                let mut relevant_cont_hist =
+                    get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history);
 
-                    let penalty = -(ply as i16) * (ply as i16);
-                    for m in searched_quiet_moves {
-                        self.update_history(&m, penalty);
-                    }
+                update_killers_and_history(
+                    &self.board,
+                    &mut self.history_table,
+                    killers,
+                    &r#move.m,
+                    ply,
+                    &mut relevant_cont_hist,
+                );
 
-                    self.transposition_table.store_entry(
-                        TTEntry::new(
-                            self.board.hash,
-                            r#move.m,
-                            MoveType::FailHigh,
-                            score,
-                            draft,
-                            ply,
-                            self.starting_halfmove,
-                        ),
-                        TableType::Main,
+                let penalty = -(ply as i16) * (ply as i16);
+                for m in searched_quiet_moves {
+                    update_history(
+                        &self.board,
+                        &mut self.history_table,
+                        &m,
+                        penalty,
+                        &mut relevant_cont_hist,
                     );
-
-                    if position_to_debug {
-                        debug!("Failed high with score {score}");
-                    }
-
-                    return Ok(score);
                 }
 
-                if score > best_score {
+                if ply == 0 {
+                    let pv_data = PvData {
+                        pv: TinyVec::default(),
+                        search_result: SearchResult {
+                            best_move: r#move.m,
+                            score,
+                        },
+                    };
+
+                    if self.root_pvs.len() == self.multi_pv as usize {
+                        self.root_pvs.pop_back();
+                    }
+
+                    let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
+                    self.root_pvs.insert(index, pv_data);
+                }
+
+                self.transposition_table.store_entry(TTEntry::new(
+                    self.board.hash,
+                    r#move.m,
+                    MoveType::FailHigh,
+                    score,
+                    draft,
+                    ply,
+                    self.starting_fullmove,
+                ));
+
+                if position_to_debug {
+                    debug!("Failed high with score {score}");
+                }
+
+                return Ok(score);
+            }
+
+            if score > best_score {
+                if ply == 0 {
+                    *parent_pv = pv.clone();
+                    parent_pv.push(r#move.m);
+
+                    let pv_data = PvData {
+                        pv: parent_pv.clone(),
+                        search_result: SearchResult {
+                            best_move: r#move.m,
+                            score,
+                        },
+                    };
+
+                    if self.root_pvs.len() == self.multi_pv as usize {
+                        self.root_pvs.pop_back();
+                    }
+
+                    let index = self.root_pvs.partition_point(|pv| pv.search_result.score > score);
+                    self.root_pvs.insert(index, pv_data);
+
+                    // If there is a new best PV
+                    if index == 0 {
+                        self.root_pv_branch_nodes = self.stats.current_iteration_total_nodes - start_of_search_nodes;
+                    }
+
+                    score = self.root_pvs.back().unwrap().search_result.score;
+                }
+
+                if ply != 0 || self.root_pvs.len() == self.multi_pv as usize {
                     best_score = score;
                     best_move = Some(r#move.m);
                     if score > alpha {
                         alpha = score;
                         improved_alpha = true;
 
-                        if is_pv {
+                        // This will be handled separately for root nodes
+                        if is_pv && ply != 0 {
                             *parent_pv = pv.clone();
                             parent_pv.push(r#move.m);
                         }
                     }
                 }
-
-                if r#move.m.flags() == 0 {
-                    searched_quiet_moves.push(r#move.m);
-                }
             }
 
-            if round == 0 {
-                if !in_check {
-                    moves = self.board.generate_pseudo_legal_moves_with_history(self.history_table);
-                } else {
-                    moves = self.board.generate_pseudo_legal_check_evasions(self.history_table);
-                }
-
-                if killers[0] != EMPTY_MOVE {
-                    let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
-
-                    for m in moves.iter_mut() {
-                        if m.m == killers[0] {
-                            m.score = MOVE_SCORE_KILLER_1;
-
-                            if unmatched_killers == 1 {
-                                break;
-                            } else {
-                                unmatched_killers -= 1;
-                            }
-                        } else if m.m == killers[1] {
-                            m.score = MOVE_SCORE_KILLER_2;
-
-                            if unmatched_killers == 1 {
-                                break;
-                            } else {
-                                unmatched_killers -= 1;
-                            }
-                        }
-                    }
-                }
+            // TODO: change to check for capture flag
+            if r#move.m.flags() == 0 {
+                searched_quiet_moves.push(r#move.m);
             }
         }
 
@@ -776,10 +921,21 @@ impl<'a> Searcher<'a> {
                 return Ok(self.board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
                 parent_pv.clear();
-                return Ok(0);
+                return Ok(self.eval_draw());
             }
         } else if searched_moves == 1 && ply == 0 {
-            self.end_search = true;
+            self.single_root_move = true;
+        }
+
+        if ply == 0 && self.multi_pv > 1 {
+            let best_pv = self
+                .root_pvs
+                .front()
+                .expect("No root pv found at the end of alpha_beta_recurse for ply == 0");
+            best_move = Some(best_pv.search_result.best_move);
+            best_score = best_pv.search_result.score;
+            *parent_pv = best_pv.pv.clone();
+            improved_alpha |= best_score > alpha;
         }
 
         let (entry_type, entry_type_desc) = if improved_alpha {
@@ -787,102 +943,94 @@ impl<'a> Searcher<'a> {
         } else {
             (MoveType::FailLow, "failed low")
         };
+        self.transposition_table.store_entry(TTEntry::new(
+            self.board.hash,
+            best_move.unwrap(),
+            entry_type,
+            best_score,
+            draft,
+            ply,
+            self.starting_fullmove,
+        ));
 
         if position_to_debug {
             debug!("Result is {entry_type_desc} with score {best_score}");
         }
 
-        self.transposition_table.store_entry(
-            TTEntry::new(
-                self.board.hash,
-                best_move.unwrap(),
-                entry_type,
-                best_score,
-                draft,
-                ply,
-                self.starting_halfmove,
-            ),
-            TableType::Main,
-        );
-
         Ok(best_score)
     }
 
-    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, draft: u8) -> i16 {
-        self.stats.total_nodes += 1;
+    pub fn quiescense_side_to_move_relative(&mut self, mut alpha: i16, beta: i16, ply: u8) -> i16 {
+        self.stats.current_iteration_total_nodes += 1;
 
         if self.board.is_insufficient_material() {
             return 0;
         }
 
-        let mut moves: TinyVec<[ScoredMove; MOVE_ARRAY_SIZE]>;
-        let tt_entry =
-            self.transposition_table
-                .get_entry(self.board.hash, TableType::Quiescense, self.starting_halfmove);
+        let is_pv = alpha + 1 != beta;
+        let mut moves = ArrayVec::new();
+        let tt_entry = self
+            .transposition_table
+            .get_entry(self.board.hash, self.starting_fullmove);
         if let Some(tt_data) = tt_entry {
-            let tt_eval = tt_data.get_score(0);
+            let tt_eval = tt_data.get_score(ply);
 
-            match tt_data.get_move_type() {
-                transposition_table::MoveType::FailHigh => {
-                    if tt_eval >= beta {
+            if !is_pv {
+                match MoveType::from(tt_data.move_type) {
+                    transposition_table::MoveType::FailHigh => {
+                        if tt_eval >= beta {
+                            return tt_eval;
+                        }
+                    }
+                    transposition_table::MoveType::Best => {
                         return tt_eval;
                     }
-                }
-                transposition_table::MoveType::Best => {
-                    return tt_eval;
-                }
-                transposition_table::MoveType::FailLow => {
-                    if tt_eval < alpha {
-                        return tt_eval;
+                    transposition_table::MoveType::FailLow => {
+                        if tt_eval < alpha {
+                            return tt_eval;
+                        }
                     }
                 }
             }
 
-            moves = tiny_vec!(ScoredMove {
-                m: tt_data.important_move,
-                score: 1,
-            });
+            if tt_data.important_move.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+                moves.push(ScoredMove {
+                    m: tt_data.important_move,
+                    score: 1,
+                });
+            }
+        }
+
+        let mut best_score;
+        let in_check = self.board.is_in_check(false);
+        if !in_check {
+            let stand_pat = self.board.evaluate_side_to_move_relative();
+
+            if stand_pat >= beta {
+                return stand_pat;
+            }
+
+            if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
+                && stand_pat + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] + 100 < alpha
+            {
+                return stand_pat;
+            }
+
+            if alpha < stand_pat {
+                alpha = stand_pat;
+            }
+
+            best_score = stand_pat;
         } else {
-            moves = tiny_vec!();
+            best_score = -i16::MAX;
         }
-
-        let stand_pat = self.board.evaluate_side_to_move_relative();
-
-        if stand_pat >= beta {
-            return stand_pat;
-        }
-
-        if self.board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-            && stand_pat + CENTIPAWN_VALUES[PIECE_QUEEN as usize] + 100 < alpha
-        {
-            return stand_pat;
-        }
-
-        if alpha < stand_pat {
-            alpha = stand_pat;
-        }
-
-        let mut best_score = stand_pat;
         let mut best_move = None;
         let mut improved_alpha = false;
 
         // Round 0 is the tt move, round 1 is regular move gen
         for round in 0..2 {
             for move_index in 0..moves.len() {
-                {
-                    // Perform one iteration of selection sort every time another move needs to be evaluated
-                    let mut best_move_score = moves[move_index].score;
-                    let mut best_move_index = move_index;
-
-                    for sort_index in (move_index + 1)..moves.len() {
-                        if moves[sort_index].score > best_move_score {
-                            best_move_score = moves[sort_index].score;
-                            best_move_index = sort_index;
-                        }
-                    }
-
-                    moves.swap(move_index, best_move_index);
-                }
+                select_next_move(&mut moves, move_index);
                 let r#move = &moves[move_index];
 
                 if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
@@ -890,8 +1038,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 // SEE is coded to be run before the move is made so have to do it before testing legality
-                // Typical implementations also only check if the score is better than a threshold instead of calculating the whole thing.
-                if self.board.static_exchange_eval(r#move.m) < 0 {
+                if !self.board.is_static_exchange_eval_at_least(r#move.m, 0) {
                     continue;
                 }
 
@@ -907,23 +1054,20 @@ impl<'a> Searcher<'a> {
                 }
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                let score = -self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1);
+                let score = -self.quiescense_side_to_move_relative(-beta, -alpha, ply + 1);
 
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
                 if score >= beta {
-                    self.transposition_table.store_entry(
-                        TTEntry::new(
-                            self.board.hash,
-                            r#move.m,
-                            MoveType::FailHigh,
-                            score,
-                            draft,
-                            0,
-                            self.starting_halfmove,
-                        ),
-                        TableType::Quiescense,
-                    );
+                    self.transposition_table.store_entry(TTEntry::new(
+                        self.board.hash,
+                        r#move.m,
+                        MoveType::FailHigh,
+                        score,
+                        0,
+                        0,
+                        self.starting_fullmove,
+                    ));
 
                     return score;
                 }
@@ -940,7 +1084,12 @@ impl<'a> Searcher<'a> {
             }
 
             if round == 0 {
-                moves = self.board.generate_pseudo_legal_capture_moves();
+                if in_check {
+                    self.board
+                        .generate_pseudo_legal_check_evasions(self.history_table, &mut moves);
+                } else {
+                    self.board.generate_pseudo_legal_capture_moves(&mut moves);
+                }
             }
         }
 
@@ -950,52 +1099,44 @@ impl<'a> Searcher<'a> {
             } else {
                 MoveType::FailLow
             };
-            self.transposition_table.store_entry(
-                TTEntry::new(
-                    self.board.hash,
-                    bm,
-                    entry_type,
-                    best_score,
-                    0,
-                    0,
-                    self.starting_halfmove,
-                ),
-                TableType::Quiescense,
-            );
+            self.transposition_table.store_entry(TTEntry::new(
+                self.board.hash,
+                bm,
+                entry_type,
+                best_score,
+                0,
+                ply,
+                self.starting_fullmove,
+            ));
+        } else if best_score == -i16::MAX {
+            best_score = alpha.max(-4000);
         }
 
         best_score
     }
 
-    #[inline]
-    fn update_killers_and_history(&mut self, killers: &mut [Move; 2], m: &Move, ply_depth: u8) {
-        if m.flags() != 0 {
-            return;
-        }
+    fn apply_history_to_move_scores(&mut self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+        if let Some(relevant_cont_hist) =
+            get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history)
+        {
+            for m in moves {
+                if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+                    continue;
+                }
 
-        self.update_history(m, (ply_depth as i16) * (ply_depth as i16));
-
-        if killers[0] == *m {
-            return;
-        }
-
-        if killers[1] == *m {
-            (killers[0], killers[1]) = (killers[1], killers[0]);
-        } else {
-            killers[1] = *m;
+                let piece_to_move = self.board.get_piece_64(m.m.from() as usize);
+                m.score += relevant_cont_hist[((piece_to_move & PIECE_MASK) - 1) as usize][m.m.to() as usize];
+            }
         }
     }
 
-    #[inline]
-    fn update_history(&mut self, m: &Move, bonus: i16) {
-        // from https://www.chessprogramming.org/History_Heuristic
-        let piece_type = (self.board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize;
-        let history_color_value = if self.board.white_to_move { 0 } else { 1 };
-
-        let current_value = &mut self.history_table[history_color_value][piece_type - 1][m.to() as usize];
-        let clamped_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-        *current_value +=
-            (clamped_bonus - ((*current_value as i32) * clamped_bonus.abs() / MOVE_SCORE_HISTORY_MAX)) as i16;
+    fn eval_draw(&self) -> i16 {
+        self.contempt
+            * if self.board.white_to_move ^ self.white_started_search {
+                1
+            } else {
+                -1
+            }
     }
 
     fn select_best(move_index: usize, moves: &mut TinyVec<[ScoredMove; 64]>) {
@@ -1012,4 +1153,101 @@ impl<'a> Searcher<'a> {
 
         moves.swap(move_index, best_move_index);
     }
+}
+
+#[inline]
+fn update_killers_and_history(
+    board: &Board,
+    history_table: &mut HistoryTable,
+    killers: &mut [Move; 2],
+    m: &Move,
+    ply_depth: u8,
+    relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
+) {
+    // TODO: Change this to check for capture flag specifically
+    if m.flags() != 0 {
+        return;
+    }
+
+    update_history(
+        board,
+        history_table,
+        m,
+        (ply_depth as i16) * (ply_depth as i16),
+        relevant_cont_hist,
+    );
+
+    if killers[0] == *m {
+        return;
+    }
+
+    if killers[1] == *m {
+        (killers[0], killers[1]) = (killers[1], killers[0]);
+    } else {
+        killers[1] = *m;
+    }
+}
+
+#[inline]
+fn update_history(
+    board: &Board,
+    history_table: &mut HistoryTable,
+    m: &Move,
+    bonus: i16,
+    relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
+) {
+    // from https://www.chessprogramming.org/History_Heuristic
+    let piece_type = (board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize;
+    let history_color_value = if board.white_to_move { 0 } else { 1 };
+    let to = m.to() as usize;
+
+    let clamped_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
+    let current_history = &mut history_table[history_color_value][piece_type - 1][to];
+    *current_history += (clamped_history_bonus
+        - ((*current_history as i32) * clamped_history_bonus.abs() / MOVE_SCORE_HISTORY_MAX))
+        as i16;
+
+    let clamped_const_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_CONST_HISTORY_MAX);
+    if let Some(relevant_cont_hist) = relevant_cont_hist {
+        let current_cont_hist = &mut relevant_cont_hist[piece_type - 1][to];
+        *current_cont_hist += (clamped_const_history_bonus
+            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONST_HISTORY_MAX))
+            as i16;
+    }
+}
+
+#[inline]
+fn get_relevant_cont_hist<'a>(
+    move_history: &Vec<Move>,
+    board: &Board,
+    continuation_history: &'a mut ContinuationHistoryTable,
+) -> Option<&'a mut [[i16; 64]; 6]> {
+    if let Some(last_move) = move_history.last() {
+        if *last_move != EMPTY_MOVE {
+            let last_moved_to = last_move.to() as usize;
+            let last_moved_piece = board.get_piece_64(last_moved_to);
+            return Some(
+                &mut continuation_history[if board.white_to_move { 0 } else { 1 }]
+                    [((last_moved_piece & PIECE_MASK) - 1) as usize][last_moved_to],
+            );
+        }
+    }
+
+    None
+}
+
+#[inline]
+fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_skip: usize) {
+    // Perform one iteration of selection sort every time another move needs to be evaluated
+    let mut best_move_score = moves[index_to_skip].score;
+    let mut best_move_index = index_to_skip;
+
+    for sort_index in (index_to_skip + 1)..moves.len() {
+        if moves[sort_index].score > best_move_score {
+            best_move_score = moves[sort_index].score;
+            best_move_index = sort_index;
+        }
+    }
+
+    moves.swap(index_to_skip, best_move_index);
 }
