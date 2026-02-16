@@ -629,7 +629,9 @@ impl<'a> Searcher<'a> {
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 let see_margin = draft as i16 * -50;
                 if !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
-                    debug!("{searched_moves:2}    Move {move_string} skipped by static exchange eval");
+                    if position_to_debug {
+                        debug!("{searched_moves:2}    Move {move_string} skipped by static exchange eval");
+                    }
 
                     continue;
                 }
