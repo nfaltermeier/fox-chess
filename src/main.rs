@@ -100,11 +100,7 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
             ))
         })
         .level(args.log_level.unwrap_or_else(|| {
-            if get_build_info().profile.eq_ignore_ascii_case("debug") {
-                log::LevelFilter::Debug
-            } else {
-                log::LevelFilter::Error
-            }
+            log::LevelFilter::Debug
         }))
         .level_for("fox_chess::perft", log::LevelFilter::Info)
         .chain(std::io::stderr());

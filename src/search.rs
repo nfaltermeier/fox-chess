@@ -440,7 +440,8 @@ impl<'a> Searcher<'a> {
 
         let is_pv = alpha + 1 != beta;
         let fen = self.board.to_fen();
-        const POSITION_TO_FIND: &'static str = "8/3p1kp1/2b4p/2q5/6P1/2B2p1P/4r3/3R2QK w";
+        // let fen = "disabled".to_owned();
+        const POSITION_TO_FIND: &'static str = "8/3p1kp1/2b4p/2Q5/6P1/2B4P/4rp2/3R3K w";
         const REQUIRE_IS_PV: bool = false;
         let position_to_debug = fen.starts_with(POSITION_TO_FIND) && (is_pv || !REQUIRE_IS_PV);
         if position_to_debug {
@@ -625,6 +626,7 @@ impl<'a> Searcher<'a> {
             };
 
             let move_string = r#move.m.pretty_print(Some(&self.board));
+            // let move_string = "disabled".to_owned();
 
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 let see_margin = draft as i16 * -50;
@@ -843,7 +845,7 @@ impl<'a> Searcher<'a> {
                     self.root_pvs.insert(index, pv_data);
                 }
 
-                self.transposition_table.store_entry(TTEntry::new(
+                let log_store = self.transposition_table.store_entry(TTEntry::new(
                     self.board.hash,
                     r#move.m,
                     MoveType::FailHigh,
@@ -852,6 +854,10 @@ impl<'a> Searcher<'a> {
                     ply,
                     self.starting_fullmove,
                 ));
+                if log_store {
+                    debug!("Stored TT entry of interest on ply {ply} and draft {draft}, alpha {alpha} beta {beta}");
+                    io::stderr().flush().unwrap();
+                }
 
                 if position_to_debug {
                     debug!("Failed high with score {score}");
@@ -945,7 +951,7 @@ impl<'a> Searcher<'a> {
         } else {
             (MoveType::FailLow, "failed low")
         };
-        self.transposition_table.store_entry(TTEntry::new(
+        let log_store = self.transposition_table.store_entry(TTEntry::new(
             self.board.hash,
             best_move.unwrap(),
             entry_type,
@@ -954,6 +960,10 @@ impl<'a> Searcher<'a> {
             ply,
             self.starting_fullmove,
         ));
+        if log_store {
+            debug!("Stored TT entry of interest on ply {ply} and draft {draft}, alpha {alpha} beta {beta}");
+            io::stderr().flush().unwrap();
+        }
 
         if position_to_debug {
             debug!("Result is {entry_type_desc} with score {best_score}");
@@ -1061,7 +1071,7 @@ impl<'a> Searcher<'a> {
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
                 if score >= beta {
-                    self.transposition_table.store_entry(TTEntry::new(
+                    let log_store = self.transposition_table.store_entry(TTEntry::new(
                         self.board.hash,
                         r#move.m,
                         MoveType::FailHigh,
@@ -1070,6 +1080,10 @@ impl<'a> Searcher<'a> {
                         0,
                         self.starting_fullmove,
                     ));
+                    if log_store {
+                        debug!("Stored TT entry of interest on ply {ply} in qsearch, alpha {alpha} beta {beta}");
+                        io::stderr().flush().unwrap();
+                    }
 
                     return score;
                 }
@@ -1101,7 +1115,7 @@ impl<'a> Searcher<'a> {
             } else {
                 MoveType::FailLow
             };
-            self.transposition_table.store_entry(TTEntry::new(
+            let log_store = self.transposition_table.store_entry(TTEntry::new(
                 self.board.hash,
                 bm,
                 entry_type,
@@ -1110,6 +1124,10 @@ impl<'a> Searcher<'a> {
                 ply,
                 self.starting_fullmove,
             ));
+            if log_store {
+                debug!("Stored TT entry of interest on ply {ply} in qsearch, alpha {alpha} beta {beta}");
+                io::stderr().flush().unwrap();
+            }
         } else if best_score == -i16::MAX {
             best_score = alpha.max(-4000);
         }

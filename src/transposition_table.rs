@@ -133,7 +133,7 @@ impl TranspositionTable {
         None
     }
 
-    pub fn store_entry(&mut self, val: TTEntry) {
+    pub fn store_entry(&mut self, val: TTEntry) -> bool {
         let index = val.hash as usize & self.key_mask;
 
         if let Some(entry) = self.table.get_mut(index) {
@@ -143,6 +143,9 @@ impl TranspositionTable {
                 entry.always_replace = val;
             }
         }
+
+        // val.hash == 17685628114394323762 && val.score == 993
+        false
     }
 
     pub fn clear(&mut self) {
