@@ -1,7 +1,7 @@
 use std::{
     alloc::{Layout, alloc_zeroed},
     fs::{self, File},
-    io::{self, Write},
+    io::{self, BufReader, BufWriter, Read, Write},
     mem::transmute,
     process::exit,
     sync::mpsc::{self, Receiver},
@@ -10,6 +10,7 @@ use std::{
 };
 
 use build_info::VersionControl::Git;
+use bytemuck::checked::cast_slice;
 use fox_chess_proc::uci_fields_parser;
 use log::{debug, error, trace};
 use serde_bytes::ByteArray;
@@ -258,46 +259,9 @@ impl UciInterface {
                             error!("Board must be set with position first");
                         }
                     } else if message.eq_ignore_ascii_case("save-state") {
-                        if let Some(b) = &self.board {
-                            let fen = b.to_fen().replace("/", "_");
-
-                            if !fs::exists("save-states").unwrap() {
-                                fs::create_dir("save-states").unwrap();
-                            }
-
-                            let mut history_file = File::create(format!("save-states/{fen}-history.mp")).unwrap();
-
-                            self.transposition_table
-                                .save_fast(format!("save-states/{fen}-ttbin.mp").as_str());
-
-                            unsafe {
-                                let converted = transmute::<HistoryTable, [u8; 1536]>(self.history_table);
-                                let sadfasd = ByteArray::new(converted);
-                                history_file.write_all(&rmp_serde::to_vec(&sadfasd).unwrap()).unwrap();
-                            }
-
-                            eprintln!("Saved to save-states/{fen}")
-                        } else {
-                            error!("Set a position first");
-                        }
+                        self.save_state();
                     } else if message.eq_ignore_ascii_case("load-state") {
-                        if let Some(b) = &self.board {
-                            let fen = b.to_fen().replace("/", "_");
-                            debug!("Loading state for fen {}", fen);
-                            let history_file = File::open(format!("save-states/{fen}-history.mp")).unwrap();
-
-                            self.transposition_table =
-                                TranspositionTable::load_fast(format!("save-states/{fen}-ttbin.mp").as_str());
-
-                            unsafe {
-                                let sadfasd: ByteArray<1536> = rmp_serde::from_read(history_file).unwrap();
-                                self.history_table = transmute::<[u8; 1536], HistoryTable>(sadfasd.into_array());
-                            }
-
-                            eprintln!("Loaded from save-states/{fen}")
-                        } else {
-                            error!("Set a position first");
-                        }
+                        self.load_state();
                     } else if message.eq_ignore_ascii_case("bench") {
                         bench();
                     } else if message.starts_with("eval") {
@@ -317,6 +281,80 @@ impl UciInterface {
         }
 
         false
+    }
+
+    #[inline(never)]
+    fn save_state(&self) {
+        if let Some(b) = &self.board {
+            let fen = b.to_fen().replace("/", "_");
+
+            if !fs::exists("save-states").unwrap() {
+                fs::create_dir("save-states").unwrap();
+            }
+
+            let mut history_file = File::create(format!("save-states/{fen}-history.mp")).unwrap();
+
+            self.transposition_table
+                .save_fast(format!("save-states/{fen}-ttbin.mp").as_str());
+
+            unsafe {
+                let converted = transmute::<HistoryTable, [u8; 1536]>(self.history_table);
+                let sadfasd = ByteArray::new(converted);
+                history_file.write_all(&rmp_serde::to_vec(&sadfasd).unwrap()).unwrap();
+            }
+
+            self.save_cont_hist(format!("save-states/{fen}-cont-history.mp").as_str());
+
+            eprintln!("Saved to save-states/{fen}")
+        } else {
+            error!("Set a position first");
+        }
+    }
+
+    #[inline(never)]
+    fn load_state(&mut self) {
+        if let Some(b) = &self.board {
+            let fen = b.to_fen().replace("/", "_");
+            debug!("Loading state for fen {}", fen);
+            let history_file = File::open(format!("save-states/{fen}-history.mp")).unwrap();
+
+            self.transposition_table =
+                TranspositionTable::load_fast(format!("save-states/{fen}-ttbin.mp").as_str());
+
+            unsafe {
+                let sadfasd: ByteArray<1536> = rmp_serde::from_read(history_file).unwrap();
+                self.history_table = transmute::<[u8; 1536], HistoryTable>(sadfasd.into_array());
+            }
+            
+            self.continuation_history = Self::load_cont_hist(format!("save-states/{fen}-cont-history.mp").as_str());
+
+            eprintln!("Loaded from save-states/{fen}")
+        } else {
+            error!("Set a position first");
+        }
+    }
+
+    pub fn save_cont_hist(&self, path: &str) {
+        let mut file = BufWriter::new(File::create(path).unwrap());
+
+        let cont_hist_bytes = cast_slice(&*self.continuation_history);
+
+        // Write raw bytes
+        file.write_all(cont_hist_bytes).unwrap();
+    }
+
+    // From chat gpt
+    pub fn load_cont_hist(path: &str) -> Box<ContinuationHistoryTable> {
+        let mut file = BufReader::new(File::open(path).unwrap());
+
+        // Allocate vectors
+        let mut cont_hist = Self::alloc_zeroed_continuation_history();
+
+        // Read raw bytes directly into them
+        let table_bytes = bytemuck::cast_slice_mut(&mut (*cont_hist));
+        file.read_exact(table_bytes).unwrap();
+
+        cont_hist
     }
 
     pub fn print_search_info(
