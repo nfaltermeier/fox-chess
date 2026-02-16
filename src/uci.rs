@@ -276,7 +276,7 @@ impl UciInterface {
                                 history_file.write_all(&rmp_serde::to_vec(&sadfasd).unwrap()).unwrap();
                             }
 
-                            debug!("Saved to save-states/{fen}")
+                            eprintln!("Saved to save-states/{fen}")
                         } else {
                             error!("Set a position first");
                         }
@@ -294,7 +294,7 @@ impl UciInterface {
                                 self.history_table = transmute::<[u8; 1536], HistoryTable>(sadfasd.into_array());
                             }
 
-                            debug!("Loaded from save-states/{fen}")
+                            eprintln!("Loaded from save-states/{fen}")
                         } else {
                             error!("Set a position first");
                         }
