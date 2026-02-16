@@ -1,38 +1,64 @@
 use std::{
-    cmp::Reverse,
     sync::mpsc::{self, TryRecvError},
     thread::sleep,
     time::{Duration, SystemTime},
 };
 
+use crate::bench::bench;
 use board::{Board, HASH_VALUES};
-use clap::Parser;
-use log::{debug, error, info, warn};
+use build_info::build_info;
+use clap::{Parser, Subcommand};
+use log::{debug, error};
 use magic_bitboard::initialize_magic_bitboards;
 use move_generator::ENABLE_UNMAKE_MOVE_TEST;
-use moves::{Move, MoveRollback};
-use search::{DEFAULT_HISTORY_TABLE, SearchResult, Searcher};
-use transposition_table::TranspositionTable;
 use uci::UciInterface;
-use vampirc_uci::UciSearchControl;
+use vampirc_uci::parse_with_unknown;
 
+mod bench;
 mod bitboard;
 mod board;
+mod eval_values;
 mod evaluate;
 mod magic_bitboard;
 mod move_generator;
+mod move_generator_struct;
 mod moves;
+mod perft;
 mod repetition_tracker;
 mod search;
+mod time_management;
 mod transposition_table;
 mod uci;
+mod uci_required_options_helper;
 
 pub static STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+build_info!(fn get_build_info);
+
 #[derive(Parser)]
 struct CliArgs {
-    #[arg(short, long, default_value_t = log::LevelFilter::Debug)]
-    log_level: log::LevelFilter,
+    #[command(subcommand)]
+    command: Option<Commands>,
+    /// Controls what level of debugging information is logged. Defaults to Error.
+    #[arg(long)]
+    log_level: Option<log::LevelFilter>,
+    /// Controls if debugging information will be logged to the file output.log
+    #[arg(long)]
+    log_to_file: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Runs all perft tests if no arguments are provided. Arguments are intended for use with perftree https://github.com/agausmann/perftree
+    Perft {
+        depth: Option<u8>,
+        fen: Option<String>,
+        moves: Option<String>,
+    },
+    /// Runs a benchmark test for the user to verify node count and nodes per second on a new device/build
+    Bench,
+    /// Prints the version of the program
+    Version,
 }
 
 fn main() {
@@ -52,13 +78,109 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
+    if let Some(command) = &args.command {
+        handle_startup_command(command);
+        return;
+    }
+
     run_uci();
 
-    // run_perft_tests();
-    // search_moves_from_pos(STARTING_FEN, 1);
-    // print_moves_from_pos("rnbqkbnr/pp1ppppp/8/2p5/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2");
-    // make_moves(Vec::from([ Move { data: 0x0040 }, Move { data: 0x4397 }, Move { data: 0x0144 }, Move { data: 0xc14e } ]), "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 1 1");
     // hash_values_edit_distance();
+}
+
+fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
+    let mut logger = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(args.log_level.unwrap_or_else(|| {
+            if get_build_info().profile.eq_ignore_ascii_case("debug") {
+                log::LevelFilter::Debug
+            } else {
+                log::LevelFilter::Error
+            }
+        }))
+        .level_for("fox_chess::perft", log::LevelFilter::Info)
+        .chain(std::io::stderr());
+
+    if args.log_to_file || get_build_info().profile.eq_ignore_ascii_case("debug") {
+        logger = logger.chain(fern::log_file("output.log")?);
+    }
+
+    logger.apply()?;
+    Ok(())
+}
+
+fn run_uci() {
+    // 2^23 entries -> 128MiB
+    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
+    let mut uci = UciInterface::new(23, stop_rx);
+    loop {
+        match message_rx.try_recv() {
+            Ok(val) => {
+                if uci.process_command(val) {
+                    return;
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                error!("stdin channel disconnected");
+                panic!("stdin channel disconnected")
+            }
+        }
+        sleep(Duration::from_millis(10));
+    }
+}
+
+fn handle_startup_command(command: &Commands) {
+    match command {
+        &Commands::Perft {
+            depth,
+            ref fen,
+            ref moves,
+        } => {
+            let has_any_subarg = depth.is_some() || fen.is_some() || moves.is_some();
+
+            if !has_any_subarg {
+                run_perft_tests();
+            } else {
+                if let Some(depth) = depth {
+                    if let Some(fen) = fen
+                        && fen != ""
+                    {
+                        let mut uci_command = format!("position fen {fen}");
+                        if let Some(moves) = moves
+                            && moves != ""
+                        {
+                            uci_command = format!("{uci_command} moves {moves}");
+                        }
+
+                        let messages = parse_with_unknown(&uci_command);
+                        let (_, stop_rx) = mpsc::channel::<()>();
+                        let mut uci = UciInterface::new(2, stop_rx);
+                        uci.process_command((uci_command.clone(), messages));
+
+                        uci.get_board_copy().unwrap().start_perft(depth, true);
+                        return;
+                    }
+                }
+
+                error!("If the depth perft argument is provided, fen must also be provided");
+            }
+        }
+        Commands::Bench => {
+            bench();
+        }
+        Commands::Version => {
+            println!("{}", UciInterface::get_version());
+        }
+    }
 }
 
 fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
@@ -108,148 +230,6 @@ fn run_perft_tests() {
         "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
         vec![(1, 46), (2, 2079), (3, 89_890), (4, 3_894_594), (5, 164_075_551)],
     );
-}
-
-fn print_moves_from_pos(fen: &str) {
-    let mut board = Board::from_fen(fen).unwrap();
-    info!("{:#?}", &board);
-
-    let mut moves = board.generate_legal_moves_without_history();
-
-    moves.sort_by_key(|m| Reverse(m.score));
-
-    for r#move in moves {
-        info!(
-            "{} move order score {}",
-            r#move.m.pretty_print(Some(&board)),
-            r#move.score
-        );
-    }
-}
-
-fn search_moves_from_pos(fen: &str, depth: u8) {
-    let mut board = Board::from_fen(fen).unwrap();
-    info!("{:#?}", &board);
-
-    let mut moves = board.generate_legal_moves_without_history();
-
-    moves.sort_by_key(|m| Reverse(m.score));
-
-    let mut rollback = MoveRollback::default();
-    let mut transposition_table = TranspositionTable::new(23);
-    let mut history = DEFAULT_HISTORY_TABLE;
-    let mut best: Option<SearchResult> = None;
-    let mut continuation_history = [[[[[0; 64]; 6]; 64]; 6]; 2];
-
-    for r#move in moves {
-        info!("{}:", r#move.m.pretty_print(Some(&board)));
-        board.make_move(&r#move.m, &mut rollback);
-
-        let (_, stop_rx) = mpsc::channel::<()>();
-        let mut searcher = Searcher::new(
-            &mut board,
-            &mut transposition_table,
-            &mut history,
-            &stop_rx,
-            &mut continuation_history,
-        );
-
-        let mut result;
-        if depth != 1 {
-            let tc = None;
-            let sc = Some(UciSearchControl::depth(depth - 1));
-
-            result = searcher.iterative_deepening_search(&tc, &sc);
-            result.best_move = r#move.m;
-        } else {
-            result = SearchResult {
-                best_move: r#move.m,
-                score: searcher.quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255)
-                    * if board.white_to_move { 1 } else { -1 },
-            };
-        }
-
-        board.unmake_move(&r#move.m, &mut rollback);
-
-        if best.as_ref().is_none_or(|v| {
-            v.score * if board.white_to_move { 1 } else { -1 } < result.score * if board.white_to_move { 1 } else { -1 }
-        }) {
-            best = Some(result);
-        }
-    }
-
-    if let Some(r) = best {
-        debug!(
-            "best move: {} eval: {}",
-            r.best_move.pretty_print(Some(&board)),
-            r.score
-        )
-    } else {
-        debug!("No valid moves");
-    }
-}
-
-fn make_moves(moves: Vec<Move>, fen: &str) {
-    let mut board = Board::from_fen(fen).unwrap();
-    let mut rollback = MoveRollback::default();
-    for r#move in moves {
-        debug!("{:?}", board);
-        debug!("{}", r#move.pretty_print(Some(&board)));
-        board.make_move(&r#move, &mut rollback);
-        let legal = !board.can_capture_opponent_king(true);
-        debug!("legality: {}", legal)
-    }
-
-    debug!("After all moves");
-    debug!("{:?}", board);
-
-    let final_pos_moves = board.generate_legal_moves_without_history();
-
-    if final_pos_moves.is_empty() {
-        warn!("No moves found")
-    }
-
-    for r#move in final_pos_moves {
-        info!("{}", r#move.m.pretty_print(Some(&board)));
-    }
-}
-
-fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
-    fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{} {} {}] {}",
-                humantime::format_rfc3339_seconds(SystemTime::now()),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .level(args.log_level)
-        // .level_for("fox_chess::move_generator", log::LevelFilter::Trace)
-        .chain(std::io::stderr())
-        .chain(fern::log_file("output.log")?)
-        .apply()?;
-    Ok(())
-}
-
-fn run_uci() {
-    // 2^23 entries -> 128MiB
-    let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
-    let mut uci = UciInterface::new(23, stop_rx);
-    loop {
-        match message_rx.try_recv() {
-            Ok(val) => {
-                uci.process_command(val);
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                error!("stdin channel disconnected");
-                panic!("stdin channel disconnected")
-            }
-        }
-        sleep(Duration::from_millis(10));
-    }
 }
 
 fn hash_values_edit_distance() {

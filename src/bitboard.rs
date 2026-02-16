@@ -25,6 +25,9 @@ static KING_ATTACKS: [u64; 64] = array![i => generate_king_attack(BIT_SQUARES[i]
 static PAWN_ATTACKS: [[u64; 64]; 2] = array![x => array![y => generate_pawn_attack(BIT_SQUARES[y], x == 0); 64]; 2];
 pub static SQUARES_BETWEEN: [[u64; 64]; 64] = array![x => array![y => squares_in_between(x as u64, y as u64); 64]; 64];
 
+static FILES: [u64; 8] = array![i => 0x0101010101010101 << i; 8];
+static FILES_FOR_ISOLATED: [u64; 8] = array![i => west_one(FILES[i]) | east_one(FILES[i]); 8];
+
 pub struct AttacksTo {
     pub attackers: u64,
     pub possible_rook_like_x_rays: u64,
@@ -71,7 +74,7 @@ const fn generate_king_attack(mut king_position: u64) -> u64 {
     result
 }
 
-const fn generate_pawn_attack(pawn_position: u64, white: bool) -> u64 {
+pub const fn generate_pawn_attack(pawn_position: u64, white: bool) -> u64 {
     if white {
         north_east_one(pawn_position) | north_west_one(pawn_position)
     } else {
@@ -290,12 +293,68 @@ impl Board {
 
         (0, 0)
     }
+
+    pub fn score_pawn_shield(&self, color: usize) -> i16 {
+        let pawn_advance = if color == 0 { north_one } else { south_one };
+
+        let shield_row = generate_pawn_attack(self.piece_bitboards[color][PIECE_KING as usize], color == 0)
+            | pawn_advance(self.piece_bitboards[color][PIECE_KING as usize]);
+
+        let close_pawns = (shield_row & self.piece_bitboards[color][PIECE_PAWN as usize]).count_ones();
+        let far_pawns = (pawn_advance(shield_row) & self.piece_bitboards[color][PIECE_PAWN as usize]).count_ones();
+
+        (2 * close_pawns + far_pawns) as i16
+    }
+
+    pub fn get_connected_pawns(&self, white: bool) -> u64 {
+        let pawns = self.piece_bitboards[if white { 0 } else { 1 }][PIECE_PAWN as usize];
+
+        let mut ne_conn = north_east_one(pawns) & pawns;
+        ne_conn |= south_west_one(ne_conn);
+
+        let mut nw_conn = north_west_one(pawns) & pawns;
+        nw_conn |= south_east_one(nw_conn);
+
+        ne_conn | nw_conn
+    }
+
+    pub fn get_pieces_threatened_by_pawns(&self, white: bool) -> u64 {
+        let side = if white { 0 } else { 1 };
+        let other_side = if white { 1 } else { 0 };
+
+        generate_pawn_attack(self.piece_bitboards[side][PIECE_PAWN as usize], white)
+            & (self.side_occupancy[other_side] & !self.piece_bitboards[other_side][PIECE_PAWN as usize])
+    }
+
+    pub fn count_doubled_isolated_pawns(&self) -> (i16, i16) {
+        let mut pawn_occupied_files = [0, 0];
+        let mut isolated_pawn_files = [0, 0];
+        for color in 0..=1 {
+            for file_index in 0..8 {
+                if self.piece_bitboards[color][PIECE_PAWN as usize] & FILES[file_index] > 0 {
+                    pawn_occupied_files[color] += 1;
+
+                    if self.piece_bitboards[color][PIECE_PAWN as usize] & FILES_FOR_ISOLATED[file_index] == 0 {
+                        isolated_pawn_files[color] += 1;
+                    }
+                }
+            }
+        }
+
+        let net_doubled = (self.piece_counts[0][PIECE_PAWN as usize] as i16 - pawn_occupied_files[0])
+            - (self.piece_counts[1][PIECE_PAWN as usize] as i16 - pawn_occupied_files[1]);
+        let net_isolated = isolated_pawn_files[0] - isolated_pawn_files[1];
+
+        (net_doubled, net_isolated)
+    }
 }
 
 #[cfg(test)]
 mod bitboard_tests {
-
-    use crate::board::Board;
+    use crate::{
+        STARTING_FEN,
+        board::{Board, PIECE_PAWN},
+    };
 
     #[test]
     pub fn basic_passed_pawns() {
@@ -311,5 +370,140 @@ mod bitboard_tests {
 
         assert_eq!(1, board.white_passed_pawns().count_ones());
         assert_eq!(1, board.black_passed_pawns().count_ones());
+    }
+
+    macro_rules! pawn_shield_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_white_score, expected_black_score) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white_score = board.score_pawn_shield(0);
+                    let black_score = board.score_pawn_shield(1);
+
+                    assert_eq!(expected_white_score, white_score);
+                    assert_eq!(expected_black_score, black_score);
+                }
+            )*
+        }
+    }
+
+    pawn_shield_test! {
+        single_close_pawn: ("1k6/1p6/8/8/8/8/6P1/6K1 w - - 0 1", 2, 2),
+        single_far_pawn: ("1k6/8/1p6/8/8/6P1/8/6K1 w - - 0 1", 1, 1),
+        full_close_shields: ("1k6/ppp5/8/8/8/8/5PPP/6K1 w - - 0 1", 6, 6),
+        mixed_shields: ("1k6/1pp5/p7/8/8/6PP/5P2/6K1 w - - 0 1", 4, 5),
+        completely_full_shields: ("1k6/ppp5/ppp5/8/8/5PPP/5PPP/6K1 w - - 0 1", 9, 9),
+        shield_not_position_dependent: ("8/4k3/3ppp2/5P2/4P3/4K3/8/8 w - - 0 1", 3, 6),
+    }
+
+    macro_rules! connected_pawns_count_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, expected_white_count, expected_black_count) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white = board.get_connected_pawns(true);
+                    let black = board.get_connected_pawns(false);
+
+                    assert_eq!(expected_white_count, white.count_ones());
+                    assert_eq!(expected_black_count, black.count_ones());
+                }
+            )*
+        }
+    }
+
+    connected_pawns_count_test! {
+        v: ("rnbqkbnr/pppp4/4p3/5p1p/2P3pP/1P1P4/P3PPP1/RNBQKBNR w KQkq - 0 6", 5, 5),
+        pairs: ("8/8/p2ppp2/1p1p2pp/1P1P2PP/P2PPP2/8/1K1k4 w - - 0 1", 6, 6),
+        long_chain: ("8/5Pp1/4Pp2/3Pp3/2Pp4/1Pp5/Pp6/1K1k4 w - - 0 1", 6, 6),
+        x: ("8/8/5p1p/1P1P2p1/2P2p1p/1P1P4/8/1K1k4 w - - 0 1", 5, 5),
+        unpaired: ("8/2P1ppPP/1p6/1P1p3p/p2P4/P1p3p1/4PP2/1K1k4 w - - 0 1", 0, 0),
+        checkered: ("8/8/1P1Pp1p1/p1p2P1P/1P4p1/p1p2P1P/1P1Pp1p1/1K1k4 w - - 0 1", 0, 0),
+    }
+
+    /// All pawns must be connected
+    macro_rules! connected_pawns_shape_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let fen = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white = board.get_connected_pawns(true);
+                    let black = board.get_connected_pawns(false);
+
+                    assert_eq!(board.piece_bitboards[0][PIECE_PAWN as usize], white);
+                    assert_eq!(board.piece_bitboards[1][PIECE_PAWN as usize], black);
+                }
+            )*
+        }
+    }
+
+    connected_pawns_shape_test! {
+        shape_x: "8/8/5p1p/1P1P2p1/2P2p1p/1P1P4/8/1K1k4 w - - 0 1",
+        shape_pairs: "8/8/p3pp2/1p1p2p1/1P1P2P1/P3PP2/8/1K1k4 w - - 0 1",
+        shape_long_chain: "8/5Pp1/4Pp2/3Pp3/2Pp4/1Pp5/Pp6/1K1k4 w - - 0 1",
+        shape_v: "4k3/3p4/4p3/5p1p/2P3p1/1P1P4/P3P3/4K3 w - - 0 6",
+    }
+
+    /// All pawns must be connected
+    macro_rules! pieces_threatened_by_pawns_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen, w_value, b_value) = $value;
+
+                    let board = Board::from_fen(fen).unwrap();
+                    let white = board.get_pieces_threatened_by_pawns(true);
+                    let black = board.get_pieces_threatened_by_pawns(false);
+
+                    assert_eq!(white.count_ones(), w_value);
+                    assert_eq!(black.count_ones(), b_value);
+                }
+            )*
+        }
+    }
+
+    pieces_threatened_by_pawns_test! {
+        pawns_threaten_pawns: ("1k6/8/2p1p3/1p1p4/2P1P3/3P4/8/5K2 w - - 0 1", 0, 0),
+        each_type_threaten_twice: ("1k6/8/r1b1n1q1/1P1P1P1P/1p1p1p1p/Q1R1B1N1/8/5K2 w - - 0 1", 4, 4),
+        king_threatened: ("3k4/4P3/8/8/8/8/2p5/3K4 w - - 0 1", 1, 1),
+    }
+
+    macro_rules! doubled_pawns_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
+
+                    let board = Board::from_fen(input).unwrap();
+                    let doubled_pawns = board.count_doubled_isolated_pawns().0;
+
+                    assert_eq!(expected, doubled_pawns);
+                }
+            )*
+        }
+    }
+
+    doubled_pawns_test! {
+        starting_position: (STARTING_FEN, 0),
+        white_two_doubled: ("rnbqkbnr/pppppppp/8/8/8/1P4P1/PP1PP1PP/RNBQKBNR w KQkq - 0 1", 2),
+        black_two_doubled: ("rnbqkbnr/1ppp1ppp/1p5p/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", -2),
+        white_tripled: ("rnbqkbnr/pppppppp/8/8/3P4/3P4/PP1P1PPP/RNBQKBNR w KQkq - 0 1", 2),
+        black_tripled: ("rnbqkbnr/1ppp1ppp/1p6/1p6/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", -2),
+        white_only_single_pawn: ("1k6/8/8/8/8/8/4P3/4K3 w - - 0 1", 0),
+        white_only_doubled_pawn: ("1k6/8/8/8/8/4P3/4P3/4K3 w - - 0 1", 1),
+        black_only_single_pawn: ("1k6/1p6/8/8/8/8/8/4K3 w - - 0 1", 0),
+        black_only_doubled_pawn: ("1k6/1p6/1p6/8/8/8/8/4K3 w - - 0 1", -1),
+        unbalanced: ("1k6/1p2pp2/1p6/8/8/4P1P1/4P1P1/4K3 w - - 0 1", 1),
+        unbalanced_opposite_colors: ("1K6/1P2PP2/1P6/8/8/4p1p1/4p1p1/4k3 w - - 0 1", -1),
     }
 }

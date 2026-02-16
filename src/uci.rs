@@ -10,7 +10,7 @@ use std::{
 };
 
 use build_info::VersionControl::Git;
-use build_info::build_info;
+use fox_chess_proc::uci_fields_parser;
 use log::{debug, error, trace};
 use serde_bytes::ByteArray;
 use tinyvec::TinyVec;
@@ -18,11 +18,14 @@ use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
     STARTING_FEN,
+    bench::bench,
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
+    get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
-    transposition_table::TranspositionTable,
+    transposition_table::{TTEntry, TranspositionTable},
+    uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
 
 pub struct UciInterface {
@@ -31,9 +34,10 @@ pub struct UciInterface {
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
     continuation_history: Box<ContinuationHistoryTable>,
+    multi_pv: u8,
+    extra_uci_options: RequiredUciOptionsAsOptions,
+    contempt: i16,
 }
-
-build_info!(fn get_build_info);
 
 impl UciInterface {
     pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
@@ -43,30 +47,24 @@ impl UciInterface {
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
             continuation_history: Self::alloc_zeroed_continuation_history(),
+            multi_pv: 1,
+            extra_uci_options: RequiredUciOptionsAsOptions::default(),
+            contempt: 0,
         }
     }
 
-    // how to communicate with the engine while it is computing? How necessary is that?
-    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) {
+    #[uci_fields_parser(extra_uci_options)]
+    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) -> bool {
         debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
         for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
-                    let build_info = get_build_info();
-                    let commit;
-                    match &build_info.version_control {
-                        Some(vc) => match vc {
-                            Git(g) => {
-                                commit = format!("{}{}", g.commit_short_id, if g.dirty { "*" } else { "" });
-                            }
-                        },
-                        None => {
-                            commit = "".to_string();
-                        }
-                    }
-
-                    println!("id name FoxChess {} {}", build_info.profile, commit);
+                    println!("id name FoxChess {}", UciInterface::get_version());
                     println!("id author nfaltermeier");
+                    println!("option name Hash type spin default 128 min 1 max 1048576");
+                    println!("option name MultiPV type spin default 1 min 1 max 255");
+                    println!("option name Contempt type spin default 0 min -100 max 100");
+                    RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
                 UciMessage::IsReady => {
@@ -140,6 +138,9 @@ impl UciInterface {
                             &mut self.history_table,
                             &self.stop_rx,
                             &mut self.continuation_history,
+                            self.multi_pv,
+                            self.extra_uci_options.convert(),
+                            self.contempt,
                         );
 
                         let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
@@ -151,18 +152,91 @@ impl UciInterface {
                 }
                 // Stop is handled with a separate sender and receiver to communicate with a running search so nothing needs to be done here
                 UciMessage::Stop => {}
-                UciMessage::Quit => exit(0),
-                UciMessage::SetOption { name, value: _ } => match name.as_str() {
-                    _ => {
-                        error!("Unknown UCI setoption name '{name}'");
+                UciMessage::Quit => {
+                    return true;
+                }
+                UciMessage::SetOption { name, value } =>
+                {
+                    #[uci_fields_parser]
+                    match name.to_ascii_lowercase().as_str() {
+                        "hash" => {
+                            if let Some(value) = value {
+                                let hash_mib = value.parse::<usize>();
+                                if let Ok(hash_mib) = hash_mib {
+                                    let hash_bytes = hash_mib * 1024 * 1024;
+
+                                    if hash_bytes == 0 {
+                                        error!("Minimum value is 1 (MiB)");
+                                        continue;
+                                    }
+
+                                    let entries = hash_bytes / size_of::<TTEntry>();
+                                    let entries_log2 = entries.checked_ilog2().unwrap();
+
+                                    if entries_log2 > u8::MAX as u32 {
+                                        error!("Value is too big");
+                                        continue;
+                                    } else if entries_log2 < 2 {
+                                        error!("Something went wrong, entries_log2 is less than 2");
+                                        continue;
+                                    }
+
+                                    self.transposition_table = TranspositionTable::new(entries_log2 as u8);
+                                } else {
+                                    error!(
+                                        "Failed to parse Hash value as a natural number: {}",
+                                        hash_mib.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option Hash");
+                            }
+                        }
+                        "multipv" => {
+                            if let Some(value) = value {
+                                let multi_pv = value.parse::<u8>();
+                                if let Ok(multi_pv) = multi_pv {
+                                    if multi_pv == 0 {
+                                        error!("MultiPV value must be at least 1");
+                                    } else {
+                                        self.multi_pv = multi_pv;
+                                    }
+                                } else {
+                                    error!(
+                                        "Failed to parse MultiPV value as a natural number: {}",
+                                        multi_pv.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option MultiPV");
+                            }
+                        }
+                        "contempt" => {
+                            if let Some(value) = value {
+                                let contempt = value.parse::<i16>();
+                                if let Ok(contempt) = contempt {
+                                    self.contempt = contempt;
+                                } else {
+                                    error!(
+                                        "Failed to parse Contempt value as an integer: {}",
+                                        contempt.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option Contempt");
+                            }
+                        }
+                        _ => {
+                            error!("Unknown UCI setoption name '{name}'");
+                        }
                     }
-                },
+                }
                 UciMessage::Unknown(message, err) => {
                     if message.starts_with("go perft") {
                         let parts = message.split(' ').collect::<Vec<_>>();
                         if parts.len() < 3 {
                             error!("Expected format: go perft [depth]");
-                            return;
+                            continue;
                         }
 
                         if let Some(board) = &mut self.board {
@@ -183,7 +257,7 @@ impl UciInterface {
                         } else {
                             error!("Board must be set with position first");
                         }
-                    } else if message == "save-state" {
+                    } else if message.eq_ignore_ascii_case("save-state") {
                         if let Some(b) = &self.board {
                             let fen = b.to_fen().replace("/", "_");
 
@@ -206,7 +280,7 @@ impl UciInterface {
                         } else {
                             error!("Set a position first");
                         }
-                    } else if message == "load-state" {
+                    } else if message.eq_ignore_ascii_case("load-state") {
                         if let Some(b) = &self.board {
                             let fen = b.to_fen().replace("/", "_");
                             debug!("Loading state for fen {}", fen);
@@ -224,6 +298,14 @@ impl UciInterface {
                         } else {
                             error!("Set a position first");
                         }
+                    } else if message.eq_ignore_ascii_case("bench") {
+                        bench();
+                    } else if message.starts_with("eval") {
+                        if let Some(board) = &self.board {
+                            println!("Static eval: {}", board.evaluate_side_to_move_relative())
+                        } else {
+                            error!("Board must be set with position first");
+                        }
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
@@ -233,9 +315,19 @@ impl UciInterface {
                 }
             }
         }
+
+        false
     }
 
-    pub fn print_search_info(eval: i16, stats: &SearchStats, elapsed: &Duration, pv: &TinyVec<[Move; 32]>) {
+    pub fn print_search_info(
+        eval: i16,
+        stats: &SearchStats,
+        elapsed: &Duration,
+        transposition_table: &TranspositionTable,
+        pv: &TinyVec<[Move; 32]>,
+        search_starting_fullmove: u8,
+        multi_pv: u8,
+    ) {
         let abs_cp = eval.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
@@ -245,13 +337,13 @@ impl UciInterface {
             format!("score cp {eval}")
         };
 
-        let nps = stats.total_nodes as f64 / elapsed.as_secs_f64();
+        let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+        let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info {score_string} nodes {} depth {} nps {:.0} time {} pv {} str aspiration_researches {}",
-            stats.total_nodes,
+            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} hashfull {} pv {} string aspiration_researches {}",
             stats.depth,
-            nps,
             elapsed.as_millis(),
+            transposition_table.hashfull(search_starting_fullmove),
             pv.iter()
                 .rev()
                 .map(|m| m.simple_long_algebraic_notation())
@@ -293,12 +385,30 @@ impl UciInterface {
         (message_rx, stop_rx)
     }
 
-    fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
+    pub fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
         unsafe {
             let mem =
                 alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTable>() / size_of::<i16>()).unwrap());
             let typed_mem = mem.cast::<ContinuationHistoryTable>();
             Box::from_raw(typed_mem)
         }
+    }
+
+    pub fn get_version() -> String {
+        let build_info = get_build_info();
+        let commit = match &build_info.version_control {
+            Some(vc) => match vc {
+                Git(g) => {
+                    format!(
+                        "{}{}",
+                        g.tags.first().unwrap_or(&g.commit_short_id),
+                        if g.dirty { "*" } else { "" }
+                    )
+                }
+            },
+            None => "".to_string(),
+        };
+
+        format!("{} {}", build_info.profile, commit)
     }
 }
