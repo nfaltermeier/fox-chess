@@ -38,6 +38,7 @@ pub struct SearchStats {
     pub previous_iterations_total_nodes: u64,
     pub total_search_leaves: u64,
     pub aspiration_researches: u8,
+    pub selective_depth: u8,
 }
 
 #[derive(PartialEq, Eq)]
@@ -65,6 +66,7 @@ struct PvData {
     /// PVs are stored as a stack, FILO
     pub pv: TinyVec<[Move; 32]>,
     pub search_result: SearchResult,
+    pub selective_depth: u8,
 }
 
 pub struct Searcher<'a> {
@@ -238,6 +240,7 @@ impl<'a> Searcher<'a> {
                         &pv.pv,
                         self.starting_fullmove,
                         i as u8 + 1,
+                        pv.selective_depth,
                     );
                 }
 
@@ -402,6 +405,8 @@ impl<'a> Searcher<'a> {
             parent_pv.clear();
             return Ok(self.eval_draw());
         }
+
+        self.stats.selective_depth = self.stats.selective_depth.max(ply);
 
         if in_check {
             draft += 1;
@@ -705,6 +710,9 @@ impl<'a> Searcher<'a> {
             }
 
             let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+            if ply == 0 {
+                self.stats.selective_depth = 0;
+            }
 
             let mut score;
             if searched_moves == 0 || ply == 0 {
@@ -796,6 +804,7 @@ impl<'a> Searcher<'a> {
                             best_move: r#move.m,
                             score,
                         },
+                        selective_depth: self.stats.selective_depth,
                     };
 
                     if self.root_pvs.len() == self.multi_pv as usize {
@@ -832,6 +841,7 @@ impl<'a> Searcher<'a> {
                             best_move: r#move.m,
                             score,
                         },
+                        selective_depth: self.stats.selective_depth,
                     };
 
                     if self.root_pvs.len() == self.multi_pv as usize {

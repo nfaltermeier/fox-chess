@@ -282,6 +282,7 @@ impl UciInterface {
         pv: &TinyVec<[Move; 32]>,
         search_starting_fullmove: u8,
         multi_pv: u8,
+        selective_depth: u8,
     ) {
         let abs_cp = eval.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
@@ -295,7 +296,7 @@ impl UciInterface {
         let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
         let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} hashfull {} pv {} string aspiration_researches {}",
+            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {}",
             stats.depth,
             elapsed.as_millis(),
             transposition_table.hashfull(search_starting_fullmove),
