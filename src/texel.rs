@@ -797,7 +797,7 @@ pub fn change_param_at_index(i: usize) -> bool {
         // King centipawn value endgame
         || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2 + 1
         // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
-        || value_is_between(i, FeatureIndex::ConnectedPawns, FeatureIndex::PawnsThreatenPieces)
+        || value_is_between(i, FeatureIndex::PawnsThreatenPieces, FeatureIndex::IsolatedPawns)
         // PawnShield uses its own tapering so it does not have an endgame value.
         // There is an extra value included in the params list so that the position of midgame and endgame values stays consistent. Skip that value.
         || i == FeatureIndex::PawnShield as usize + 1
