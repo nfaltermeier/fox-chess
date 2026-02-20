@@ -544,7 +544,7 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
                             {
                                 let mut any_can_change = false;
                                 for i in feature_set_range.clone() {
-                                    if change_param_at_index(i) {
+                                    if change_param_at_index(i, is_quiet_positions) {
                                         any_can_change = true;
                                         break;
                                     }
@@ -593,7 +593,7 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
                                     starting_error_this_feature_set_loop = Some(base_error);
                                 }
 
-                                let gradient = eval_gradient(features, &mut params, scaling_constant, feature_set_range.clone(), quiet_logging);
+                                let gradient = eval_gradient(features, &mut params, scaling_constant, feature_set_range.clone(), quiet_logging, is_quiet_positions);
                                 let biggest_gradient_value = gradient.iter().map(|v| v.abs()).reduce(f64::max).unwrap();
                                 let avg_gradient_value = sum_orlp(&*gradient) / gradient.len() as f64;
                                 let mut sorted = gradient.clone();
@@ -780,7 +780,7 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
     pretty_print_save_params(&params);
 }
 
-pub fn change_param_at_index(i: usize) -> bool {
+pub fn change_param_at_index(i: usize, quiet_positions: bool) -> bool {
     if i < 8
         // midgame pawns on last row
         || (i >= 56 && i < 64)
@@ -796,14 +796,18 @@ pub fn change_param_at_index(i: usize) -> bool {
         || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2
         // King centipawn value endgame
         || i == FeatureIndex::PieceValues as usize + PIECE_KING as usize * 2 + 1
-        // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
-        || value_is_between(i, FeatureIndex::PawnsThreatenPieces, FeatureIndex::IsolatedPawns)
         // PawnShield uses its own tapering so it does not have an endgame value.
         // There is an extra value included in the params list so that the position of midgame and endgame values stays consistent. Skip that value.
         || i == FeatureIndex::PawnShield as usize + 1
     {
         return false;
     }
+
+    // Not included in tuning because I think this is more of a search issue. Quiet positions will usually not have pawns threaten pieces.
+    if !quiet_positions && value_is_between(i, FeatureIndex::PawnsThreatenPieces, FeatureIndex::IsolatedPawns) {
+        return false;   
+    }
+        
 
     return true;
 }
@@ -894,12 +898,12 @@ fn find_error_for_features(
 }
 
 /// params should be unchanged when this method returns
-fn eval_gradient(features: &[PositionFeatures], params: &mut EvalParams, scaling_constant: f64, feature_set_range: Range<usize>, quiet: bool) -> Box<EvalGradient> {
+fn eval_gradient(features: &[PositionFeatures], params: &mut EvalParams, scaling_constant: f64, feature_set_range: Range<usize>, quiet: bool, is_quiet_positions: bool) -> Box<EvalGradient> {
     let mut result = Box::new([0f64; EVAL_PARAM_COUNT]);
 
     for i in feature_set_range {
         // midgame pawns on first row
-        if !change_param_at_index(i) {
+        if !change_param_at_index(i, is_quiet_positions) {
             continue;
         }
 
@@ -1069,10 +1073,10 @@ impl FeatureData {
     }
 }
 
-fn perturb(params: &mut EvalParams) {
+fn perturb(params: &mut EvalParams, is_quiet_positions: bool) {
     let mut rand = StdRng::from_entropy();
     for i in 0..params.len() {
-        if change_param_at_index(i) {
+        if change_param_at_index(i, is_quiet_positions) {
             params[i] += rand.gen_range(-50..=50);
         }
     }
