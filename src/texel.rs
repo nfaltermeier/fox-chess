@@ -461,6 +461,7 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
     let max_change_sets_per_minibatch = 3;
     // Only minibatches will be used until this many loops of minibatches have been run
     let max_minibatched_loops = 3;
+    let mut error_reduction_after_minibatched_loop = Vec::new();
     let is_quiet_positions = nonquiet_positions.is_none();
     let mut positions = nonquiet_positions.unwrap_or_else(|| quiet_positions.unwrap());
     let positions_per_minibatch = positions.len() / minibatches.max(1);
@@ -579,10 +580,14 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
                                     // First establish all of the base error values
                                     break 'outer;
                                 } else if minibatches > 0 && is_fullbatch && minibatched_loops_run < max_minibatched_loops {
-                                    let msg = format!("[{}] ###### Fullbatch total error progress: {:.8} ######", humantime::format_rfc3339(SystemTime::now()), fullbatch_base_error.unwrap() - base_error);
-                                    
-                                    for _ in 0..3 {
-                                        println!("{msg}");
+                                    error_reduction_after_minibatched_loop.push(fullbatch_base_error.unwrap() - base_error);
+
+                                    for (i, v) in error_reduction_after_minibatched_loop.iter().enumerate() {
+                                        let msg = format!("[{}] ###### Fullbatch total error progress after {} minibatch loops: {:.8} ######", humantime::format_rfc3339(SystemTime::now()), i + 1, *v);
+                                        
+                                        for _ in 0..3 {
+                                            println!("{msg}");
+                                        }
                                     }
 
                                     break 'outer;
