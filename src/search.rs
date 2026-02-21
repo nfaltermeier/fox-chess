@@ -588,6 +588,7 @@ impl<'a> Searcher<'a> {
         let mut searched_moves = 0;
         let mut has_legal_move = false;
         let mut improved_alpha = false;
+        let see_margin = (draft as i16).pow(2) * -16;
         loop {
             let r#move = match move_gen.get_next_move() {
                 GetMoveResult::Move(scored_move) => scored_move,
@@ -609,7 +610,6 @@ impl<'a> Searcher<'a> {
             }
 
             if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
-                let see_margin = draft as i16 * -50;
                 if !self.board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
                     continue;
                 }
