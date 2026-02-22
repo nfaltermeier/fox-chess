@@ -24,6 +24,9 @@ fox-chess-proc = { path = "fox-chess-proc" }
 
 [build-dependencies]
 build-info-build = "0.0.39"
+prettyplease = "0.2.37"
+quote = "1.0.42"
+syn = "2.0.111"
 
 [features]
 default = ["use_pext"]

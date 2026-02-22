@@ -61,6 +61,7 @@ pub struct FeatureData {
     pub game_stage: i16,
     pub misc_features: [(i8, u16); MAX_MISC_FEATURES],
     pub pawn_shield: TaperedFeature,
+    pub attack_unit_piece_counts: [[u8; 4]; 2],
     pub endgame_bonus: i16,
 }
 
@@ -74,7 +75,7 @@ enum PositionsType<'a> {
     Nonquiet(&'a mut [TexelPosition]),
 }
 
-pub const EVAL_PARAM_COUNT: usize = 904;
+pub const EVAL_PARAM_COUNT: usize = 910;
 pub type EvalParams = [i16; EVAL_PARAM_COUNT];
 pub type EvalGradient = [f64; EVAL_PARAM_COUNT];
 
@@ -109,9 +110,12 @@ pub enum FeatureIndex {
     BishopMobility = 830,
     KnightMobility = 858,
     QueenMobility = 876,
+    AttackUnitsCentiMultiplier = 904,
+    AttackUnitsXOffset = 905,
+    AttackUnitsPieceValues = 906,
 }
 
-static FEATURE_SETS: [FeatureSet; 29] = [
+static FEATURE_SETS: [FeatureSet; 32] = [
     FeatureSet::new_usize("MidgamePawnClose", 24, FeatureIndex::MidgameKnight as usize),
     FeatureSet::new_mixed("MidgamePawnFar", FeatureIndex::MidgamePawn, 24),
     FeatureSet::new_usize("MidgameKnightClose", FeatureIndex::MidgameKnight as usize + 16, FeatureIndex::MidgameBishop as usize),
@@ -140,124 +144,128 @@ static FEATURE_SETS: [FeatureSet; 29] = [
     FeatureSet::new("RookMobility", FeatureIndex::RookMobility, FeatureIndex::BishopMobility),
     FeatureSet::new("BishopMobility", FeatureIndex::BishopMobility, FeatureIndex::KnightMobility),
     FeatureSet::new("KnightMobility", FeatureIndex::KnightMobility, FeatureIndex::QueenMobility),
-    FeatureSet::new_mixed("QueenMobility", FeatureIndex::QueenMobility, EVAL_PARAM_COUNT),
+    FeatureSet::new("QueenMobility", FeatureIndex::QueenMobility, FeatureIndex::AttackUnitsCentiMultiplier),
+    FeatureSet::new_single("AttackUnitsCentiMultiplier", FeatureIndex::AttackUnitsCentiMultiplier),
+    FeatureSet::new_single("AttackUnitsXOffset", FeatureIndex::AttackUnitsXOffset),
+    FeatureSet::new_mixed("AttackUnitsPieceValues", FeatureIndex::AttackUnitsPieceValues, EVAL_PARAM_COUNT),
 ];
 
 #[rustfmt::skip]
 pub static DEFAULT_PARAMS: EvalParams = [
         0,0,0,0,0,0,0,0,
-        187,162,145,137,92,46,-25,35,
-        48,49,53,47,55,71,59,34,
-        8,4,3,8,23,22,9,4,
-        -3,-9,-1,4,4,13,1,-11,
-        -13,-15,-16,-15,-9,-5,6,-10,
-        -5,-8,-14,-17,-13,15,26,-13,
+        188,160,145,137,88,41,-28,31,
+        46,49,51,47,54,68,60,32,
+        7,4,2,7,23,22,8,3,
+        -4,-8,-2,5,4,14,1,-12,
+        -12,-14,-16,-14,-7,-2,7,-9,
+        -7,-10,-17,-18,-13,15,25,-14,
         0,0,0,0,0,0,0,0,
-        -114,-16,-24,-12,17,-18,-22,-153,
-        -12,-1,23,38,27,36,-15,12,
-        -5,13,32,52,77,76,42,12,
-        1,7,29,50,29,49,27,37,
-        -7,3,22,15,28,24,37,8,
-        -30,-13,-4,10,21,6,8,-13,
-        -40,-22,-14,3,5,-2,-9,-4,
-        -81,-26,-34,-14,-11,-10,-15,-66,
-        -18,-25,-18,-21,-5,-52,24,7,
-        -20,-6,-5,-1,9,-1,-25,-21,
-        -8,11,21,26,34,65,40,31,
-        -10,-3,16,43,24,29,0,-1,
-        -2,0,6,30,21,-3,0,9,
-        -16,8,7,7,8,6,6,2,
-        -8,-6,9,-8,1,5,13,-5,
-        -36,-8,-16,-20,-12,-18,-23,-26,
-        40,42,38,37,35,39,47,40,
-        22,21,37,43,46,66,53,53,
-        8,20,25,32,48,66,53,30,
-        -7,-3,13,18,20,26,23,6,
-        -20,-19,-12,-4,-3,-3,7,-19,
-        -29,-21,-24,-19,-14,-11,5,-24,
-        -37,-31,-18,-15,-15,-3,-13,-50,
-        -16,-14,-9,-6,-2,0,-20,-24,
-        5,26,27,39,55,79,76,67,
-        -9,-10,21,30,45,68,52,67,
-        0,6,20,29,61,100,92,67,
-        0,4,15,25,41,38,48,37,
-        -4,2,15,20,21,23,32,21,
-        -5,3,5,10,12,19,25,13,
-        -8,3,10,16,17,7,-5,-16,
-        -4,-3,1,11,2,-31,-51,-27,
+        -114,-24,-24,-10,19,-20,-23,-146,
+        -11,-1,24,36,28,35,-16,9,
+        -6,12,32,53,77,76,42,12,
+        1,6,31,48,26,47,25,36,
+        -5,3,21,14,27,24,37,6,
+        -29,-10,-4,10,23,6,7,-12,
+        -40,-22,-13,4,7,-1,-9,-4,
+        -81,-23,-32,-14,-12,-10,-12,-66,
+        -11,-25,-15,-15,-3,-51,21,8,
+        -19,-5,-2,-2,8,-2,-27,-25,
+        -7,11,21,25,33,64,40,27,
+        -10,-1,16,42,23,26,-4,-4,
+        -1,-1,6,28,20,-6,-1,4,
+        -14,8,8,6,7,6,7,0,
+        -7,-6,8,-8,1,6,14,-5,
+        -36,-7,-17,-20,-11,-18,-23,-26,
+        39,42,38,37,35,39,47,40,
+        21,21,37,42,46,66,53,53,
+        7,21,24,31,48,66,53,30,
+        -7,-3,12,17,19,25,24,6,
+        -20,-20,-11,-1,-2,-4,7,-19,
+        -30,-20,-24,-19,-11,-12,3,-24,
+        -38,-30,-15,-12,-13,-3,-13,-50,
+        -15,-14,-7,-5,-1,1,-21,-23,
+        5,27,27,39,56,79,77,67,
+        -7,-8,21,29,46,67,52,67,
+        1,8,20,30,62,98,92,67,
+        2,6,15,24,39,38,47,34,
+        -1,4,13,18,19,21,29,20,
+        -2,5,8,11,12,19,23,13,
+        -7,2,10,17,18,12,-5,-14,
+        -2,-3,2,12,5,-29,-51,-27,
         -28,52,32,-40,65,-14,51,-46,
         13,-2,54,-15,-38,37,-7,17,
-        -28,8,0,-4,-27,-29,-36,-40,
-        27,44,13,10,18,27,42,27,
-        16,39,36,33,29,26,11,-10,
-        3,19,16,15,9,7,2,-14,
-        -3,-8,12,-7,-6,-3,24,22,
-        -46,11,8,-40,12,-28,29,16,
+        -28,8,0,-4,-27,-28,-36,-40,
+        27,43,13,10,17,27,42,27,
+        16,39,36,34,29,24,11,-11,
+        3,17,16,16,12,10,2,-15,
+        -2,-8,11,-6,-6,-1,24,18,
+        -46,10,6,-40,9,-29,26,12,
         0,0,0,0,0,0,0,0,
-        78,96,94,43,76,118,176,128,
-        84,80,46,23,9,15,41,42,
-        45,36,19,-7,-9,-5,14,6,
-        25,23,1,-17,-12,-1,7,-5,
-        18,10,5,-2,-2,2,-7,-5,
-        32,20,16,0,16,5,-3,6,
+        76,93,92,42,73,118,173,127,
+        85,80,49,22,7,18,40,42,
+        48,38,22,-4,-7,-2,14,8,
+        27,26,3,-15,-11,0,9,-1,
+        21,14,10,-1,1,5,-3,-2,
+        34,22,18,-1,16,7,-2,8,
         0,0,0,0,0,0,0,0,
-        56,44,41,43,20,35,31,24,
-        13,41,26,38,26,12,42,-14,
-        28,30,57,43,17,21,21,9,
-        24,33,57,42,58,33,30,-2,
-        24,32,60,63,48,46,9,15,
-        -2,31,49,49,34,23,1,5,
-        -2,19,14,18,12,-2,12,-40,
-        -10,-12,14,13,-3,-24,-21,-11,
-        51,66,51,51,29,47,23,15,
-        49,44,48,36,34,37,45,20,
-        35,39,28,18,21,16,23,4,
-        32,45,31,33,40,20,47,26,
-        26,42,47,32,31,43,33,11,
-        14,29,43,37,48,25,10,0,
-        10,9,12,35,14,13,-3,-24,
-        27,17,8,19,12,6,9,17,
-        79,91,98,95,102,94,88,90,
-        107,109,105,99,94,78,85,81,
-        110,104,102,97,85,76,81,88,
-        109,109,101,96,90,86,86,92,
-        103,108,107,97,92,92,80,90,
-        82,82,89,76,70,63,55,74,
-        71,74,71,61,55,40,56,69,
-        66,60,72,65,45,45,66,67,
-        150,148,169,173,172,125,113,117,
-        149,194,205,196,188,163,155,101,
-        125,174,191,205,173,117,105,107,
-        127,158,179,188,173,191,169,145,
-        127,155,154,168,159,163,133,158,
-        97,128,153,121,136,132,118,94,
-        87,86,100,71,71,59,59,71,
-        74,46,62,29,66,16,66,24,
-        -76,-32,1,30,-6,39,12,-112,
-        -19,36,14,43,52,39,61,-1,
-        21,47,50,56,62,78,82,51,
-        -7,21,40,40,40,41,32,8,
-        -33,-4,12,19,22,18,8,-10,
-        -48,-18,-3,9,11,6,-6,-20,
-        -39,-12,-15,-7,-7,-8,-27,-57,
-        -19,-49,-37,-21,-52,-25,-73,-93,
-        0,0,84,110,331,295,350,322,
-        503,535,1030,997,20000,20000,-13,-20,
-        7,18,29,-4,16,24,32,88,
-        -9,-8,8,4,55,34,-10,-9,
-        -18,0,-13,0,-9,-1,-5,-1,
-        -4,4,2,5,5,12,8,7,
-        11,13,14,14,18,17,19,17,
-        24,14,20,14,26,-3,-29,0,
-        -20,-9,-12,-15,-6,-6,0,1,
-        7,8,10,13,12,19,17,12,
-        19,15,17,10,15,10,12,12,
-        13,12,-41,0,-18,1,-6,2,
-        -1,5,6,11,11,17,16,13,
-        21,1,12,-16,2,1,-1,2,
-        0,3,3,4,8,5,13,6,
-        18,9,24,14,31,11,37,10,
-        38,10,26,12,13,13,14,14,
+        54,41,38,42,17,36,28,31,
+        14,40,22,40,21,12,43,-16,
+        29,30,57,40,17,18,14,5,
+        21,30,55,42,58,33,28,4,
+        24,31,59,63,46,44,10,13,
+        -2,28,47,47,29,21,1,1,
+        -4,19,12,16,9,-6,10,-38,
+        -7,-15,14,15,-3,-22,-28,-8,
+        44,65,49,45,28,45,22,16,
+        48,43,43,37,33,36,44,20,
+        33,38,27,19,19,15,24,9,
+        30,42,30,32,39,22,51,27,
+        28,42,47,32,31,44,34,17,
+        12,28,40,37,48,24,8,3,
+        10,13,11,34,13,10,-6,-21,
+        23,14,9,21,10,5,10,16,
+        79,89,97,94,101,92,86,88,
+        107,108,104,99,93,77,84,79,
+        109,102,102,97,83,73,79,87,
+        106,107,102,97,90,85,85,91,
+        101,107,105,93,88,90,79,88,
+        81,79,86,75,67,63,53,70,
+        70,71,68,56,52,42,55,69,
+        64,58,69,63,42,42,64,66,
+        145,141,167,171,166,112,112,116,
+        142,186,202,193,183,161,149,103,
+        113,168,183,201,168,115,102,99,
+        125,150,176,188,170,185,165,147,
+        112,150,150,164,156,163,136,153,
+        86,116,139,113,132,123,113,85,
+        88,86,92,66,64,33,61,61,
+        62,40,61,21,53,9,65,20,
+        -78,-31,1,30,-6,39,14,-114,
+        -17,34,16,45,52,38,60,-1,
+        20,49,50,55,64,79,82,50,
+        -8,20,41,41,40,42,31,6,
+        -33,-6,10,18,22,19,8,-11,
+        -47,-18,-2,8,10,5,-7,-19,
+        -38,-10,-14,-8,-7,-9,-28,-54,
+        -21,-50,-39,-20,-51,-25,-71,-89,
+        0,0,86,110,334,295,353,322,
+        508,535,1042,997,20000,20000,-14,-23,
+        7,19,30,-6,15,24,32,88,
+        -9,-8,6,-2,55,34,-11,-14,
+        -17,0,-12,-1,-7,-1,-4,-2,
+        -3,4,3,5,5,12,8,7,
+        11,13,14,15,17,17,18,19,
+        24,14,20,14,27,-3,-28,0,
+        -19,-12,-11,-17,-6,-6,-1,2,
+        5,8,9,14,11,19,16,13,
+        18,15,18,10,16,10,12,12,
+        13,12,-41,0,-19,1,-7,2,
+        -1,5,6,11,12,17,17,13,
+        21,1,12,-16,7,1,2,2,
+        2,3,4,4,8,5,13,6,
+        17,9,22,14,30,11,37,10,
+        39,10,26,12,13,13,14,14,
+        142,35,6,36,49,57,
     ];
 
 pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
@@ -570,7 +578,10 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
                                     },
                                 };
 
-                                let base_error = find_error_for_features(features, &params, scaling_constant);
+                                let base_error =  {
+                                    let king_attack_unit_values = generate_king_attack_unit_values(&params);
+                                    find_error_for_features(features, &params, scaling_constant, &king_attack_unit_values)
+                                };
 
                                 if is_initializing_starting_errors {
                                     starting_errors.push(base_error);
@@ -653,8 +664,8 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
 
                                     updated_params.par_iter_mut().zip(&changes).for_each(|(param, change)| *param += change);
 
-                                    // I think searching for error should be more accurate to the true error than reusing the found quiet position features but it is insanely slow, maybe because of cache stuff?
-                                    new_error = find_error_for_features(&features, &updated_params, scaling_constant);
+                                    let king_attack_unit_values = generate_king_attack_unit_values(&updated_params);
+                                    new_error = find_error_for_features(&features, &updated_params, scaling_constant, &king_attack_unit_values);
 
                                     if base_error - new_error >= step_size * t {
                                         succeeded_param_changes += 1;
@@ -819,12 +830,14 @@ pub fn change_param_at_index(i: usize, quiet_positions: bool) -> bool {
 
 fn search_error_for_params(positions: &mut [TexelPosition], params: &EvalParams, scaling_constant: f64) -> f64 {
     let mut errors = Vec::with_capacity(positions.len());
+    let king_attack_unit_values = generate_king_attack_unit_values(&params);
+
     positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
             let result = p
                 .board
-                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r).0;
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r, &king_attack_unit_values).0;
 
             if result == -i16::MAX {
                 0.0
@@ -841,12 +854,14 @@ fn search_error_for_params(positions: &mut [TexelPosition], params: &EvalParams,
 
 fn qsearch_for_features(positions: &mut [TexelPosition], params: &EvalParams) -> Vec<PositionFeatures> {
     let mut result = Vec::with_capacity(positions.len());
+    let king_attack_unit_values = generate_king_attack_unit_values(&params);
+
     positions
         .par_iter_mut()
         .map_with(MoveRollback::default(), |r, p| {
             let result = p
                 .board
-                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r);
+                .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r, &king_attack_unit_values);
 
             // if all positions were in check for stm
             if result.0 == -i16::MAX {
@@ -888,12 +903,13 @@ fn find_error_for_features(
     features: &[PositionFeatures],
     params: &EvalParams,
     scaling_constant: f64,
+    king_attack_unit_values: &Box<[i16; 100]>,
 ) -> f64 {
     let mut errors = Vec::with_capacity(features.len());
     features
         .par_iter()
         .map(|p| {
-            let val_sqrt = p.result - sigmoid(p.features.evaluate(params) as f64, scaling_constant);
+            let val_sqrt = p.result - sigmoid(p.features.evaluate(params, king_attack_unit_values) as f64, scaling_constant);
             val_sqrt * val_sqrt
         })
         .collect_into_vec(&mut errors);
@@ -914,11 +930,13 @@ fn eval_gradient(features: &[PositionFeatures], params: &mut EvalParams, scaling
 
         params[i] += 1;
 
-        let positive_error = find_error_for_features(features, params, scaling_constant);
+        let king_attack_unit_values = generate_king_attack_unit_values(params);
+        let positive_error = find_error_for_features(features, params, scaling_constant, &king_attack_unit_values);
 
         params[i] -= 2;
 
-        let negative_error = find_error_for_features(features, params, scaling_constant);
+        let king_attack_unit_values = generate_king_attack_unit_values(params);
+        let negative_error = find_error_for_features(features, params, scaling_constant, &king_attack_unit_values);
 
         params[i] += 1;
 
@@ -957,7 +975,7 @@ fn save_params(params: &EvalParams) {
     }
 }
 
-fn pretty_print_save_params(params: &EvalParams) {
+pub fn pretty_print_save_params(params: &EvalParams) {
     let mut f = File::create(format!(
         "params/{}-pretty-print.txt",
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
@@ -1021,7 +1039,19 @@ fn pretty_print_save_params(params: &EvalParams) {
     write_deinterleaved(&mut f, &params[FeatureIndex::RookMobility as usize..FeatureIndex::BishopMobility as usize]);
     write_deinterleaved(&mut f, &params[FeatureIndex::BishopMobility as usize..FeatureIndex::KnightMobility as usize]);
     write_deinterleaved(&mut f, &params[FeatureIndex::KnightMobility as usize..FeatureIndex::QueenMobility as usize]);
-    write_deinterleaved(&mut f, &params[FeatureIndex::QueenMobility as usize..EVAL_PARAM_COUNT]);
+    write_deinterleaved(&mut f, &params[FeatureIndex::QueenMobility as usize..FeatureIndex::AttackUnitsCentiMultiplier as usize]);
+
+    writeln!(f, "{},\n", params[FeatureIndex::AttackUnitsCentiMultiplier as usize],).unwrap();
+    writeln!(f, "{},\n", params[FeatureIndex::AttackUnitsXOffset as usize],).unwrap();
+
+    // Print any extra values too
+    for (i, v) in params[FeatureIndex::AttackUnitsXOffset as usize + 1..EVAL_PARAM_COUNT].iter().enumerate() {
+        if i % 8 == 7 {
+            writeln!(f, "{v:4},").unwrap();
+        } else {
+            write!(f, "{v:4},").unwrap();
+        }
+    }
 }
 
 fn save_gradient(gradient: &Box<EvalGradient>) {
@@ -1041,7 +1071,7 @@ fn save_gradient(gradient: &Box<EvalGradient>) {
 }
 
 impl FeatureData {
-    pub fn evaluate(&self, params: &EvalParams) -> i16 {
+    pub fn evaluate(&self, params: &EvalParams, king_attack_unit_values: &Box<[i16; 100]>) -> i16 {
         let position_score_midgame = FeatureData::sum_psqt_for_a_phase(&self.midgame_psqt_white, &self.midgame_psqt_black, &self.misc_features, params, false);
 
         let position_score_endgame = FeatureData::sum_psqt_for_a_phase(&self.endgame_psqt_white, &self.endgame_psqt_black, &self.misc_features, params, true);
@@ -1050,9 +1080,12 @@ impl FeatureData {
             + (position_score_endgame as i32 * (MIN_GAME_STAGE_FULLY_MIDGAME as i32 - self.game_stage as i32)))
             / MIN_GAME_STAGE_FULLY_MIDGAME as i32) as i16;
 
-        let pawn_shield = (self.pawn_shield.taper_amount * self.pawn_shield.weight * params[self.pawn_shield.idx as usize]) / self.pawn_shield.max_amount;
+        let untapered_pawn_shield = self.pawn_shield.weight * params[self.pawn_shield.idx as usize];
+        let untapered_king_attack_unit = king_attack_unit_values[(Self::sum_attack_units(&self.attack_unit_piece_counts[0], params) / 10).clamp(0, 99) as usize]
+            - king_attack_unit_values[(Self::sum_attack_units(&self.attack_unit_piece_counts[1], params) / 10).clamp(0, 99) as usize];
+        let king_safety = (self.pawn_shield.taper_amount * (untapered_pawn_shield + untapered_king_attack_unit)) / self.pawn_shield.max_amount;
 
-        position_score_final + pawn_shield + self.endgame_bonus
+        position_score_final + king_safety + self.endgame_bonus
     }
     
     pub fn sum_psqt_for_a_phase(white: &[u16; 16], black: &[u16; 16], misc_features: &[(i8, u16); MAX_MISC_FEATURES], params: &EvalParams, endgame: bool) -> i16 {
@@ -1076,6 +1109,24 @@ impl FeatureData {
 
         sum.reduce_sum()
     }
+
+    fn sum_attack_units(piece_counts: &[u8; 4], params: &EvalParams) -> i16 {
+        piece_counts[0] as i16 * params[FeatureIndex::AttackUnitsPieceValues as usize]
+            + piece_counts[1] as i16 * params[FeatureIndex::AttackUnitsPieceValues as usize + 1]
+            + piece_counts[2] as i16 * params[FeatureIndex::AttackUnitsPieceValues as usize + 2]
+            + piece_counts[3] as i16 * params[FeatureIndex::AttackUnitsPieceValues as usize + 3]
+    }
+}
+
+fn generate_king_attack_unit_values(params: &EvalParams) -> Box<[i16; 100]> {
+    let mut result = Box::new([0; 100]);
+    
+    for (i, v) in result.iter_mut().enumerate() {
+        let power = (params[FeatureIndex::AttackUnitsXOffset as usize] as f32 - i as f32) / 10.0;
+        *v = ((500.0 * params[FeatureIndex::AttackUnitsCentiMultiplier as usize] as f32 / 100.0) / (1.0 + 4.0_f32.powf(power))).round() as i16
+    }
+
+    result
 }
 
 fn perturb(params: &mut EvalParams, is_quiet_positions: bool) {

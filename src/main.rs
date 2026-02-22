@@ -66,6 +66,9 @@ enum Commands {
 }
 
 fn main() {
+    // pretty_print_save_params(&DEFAULT_PARAMS);
+    // return;
+
     let args = CliArgs::parse();
 
     let setup_logger_result = setup_logger(&args);

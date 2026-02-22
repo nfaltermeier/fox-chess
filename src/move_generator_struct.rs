@@ -32,7 +32,7 @@ pub struct MoveGenerator {
     tt_move_used: bool,
 }
 
-struct PendingMoves {
+pub struct PendingMoves {
     pub targets: u64,
     pub from: u8,
 }

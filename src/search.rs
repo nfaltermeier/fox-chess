@@ -412,6 +412,8 @@ impl<'a> Searcher<'a> {
             draft += 1;
         }
 
+        let dummy_king_attack_unit_values = Box::new([0; 100]);
+
         if draft == 0 {
             self.stats.total_search_leaves += 1;
 
@@ -432,7 +434,7 @@ impl<'a> Searcher<'a> {
             parent_pv.clear();
             return Ok(self
                 .board
-                .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback)
+                .quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback, &dummy_king_attack_unit_values)
                 .0);
         }
 
@@ -495,7 +497,7 @@ impl<'a> Searcher<'a> {
 
         let mut futility_prune = false;
         if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
-            let eval = self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS);
+            let eval = self.board.evaluate_side_to_move_relative(&DEFAULT_PARAMS, &dummy_king_attack_unit_values);
 
             // Reverse futility pruning
             if eval - 120 - 128 * (draft - 1) as i16 >= beta {
@@ -506,7 +508,7 @@ impl<'a> Searcher<'a> {
 
             // Razoring
             if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
-                let score = self.board.quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback).0;
+                let score = self.board.quiescense_side_to_move_relative(alpha, beta, 255, &DEFAULT_PARAMS, &mut self.rollback, &dummy_king_attack_unit_values).0;
                 if score < alpha {
                     return Ok(score);
                 }
@@ -966,6 +968,7 @@ impl Board {
         draft: u8,
         params: &EvalParams,
         rollback: &mut MoveRollback,
+        king_attack_unit_values: &Box<[i16; 100]>,
     ) -> (i16, Board) {
         if self.is_insufficient_material() {
             return (0, self.clone());
@@ -974,7 +977,7 @@ impl Board {
         let mut best_score;
         let in_check = self.is_in_check(false);
         if !in_check {
-            let stand_pat = self.evaluate_side_to_move_relative(params);
+            let stand_pat = self.evaluate_side_to_move_relative(params, king_attack_unit_values);
 
             if stand_pat >= beta {
                 return (stand_pat, self.clone());
@@ -1027,7 +1030,7 @@ impl Board {
             }
 
             // Only doing captures right now so not checking halfmove or threefold repetition here
-            let (result, pos) = self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1, params, rollback);
+            let (result, pos) = self.quiescense_side_to_move_relative(-beta, -alpha, draft - 1, params, rollback, king_attack_unit_values);
             let result = -result;
 
             self.unmake_move(&r#move.m, rollback);

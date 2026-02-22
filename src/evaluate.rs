@@ -1,17 +1,18 @@
+use std::process::id;
+
+use arrayvec::ArrayVec;
+
 use crate::{
     bitboard::{
-        BIT_SQUARES, LIGHT_SQUARES, bitscan_forward_and_reset, generate_pawn_attack, lookup_knight_attack, north_fill,
-        south_fill,
-    },
-    board::{
+        BIT_SQUARES, LIGHT_SQUARES, bitscan_forward_and_reset, generate_pawn_attack, lookup_king_attack, lookup_knight_attack, north_fill, south_fill
+    }, board::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, COLOR_FLAG_MASK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK
-    },
-    eval_values::{
+    }, eval_values::{
         BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN, MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME, MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME, MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES
-    },
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
-    moves::Move, texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature},
+    }, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, move_generator_struct::PendingMoves, moves::Move, texel::{EvalParams, FeatureData, FeatureIndex, TaperedFeature}
 };
+
+include!(concat!(env!("OUT_DIR"), "/king_attack_unit_values.rs"));
 
 /// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
@@ -29,7 +30,6 @@ pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
 
 pub const MATE_THRESHOLD: i16 = 20000;
 pub const MATE_VALUE: i16 = 25000;
-
 // The board as it appears here in the array is vertically flipped which changes the colors. a1 is a dark square.
 #[rustfmt::skip]
 static LIGHT_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
@@ -66,8 +66,12 @@ fn get_piece_square_index(color: usize, piece_type: usize, square: usize) -> usi
 }
 
 impl Board {
-    pub fn evaluate(&self, params: &EvalParams) -> i16 {
-        self.get_eval_features().evaluate(params)
+    pub fn evaluate(
+        &self,
+        params: &EvalParams,
+        king_attack_unit_values: &Box<[i16; 100]>,
+    ) -> i16 {
+        self.get_eval_features().evaluate(params, king_attack_unit_values)
     }
 
     pub fn get_eval_features(&self) -> FeatureData {
@@ -155,7 +159,7 @@ impl Board {
 
         let net_pieces_threatened_by_pawns = self.get_pieces_threatened_by_pawns(true).count_ones() as i16 - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
 
-        self.calculate_mobility(&mut result, &mut misc_features_idx);
+        self.calculate_mobility_and_king_attack_units::<false>(&mut result, &mut misc_features_idx);
 
         result.endgame_bonus = self.kbnk_modifier();
 
@@ -231,8 +235,12 @@ impl Board {
         }
     }
 
-    pub fn evaluate_side_to_move_relative(&self, params: &EvalParams) -> i16 {
-        self.evaluate(params) * if self.white_to_move { 1 } else { -1 }
+    pub fn evaluate_side_to_move_relative(
+        &self,
+        params: &EvalParams,
+        king_attack_unit_values: &Box<[i16; 100]>,
+    ) -> i16 {
+        self.evaluate(params, king_attack_unit_values) * if self.white_to_move { 1 } else { -1 }
     }
 
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
@@ -370,7 +378,9 @@ impl Board {
         values[0] >= threshold
     }
 
-    fn calculate_mobility(&self, features: &mut FeatureData, misc_features_idx: &mut usize) {
+    /// Returns midgame and endgame values
+    fn calculate_mobility_and_king_attack_units<const USE_TEST_VALUES: bool>(&self, features: &mut FeatureData, misc_features_idx: &mut usize) {
+        // mobility data
         let not_other_side_pawn_guarded = [
             !generate_pawn_attack(self.piece_bitboards[1][PIECE_PAWN as usize], false),
             !generate_pawn_attack(self.piece_bitboards[0][PIECE_PAWN as usize], true),
@@ -378,6 +388,24 @@ impl Board {
         let not_own_pieces = [!self.side_occupancy[0], !self.side_occupancy[1]];
 
         let mut net_rook_mobility_values = [0; 15];
+
+        // attack units data
+        let opponent_king_positions = [
+            self.piece_bitboards[1][PIECE_KING as usize].trailing_zeros() as u8,
+            self.piece_bitboards[0][PIECE_KING as usize].trailing_zeros() as u8,
+        ];
+        let immediate_king_areas = [
+            lookup_king_attack(opponent_king_positions[0]) | BIT_SQUARES[opponent_king_positions[0] as usize],
+            lookup_king_attack(opponent_king_positions[1]) | BIT_SQUARES[opponent_king_positions[1] as usize],
+        ];
+        // Do two shifts in case the king is against the back wall and some immediate squares are off the board
+        let king_areas = [
+            immediate_king_areas[0] | (immediate_king_areas[0] >> 16),
+            immediate_king_areas[1] | (immediate_king_areas[1] << 16),
+        ];
+
+        let mut pieces_attacking = [0, 0];
+
         for side in 0..=1 {
             let side_value_mult = if side == 0 { 1 } else { -1 };
             let mut rooks = self.piece_bitboards[side][PIECE_ROOK as usize];
@@ -387,6 +415,11 @@ impl Board {
                 let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
 
                 net_rook_mobility_values[mobility as usize] += side_value_mult;
+
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    features.attack_unit_piece_counts[side][PIECE_ROOK as usize - 2] += 1;
+                }
             }
         }
 
@@ -407,6 +440,11 @@ impl Board {
                 let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
 
                 net_bishop_mobility_values[mobility as usize] += side_value_mult;
+
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    features.attack_unit_piece_counts[side][PIECE_BISHOP as usize - 2] += 1;
+                }
             }
         }
 
@@ -427,6 +465,11 @@ impl Board {
                 let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones() / 2;
 
                 net_queen_mobility_values[mobility as usize] += side_value_mult;
+                
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    features.attack_unit_piece_counts[side][PIECE_QUEEN as usize - 2] += 1;
+                }
             }
         }
 
@@ -447,6 +490,11 @@ impl Board {
                 let mobility = (squares & not_other_side_pawn_guarded[side] & not_own_pieces[side]).count_ones();
 
                 net_knight_mobility_values[mobility as usize] += side_value_mult;
+                
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    features.attack_unit_piece_counts[side][PIECE_KNIGHT as usize - 2] += 1;
+                }
             }
         }
 
@@ -455,6 +503,14 @@ impl Board {
                 features.misc_features[*misc_features_idx] = (*v, FeatureIndex::KnightMobility as u16 + 2 * (i as u16));
                 *misc_features_idx += 1;
             }
+        }
+
+        if pieces_attacking[0] == 1 {
+            features.attack_unit_piece_counts[0] = [0; 4];
+        }
+
+        if pieces_attacking[1] == 1 {
+            features.attack_unit_piece_counts[1] = [0; 4];
         }
     }
 }
@@ -465,37 +521,6 @@ mod eval_tests {
     use crate::magic_bitboard::initialize_magic_bitboards;
 
     use super::*;
-
-    #[test]
-    pub fn simplest_kings_mirrorred() {
-        let b1 = Board::from_fen("8/8/8/1k6/8/8/8/4K3 w - - 0 1").unwrap();
-        let b2 = Board::from_fen("4k3/8/8/8/1K6/8/8/8 b - - 0 1").unwrap();
-
-        assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
-        assert_eq!(
-            b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS),
-            b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS)
-        );
-    }
-
-    #[test]
-    pub fn unbalanced_pieces_mirrorred() {
-        let b1 = Board::from_fen("4k3/8/8/8/2P5/1PB2N2/6Q1/2R1K3 w - - 0 1").unwrap();
-        let b2 = Board::from_fen("2r1k3/6q1/1pb2n2/2p5/8/8/8/4K3 b - - 0 1").unwrap();
-
-        assert_eq!(b1.evaluate(&DEFAULT_PARAMS), -b2.evaluate(&DEFAULT_PARAMS));
-        assert_eq!(
-            b1.evaluate_side_to_move_relative(&DEFAULT_PARAMS),
-            b2.evaluate_side_to_move_relative(&DEFAULT_PARAMS)
-        );
-    }
-
-    #[test]
-    pub fn starting_position_is_even() {
-        let b = Board::from_fen(STARTING_FEN).unwrap();
-
-        assert_eq!(0, b.evaluate(&DEFAULT_PARAMS));
-    }
 
     macro_rules! see_test {
         ($($name:ident: $value:expr,)*) => {

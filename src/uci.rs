@@ -251,7 +251,8 @@ impl UciInterface {
                         bench();
                     } else if message.starts_with("eval") {
                         if let Some(board) = &self.board {
-                            println!("Static eval: {}", board.evaluate_side_to_move_relative(&DEFAULT_PARAMS))
+                            let dummy_king_attack_unit_values = Box::new([0; 100]);
+                            println!("Static eval: {}", board.evaluate_side_to_move_relative(&DEFAULT_PARAMS, &dummy_king_attack_unit_values))
                         } else {
                             error!("Board must be set with position first");
                         }
