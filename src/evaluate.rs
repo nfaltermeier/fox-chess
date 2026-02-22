@@ -1,7 +1,7 @@
 use crate::{
     bitboard::{
-        BIT_SQUARES, LIGHT_SQUARES, bitscan_forward_and_reset, generate_pawn_attack, lookup_knight_attack, north_fill,
-        south_fill,
+        BIT_SQUARES, LIGHT_SQUARES, bitscan_forward_and_reset, generate_pawn_attack, lookup_king_attack,
+        lookup_knight_attack, north_fill, south_fill,
     },
     board::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN,
@@ -9,13 +9,16 @@ use crate::{
     },
     eval_values::{
         BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
-        MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME,
-        MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME, MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS,
-        PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES,
+        KING_ATTACK_UNIT_PIECE_VALUES, MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME,
+        MOBILITY_KNIGHT_MIDGAME, MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME, MOBILITY_ROOK_ENDGAME,
+        MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES,
+        ROOK_OPEN_FILES,
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
 };
+
+include!(concat!(env!("OUT_DIR"), "/king_attack_unit_values.rs"));
 
 /// Indexed with piece code, so index 0 is no piece
 pub static GAME_STAGE_VALUES: [i16; 7] = [0, 0, 4, 4, 4, 8, 0];
@@ -33,7 +36,6 @@ pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
 
 pub const MATE_THRESHOLD: i16 = 20000;
 pub const MATE_VALUE: i16 = 25000;
-
 // The board as it appears here in the array is vertically flipped which changes the colors. a1 is a dark square.
 #[rustfmt::skip]
 static LIGHT_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
@@ -58,6 +60,12 @@ static DARK_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
     6, 7, 6, 5, 4, 3, 2, 1,
     7, 6, 5, 4, 3, 2, 1, 0,
 ];
+
+struct MobilityKingAttackUnitsResult {
+    pub mobility_midgame: i16,
+    pub mobility_endgame: i16,
+    pub net_attack_units: i16,
+}
 
 impl Board {
     pub fn evaluate(&self) -> i16 {
@@ -112,16 +120,22 @@ impl Board {
         midgame_values += bishop_pair * BISHOP_PAIR.midgame;
         endgame_values += bishop_pair * BISHOP_PAIR.endgame;
 
-        let mut pawn_shield_eval = 0;
-        let game_stage_for_pawn_shield = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
+        let mobility_king_attack_units_result = self.calculate_mobility_and_king_attack_units::<false>();
+        midgame_values += mobility_king_attack_units_result.mobility_midgame;
+        endgame_values += mobility_king_attack_units_result.mobility_endgame;
+
+        let mut king_safety_eval = 0;
+        let game_stage_for_king_safety = if self.game_stage <= ENDGAME_GAME_STAGE_FOR_QUIESCENSE {
             0
         } else {
             self.game_stage - ENDGAME_GAME_STAGE_FOR_QUIESCENSE
         };
-        if game_stage_for_pawn_shield > 0 {
+        if game_stage_for_king_safety > 0 {
             // How much pawn shield each side is missing. Positive: white is missing more
             let net_pawn_shield_penalty = (6 - self.score_pawn_shield(0)) - (6 - self.score_pawn_shield(1));
-            pawn_shield_eval = (game_stage_for_pawn_shield * net_pawn_shield_penalty * PAWN_SHIELD)
+            let untapered_pawn_shield_score = net_pawn_shield_penalty * PAWN_SHIELD;
+            king_safety_eval = (game_stage_for_king_safety
+                * (untapered_pawn_shield_score + mobility_king_attack_units_result.net_attack_units))
                 / (MAX_GAME_STAGE - ENDGAME_GAME_STAGE_FOR_QUIESCENSE);
         }
 
@@ -129,11 +143,6 @@ impl Board {
             - self.get_pieces_threatened_by_pawns(false).count_ones() as i16;
         midgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.midgame;
         endgame_values += pieces_threatened_by_pawns * PIECES_THREATENED_BY_PAWNS.endgame;
-
-        let mobility = self.calculate_mobility::<false>();
-        midgame_values += mobility.0;
-        endgame_values += mobility.1;
-
         let mut capped_game_stage = self.game_stage as i32;
         if capped_game_stage > MIN_GAME_STAGE_FULLY_MIDGAME as i32 {
             capped_game_stage = MIN_GAME_STAGE_FULLY_MIDGAME as i32;
@@ -143,7 +152,7 @@ impl Board {
             + (endgame_values as i32 * (MIN_GAME_STAGE_FULLY_MIDGAME as i32 - capped_game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME as i32)) as i16;
 
-        main_total + pawn_shield_eval + self.kbnk_modifier()
+        main_total + king_safety_eval + self.kbnk_modifier()
     }
 
     fn kbnk_modifier(&self) -> i16 {
@@ -348,7 +357,8 @@ impl Board {
     }
 
     /// Returns midgame and endgame values
-    fn calculate_mobility<const USE_TEST_VALUES: bool>(&self) -> (i16, i16) {
+    fn calculate_mobility_and_king_attack_units<const USE_TEST_VALUES: bool>(&self) -> MobilityKingAttackUnitsResult {
+        // mobility data
         let not_other_side_pawn_guarded = [
             !generate_pawn_attack(self.piece_bitboards[1][PIECE_PAWN as usize], false),
             !generate_pawn_attack(self.piece_bitboards[0][PIECE_PAWN as usize], true),
@@ -357,6 +367,24 @@ impl Board {
 
         let mut midgame = 0;
         let mut endgame = 0;
+
+        // attack units data
+        let opponent_king_positions = [
+            self.piece_bitboards[1][PIECE_KING as usize].trailing_zeros() as u8,
+            self.piece_bitboards[0][PIECE_KING as usize].trailing_zeros() as u8,
+        ];
+        let immediate_king_areas = [
+            lookup_king_attack(opponent_king_positions[0]) | BIT_SQUARES[opponent_king_positions[0] as usize],
+            lookup_king_attack(opponent_king_positions[1]) | BIT_SQUARES[opponent_king_positions[1] as usize],
+        ];
+        // Do two shifts in case the king is against the back wall and some immediate squares are off the board
+        let king_areas = [
+            immediate_king_areas[0] | (immediate_king_areas[0] >> 16),
+            immediate_king_areas[1] | (immediate_king_areas[1] << 16),
+        ];
+
+        let mut attack_units = [0, 0];
+        let mut pieces_attacking = [0, 0];
 
         for side in 0..=1 {
             let side_value_mult = if side == 0 { 1 } else { -1 };
@@ -372,6 +400,11 @@ impl Board {
                 } else {
                     midgame += mobility as i16 * side_value_mult;
                     endgame += mobility as i16 * side_value_mult;
+                }
+
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    attack_units[side] += KING_ATTACK_UNIT_PIECE_VALUES[PIECE_ROOK as usize - 2];
                 }
             }
         }
@@ -391,6 +424,11 @@ impl Board {
                     midgame += mobility as i16 * side_value_mult;
                     endgame += mobility as i16 * side_value_mult;
                 }
+
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    attack_units[side] += KING_ATTACK_UNIT_PIECE_VALUES[PIECE_BISHOP as usize - 2];
+                }
             }
         }
 
@@ -408,6 +446,11 @@ impl Board {
                 } else {
                     midgame += mobility as i16 * side_value_mult;
                     endgame += mobility as i16 * side_value_mult;
+                }
+
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    attack_units[side] += KING_ATTACK_UNIT_PIECE_VALUES[PIECE_QUEEN as usize - 2];
                 }
             }
         }
@@ -427,10 +470,29 @@ impl Board {
                     midgame += mobility as i16 * side_value_mult;
                     endgame += mobility as i16 * side_value_mult;
                 }
+
+                if squares & king_areas[side] != 0 {
+                    pieces_attacking[side] += 1;
+                    attack_units[side] += KING_ATTACK_UNIT_PIECE_VALUES[PIECE_KNIGHT as usize - 2];
+                }
             }
         }
 
-        (midgame, endgame)
+        let net_attack_units = if pieces_attacking[0] < 2 {
+            0
+        } else {
+            KING_ATTACK_UNIT_VALUES[(attack_units[0] / 10).min(99) as usize]
+        } - if pieces_attacking[1] < 2 {
+            0
+        } else {
+            KING_ATTACK_UNIT_VALUES[(attack_units[1] / 10).min(99) as usize]
+        };
+
+        MobilityKingAttackUnitsResult {
+            mobility_midgame: midgame,
+            mobility_endgame: endgame,
+            net_attack_units,
+        }
     }
 }
 
@@ -520,17 +582,21 @@ mod eval_tests {
 
                     initialize_magic_bitboards();
 
-                    let mobility1 = board1.calculate_mobility::<true>();
-                    let mobility2 = board2.calculate_mobility::<true>();
+                    let result1 = board1.calculate_mobility_and_king_attack_units::<true>();
 
-                    assert!(mobility1.0 > mobility2.0);
-                    assert!(mobility1.1 > mobility2.1);
 
-                    let mobility1 = flipped_board1.calculate_mobility::<true>();
-                    let mobility2 = flipped_board2.calculate_mobility::<true>();
+                    let result2 = board2.calculate_mobility_and_king_attack_units::<true>();
 
-                    assert!(mobility1.0 < mobility2.0);
-                    assert!(mobility1.1 < mobility2.1);
+
+                    assert!(result1.mobility_midgame > result2.mobility_midgame);
+                    assert!(result1.mobility_endgame > result2.mobility_endgame);
+
+                    let result1 = flipped_board1.calculate_mobility_and_king_attack_units::<true>();
+
+                    let result2 = flipped_board2.calculate_mobility_and_king_attack_units::<true>();
+
+                    assert!(result1.mobility_midgame < result2.mobility_midgame);
+                    assert!(result1.mobility_endgame < result2.mobility_endgame);
                 }
             )*
         }
@@ -553,5 +619,68 @@ mod eval_tests {
         mob_queen_bishop_blocked: ("8/8/8/k7/4Q3/K7/8/8 w - - 0 1", "8/8/8/k2P1P2/4Q3/K2P1P2/8/8 w - - 0 1"),
         mob_queen_blocked_by_opponent: ("8/8/2p1p3/k7/4Q2p/K7/6p1/8 w - - 0 1", "8/8/2P1P3/k7/4Q2P/K7/6P1/8 w - - 0 1"),
         mob_queen_guarded_by_opponent: ("8/8/8/k7/4Q3/K7/8/8 w - - 0 1", "2p5/3p4/5p2/k1p5/4Q3/K7/8/8 w - - 0 1"),
+    }
+
+    macro_rules! attack_units_test_greater_than {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (fen1, fen2) = $value;
+
+                    let board1 = Board::from_fen(fen1).unwrap();
+                    let board2 = Board::from_fen(fen2).unwrap();
+
+                    let flipped_board1 = board1.flip_and_invert_colors();
+                    let flipped_board2 = board2.flip_and_invert_colors();
+
+                    initialize_magic_bitboards();
+
+                    let result1 = board1.calculate_mobility_and_king_attack_units::<true>();
+
+
+                    let result2 = board2.calculate_mobility_and_king_attack_units::<true>();
+
+
+                    assert!(result1.net_attack_units > result2.net_attack_units);
+
+                    let result1 = flipped_board1.calculate_mobility_and_king_attack_units::<true>();
+
+
+                    let result2 = flipped_board2.calculate_mobility_and_king_attack_units::<true>();
+
+                    assert!(result1.net_attack_units < result2.net_attack_units);
+                }
+            )*
+        }
+    }
+
+    attack_units_test_greater_than! {
+        au_king_immediate_area_attacked: ("5R2/1k3R2/5R2/8/8/8/8/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_two_pieces_required: ("1k6/8/8/8/1NN5/8/8/7K w - - 0 1", "1k6/8/8/Q7/8/8/8/7K w - - 0 1"),
+        au_area_in_front_of_king: ("8/1k6/8/6R1/6R1/6R1/8/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_area_in_front_of_king_when_against_back_edge: ("1k6/8/6R1/6R1/6R1/8/8/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_line_of_sight_required: ("5R2/1k3R2/5R2/8/8/8/8/7K w - - 0 1", "1k6/3p3Q/3p3Q/3p3Q/3p3Q/pppp3Q/8/1QQQ1Q1K w - - 0 1"),
+        au_line_of_sight_required_two_pieces_attacking: ("5R2/1k3R2/5R2/8/8/8/8/7K w - - 0 1", "1k6/7Q/3p3Q/3p3Q/3p3Q/pppp3Q/8/1QQQ1Q1K w - - 0 1"),
+        au_knights_better_than_nothing: ("1k6/8/8/NNN5/8/8/8/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_four_better_than_three: ("1k6/8/8/NNN5/1N6/8/8/7K w - - 0 1", "1k6/8/8/NNN5/8/8/8/7K w - - 0 1"),
+        au_bishops_better_than_nothing: ("1k6/8/3B4/2BB4/8/8/8/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_rooks_better_than_bishops: ("1k6/8/3R4/R1R5/8/8/8/7K w - - 0 1", "1k6/8/3B4/2BB4/8/8/8/7K w - - 0 1"),
+        au_queens_better_than_rooks: ("1k6/8/3Q4/Q1Q5/8/8/8/7K w - - 0 1", "1k6/8/3R4/R1R5/8/8/8/7K w - - 0 1"),
+        au_mixed_group_works: ("1k6/8/3N4/Q1B5/8/8/8/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_other_side_of_board: ("8/8/8/8/RR6/8/4R3/1k5K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_middle_of_board: ("8/8/1R6/4k3/R7/8/4R3/7K w - - 0 1", "8/1k6/8/8/8/8/8/7K w - - 0 1"),
+        au_winning_greater_than_losing: ("1k6/8/8/NNN5/8/8/8/7K w - - 0 1", "1k6/8/8/8/8/6q1/6q1/1K4q1 w - - 0 1"),
+    }
+
+    #[test]
+    fn au_sides_cancel_out() {
+        let board = Board::from_fen("1k3R2/5R2/5R2/8/8/6r1/6r1/1K4r1 w - - 0 1").unwrap();
+
+        initialize_magic_bitboards();
+
+        let result = board.calculate_mobility_and_king_attack_units::<true>();
+
+        assert_eq!(0, result.net_attack_units);
     }
 }
