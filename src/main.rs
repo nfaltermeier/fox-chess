@@ -7,7 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use crate::{bench::bench, texel::{find_best_params, load_positions, load_preprocessed_positions}};
+use crate::{bench::bench, texel::{DEFAULT_PARAMS, find_best_params, load_positions, load_preprocessed_positions, pretty_print_save_params}};
 use board::{Board, HASH_VALUES};
 use build_info::build_info;
 use clap::{Parser, Subcommand};
@@ -85,7 +85,7 @@ fn main() {
         error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
     }
 
-    // rayon::ThreadPoolBuilder::new().num_threads(5).build_global().unwrap();
+    rayon::ThreadPoolBuilder::new().num_threads(9).build_global().unwrap();
 
     println!("[{}] Loading positions from file", humantime::format_rfc3339(SystemTime::now()));
     // let positions = load_positions("s6.epd");
