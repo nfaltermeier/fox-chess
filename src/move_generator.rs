@@ -25,20 +25,20 @@ pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
 /// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800
-pub const MOVE_SCORE_CAPTURE: i16 = 20000;
-pub const MOVE_SCORE_KILLER_1: i16 = 19999;
-pub const MOVE_SCORE_KILLER_2: i16 = 19998;
+pub const MOVE_SCORE_CAPTURE: i16 = 16000;
+pub const MOVE_SCORE_KILLER_1: i16 = 15999;
+pub const MOVE_SCORE_KILLER_2: i16 = 15998;
 /// Has value of piece is becomes added so really the range is +300 to +900
-pub const MOVE_SCORE_PROMOTION: i16 = 10000;
-pub const MOVE_SCORE_KING_CASTLE: i16 = 9999;
-pub const MOVE_SCORE_QUEEN_CASTLE: i16 = 9998;
+pub const MOVE_SCORE_PROMOTION: i16 = 8000;
+pub const MOVE_SCORE_KING_CASTLE: i16 = 7999;
+pub const MOVE_SCORE_QUEEN_CASTLE: i16 = 7998;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i32 = 14000;
-pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 8000;
+pub const MOVE_SCORE_HISTORY_MAX: i32 = 11200;
+pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 6400;
 pub const MOVE_SCORE_QUIET: i16 = 0;
 
-pub const MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER: i16 = 10;
-pub const MOVE_SCORE_PROMOTION_PIECE_VALUE: i16 = 10;
+pub const MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER: i16 = 8;
+pub const MOVE_SCORE_PROMOTION_PIECE_VALUE: i16 = 8;
 
 pub const MOVE_ARRAY_SIZE: usize = 256;
 

@@ -623,7 +623,7 @@ impl<'a> Searcher<'a> {
 
             // Futility pruning and late move pruning
             if (futility_prune
-                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -7500 - 500 * draft as i16))
+                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -6000 - 400 * draft as i16))
                 && searched_moves >= 1
                 && !gives_check
                 && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
