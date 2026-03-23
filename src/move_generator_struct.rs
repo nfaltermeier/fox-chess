@@ -12,9 +12,7 @@ use crate::{
     eval_values::CENTIPAWN_VALUES_MIDGAME,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     move_generator::{
-        MOVE_ARRAY_SIZE, MOVE_SCORE_CAPTURE, MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER, MOVE_SCORE_CONST_HISTORY_MAX,
-        MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, MOVE_SCORE_KING_CASTLE,
-        MOVE_SCORE_QUEEN_CASTLE, MOVE_SCORE_QUIET, ScoredMove,
+        MOVE_ARRAY_SIZE, MOVE_SCORE_CAPTURE, MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, MOVE_SCORE_KING_CASTLE, MOVE_SCORE_PROMOTION_PIECE_VALUE, MOVE_SCORE_QUEEN_CASTLE, MOVE_SCORE_QUIET, ScoredMove
     },
     moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_KING_CASTLE,
@@ -217,19 +215,19 @@ impl MoveGenerator {
             let base_score = MOVE_SCORE_QUIET + history_table[side][PIECE_PAWN as usize - 1][to as usize];
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_QUEEN),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
             });
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_ROOK),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
             });
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_BISHOP),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
             });
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_KNIGHT),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
             });
         }
 
@@ -345,22 +343,22 @@ impl MoveGenerator {
                 let target_piece = board.get_piece_64(to as usize);
 
                 let base_score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize] * MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER
-                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize];
+                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE;
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_QUEEN),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 });
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_ROOK),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 });
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_BISHOP),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 });
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_KNIGHT),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 });
             }
         }

@@ -38,6 +38,7 @@ pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 5600;
 pub const MOVE_SCORE_QUIET: i16 = 0;
 
 pub const MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER: i16 = 7;
+pub const MOVE_SCORE_PROMOTION_PIECE_VALUE: i16 = 7;
 
 pub const MOVE_ARRAY_SIZE: usize = 256;
 
@@ -152,30 +153,30 @@ impl Board {
                     });
                 } else {
                     let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize] * MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER
-                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize];
+                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE;
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                     ));
                 }
             }
@@ -195,25 +196,25 @@ impl Board {
                             from,
                             to,
                             MOVE_PROMO_QUEEN,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_ROOK,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_BISHOP,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_KNIGHT,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                         ));
                     } else {
                         result.push(ScoredMove::new(
@@ -608,25 +609,25 @@ impl Board {
                     from,
                     to,
                     MOVE_PROMO_QUEEN | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_ROOK | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_BISHOP | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_KNIGHT | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize] * MOVE_SCORE_PROMOTION_PIECE_VALUE,
                 ));
             }
         }
