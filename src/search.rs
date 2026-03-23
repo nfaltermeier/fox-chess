@@ -786,7 +786,7 @@ impl<'a> Searcher<'a> {
                     &mut relevant_cont_hist,
                 );
 
-                let penalty = -(ply as i16) * (ply as i16) * 7;
+                let penalty = -(ply as i16) * (ply as i16) * 8;
                 for m in searched_quiet_moves {
                     update_history(
                         &self.board,
@@ -1129,7 +1129,7 @@ fn update_killers_and_history(
         board,
         history_table,
         m,
-        (ply_depth as i16) * (ply_depth as i16) * 7,
+        (ply_depth as i16) * (ply_depth as i16) * 8,
         relevant_cont_hist,
     );
 
