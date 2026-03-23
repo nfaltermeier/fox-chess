@@ -25,19 +25,19 @@ pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
 /// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800
-pub const MOVE_SCORE_CAPTURE: i16 = 2000;
-pub const MOVE_SCORE_KILLER_1: i16 = 1999;
-pub const MOVE_SCORE_KILLER_2: i16 = 1998;
+pub const MOVE_SCORE_CAPTURE: i16 = 14000;
+pub const MOVE_SCORE_KILLER_1: i16 = 13999;
+pub const MOVE_SCORE_KILLER_2: i16 = 13998;
 /// Has value of piece is becomes added so really the range is +300 to +900
-pub const MOVE_SCORE_PROMOTION: i16 = 1000;
-pub const MOVE_SCORE_KING_CASTLE: i16 = 999;
-pub const MOVE_SCORE_QUEEN_CASTLE: i16 = 998;
+pub const MOVE_SCORE_PROMOTION: i16 = 7000;
+pub const MOVE_SCORE_KING_CASTLE: i16 = 6999;
+pub const MOVE_SCORE_QUEEN_CASTLE: i16 = 6998;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i32 = 1400;
-pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 800;
+pub const MOVE_SCORE_HISTORY_MAX: i32 = 9800;
+pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 5600;
 pub const MOVE_SCORE_QUIET: i16 = 0;
 
-pub const MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR: i16 = 10;
+pub const MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER: i16 = 7;
 
 pub const MOVE_ARRAY_SIZE: usize = 256;
 
@@ -147,12 +147,12 @@ impl Board {
                 if !promo {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize] * MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER
+                            - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize],
                     });
                 } else {
-                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
+                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize] * MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER
+                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize];
                     result.push(ScoredMove::new(
                         from,
                         to,
@@ -371,8 +371,8 @@ impl Board {
                 } else {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES_MIDGAME[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize] * MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER
+                            - CENTIPAWN_VALUES_MIDGAME[piece_type as usize],
                     });
                 }
             }
@@ -590,8 +590,8 @@ impl Board {
                     }
             } else {
                 let target_piece = self.get_piece_64(to as usize);
-                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR
+                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize] * MOVE_SCORE_CAPTURE_VICTIM_MULTIPLIER
+                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize]
             };
 
             if !PROMOS {

@@ -6,19 +6,9 @@ use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
-    eval_values::CENTIPAWN_VALUES_MIDGAME,
-    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove},
-    move_generator_struct::{GetMoveResult, MoveGenerator},
-    moves::{
+    STARTING_FEN, board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN}, eval_values::CENTIPAWN_VALUES_MIDGAME, evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD}, move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove}, move_generator_struct::{GetMoveResult, MoveGenerator}, moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
-    },
-    repetition_tracker::RepetitionTracker,
-    time_management::{get_cutoff_times, modify_cutoff_time},
-    transposition_table::{self, MoveType, TTEntry, TranspositionTable},
-    uci::UciInterface,
-    uci_required_options_helper::RequiredUciOptions,
+    }, repetition_tracker::RepetitionTracker, time_management::{get_cutoff_times, modify_cutoff_time}, transposition_table::{self, MoveType, TTEntry, TranspositionTable}, uci::UciInterface, uci_required_options_helper::RequiredUciOptions
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
@@ -796,7 +786,7 @@ impl<'a> Searcher<'a> {
                     &mut relevant_cont_hist,
                 );
 
-                let penalty = -(ply as i16) * (ply as i16);
+                let penalty = -(ply as i16) * (ply as i16) * 7;
                 for m in searched_quiet_moves {
                     update_history(
                         &self.board,
@@ -1139,7 +1129,7 @@ fn update_killers_and_history(
         board,
         history_table,
         m,
-        (ply_depth as i16) * (ply_depth as i16),
+        (ply_depth as i16) * (ply_depth as i16) * 7,
         relevant_cont_hist,
     );
 
