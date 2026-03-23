@@ -576,9 +576,6 @@ impl<'a> Searcher<'a> {
             );
         }
 
-        println!("{}", self.board.to_fen());
-        move_gen.debug_print_generated_moves(Some(self.board));
-
         let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let mut searched_moves = 0;
         let mut has_legal_move = false;

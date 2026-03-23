@@ -422,12 +422,6 @@ impl MoveGenerator {
             }
         }
     }
-
-    pub fn debug_print_generated_moves(&self, board: Option<&Board>) {
-        for mov in &self.move_buf {
-            println!("{}: {}", mov.m.pretty_print(board), mov.score);
-        }
-    }
 }
 
 fn apply_continuation_history_to_move_scores(
