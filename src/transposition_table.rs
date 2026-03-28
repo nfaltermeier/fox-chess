@@ -127,11 +127,19 @@ impl TranspositionTable {
 
         if let Some(entry) = self.table.get_mut(index) {
             if entry.depth_first.empty || entry.depth_first.age != val.age || entry.depth_first.draft <= val.draft {
-                entry.depth_first = val;
+                TranspositionTable::replace_entry(&mut entry.depth_first, val);
             } else {
-                entry.always_replace = val;
+                TranspositionTable::replace_entry(&mut entry.always_replace, val);
             }
         }
+    }
+
+    fn replace_entry(old_entry: &mut TTEntry, mut val: TTEntry) {
+        if val.move_type == MoveType::FailLow && old_entry.move_type != MoveType::FailLow && old_entry.hash == val.hash {
+            val.important_move = old_entry.important_move;
+        }
+
+        *old_entry = val;
     }
 
     pub fn clear(&mut self) {
