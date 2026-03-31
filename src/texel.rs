@@ -518,7 +518,7 @@ pub fn find_best_params(nonquiet_positions: Option<Vec<TexelPosition>>, quiet_po
                     }
 
                     if is_initializing_starting_errors && is_fullbatch && let Some(fullbatch_base_error) = fullbatch_base_error {
-                        starting_errors.extend(repeat_n(0.0, starting_errors.len() - minibatches));
+                        starting_errors.extend(repeat_n(0.0, minibatches - starting_errors.len()));
                         starting_errors.push(fullbatch_base_error);
                         continue;
                     }
