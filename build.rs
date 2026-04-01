@@ -41,7 +41,7 @@ fn generate_king_attack_unit_values() -> Box<[i16; 100]> {
 
     for (i, v) in result.iter_mut().enumerate() {
         let power = (35.0 - i as f32) / 10.0;
-        *v = ((500.0 * 1.46) / (1.0 + 4.0_f32.powf(power))).round() as i16
+        *v = ((500.0 * 1.47) / (1.0 + 4.0_f32.powf(power))).round() as i16
     }
 
     result
