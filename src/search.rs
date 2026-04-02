@@ -32,6 +32,8 @@ static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
 pub const EMPTY_MOVE: Move = Move { data: 0 };
 
+include!(concat!(env!("OUT_DIR"), "/ln_fixedpoint_128_values.rs"));
+
 #[derive(Default)]
 pub struct SearchStats {
     pub depth: u8,
@@ -690,28 +692,36 @@ impl<'a> Searcher<'a> {
 
             self.move_history.push(r#move.m);
 
-            let mut reduction = 0;
             // Late move reduction
-            if draft > 2 && searched_moves > 3 {
+            let reduction_ply = if draft > 2 && searched_moves > 3 {
                 let flags = r#move.m.flags();
 
                 // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
-                reduction = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0 {
-                    (0.7844 + (draft as f32).ln() * (searched_moves as f32).ln() / 2.4696).round() as u8
+                let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0
+                {
+                    (100 + LN_FIXEDPOINT_128_VALUES[draft.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
+                        as i32
+                        * LN_FIXEDPOINT_128_VALUES
+                            [searched_moves.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
+                            as i32
+                        / 316) as i16
                 } else {
-                    3
+                    3 * 128
                 };
 
-                if is_pv && reduction > 0 {
-                    reduction -= 1;
+                if is_pv {
+                    reduction_fixedpoint_128 -= 128;
                 }
 
-                if in_check && reduction > 0 {
-                    reduction -= 1;
+                if in_check {
+                    reduction_fixedpoint_128 -= 128;
                 }
 
-                reduction = reduction.clamp(0, draft - 1)
-            }
+                let rounding = (reduction_fixedpoint_128 % 128 >= 64) as i16;
+                ((reduction_fixedpoint_128 / 128) + rounding).clamp(0, draft as i16 - 1) as u8
+            } else {
+                0
+            };
 
             let start_of_search_nodes = self.stats.current_iteration_total_nodes;
             if ply == 0 {
@@ -724,7 +734,7 @@ impl<'a> Searcher<'a> {
                 score = -self.alpha_beta_recurse(
                     -beta,
                     -alpha,
-                    draft - reduction - 1 + extension,
+                    draft - reduction_ply - 1 + extension,
                     ply + 1,
                     &mut new_killers,
                     gives_check,
@@ -732,7 +742,7 @@ impl<'a> Searcher<'a> {
                     &mut pv,
                 )?;
 
-                if score > alpha && reduction > 0 {
+                if score > alpha && reduction_ply > 0 {
                     // Do a full search
                     score = -self.alpha_beta_recurse(
                         -beta,
@@ -750,7 +760,7 @@ impl<'a> Searcher<'a> {
                 score = -self.alpha_beta_recurse(
                     -alpha - 1,
                     -alpha,
-                    draft - reduction - 1 + extension,
+                    draft - reduction_ply - 1 + extension,
                     ply + 1,
                     &mut new_killers,
                     gives_check,
