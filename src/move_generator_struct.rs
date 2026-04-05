@@ -124,7 +124,7 @@ impl MoveGenerator {
         &mut self,
         board: &mut Board,
         history_table: Option<&HistoryTable>,
-        move_history: Option<&Vec<Move>>,
+        last_move: Option<Move>,
         continuation_history: Option<&ContinuationHistoryTable>,
         killers: Option<&[Move; 2]>,
     ) {
@@ -133,13 +133,13 @@ impl MoveGenerator {
             MoveGeneratorState::GeneratePending => self.generate_pending_moves(
                 board,
                 history_table.unwrap_or(&DEFAULT_HISTORY_TABLE),
-                move_history,
+                last_move,
                 continuation_history,
                 killers,
             ),
             MoveGeneratorState::GeneratePseudolegal => self.generate_moves_pseudo_legal_impl(board),
             MoveGeneratorState::GenerateCheckEvasions => {
-                self.generate_moves_check_evasion(board, history_table, move_history, continuation_history, killers)
+                self.generate_moves_check_evasion(board, history_table, last_move, continuation_history, killers)
             }
         }
     }
@@ -158,7 +158,7 @@ impl MoveGenerator {
         &mut self,
         board: &mut Board,
         history_table: Option<&HistoryTable>,
-        move_history: Option<&Vec<Move>>,
+        last_move: Option<Move>,
         continuation_history: Option<&ContinuationHistoryTable>,
         killers: Option<&[Move; 2]>,
     ) {
@@ -172,7 +172,7 @@ impl MoveGenerator {
             // board.generate_pseudo_legal_check_evasions clears the move buffer
             self.moves_selected = 0;
 
-            extra_quiet_move_scoring(&mut self.move_buf, board, move_history, continuation_history, killers);
+            extra_quiet_move_scoring(&mut self.move_buf, board, last_move, continuation_history, killers);
         } else {
             // Moves will be generated after tt move is searched
             self.state = MoveGeneratorState::GenerateCheckEvasions;
@@ -183,7 +183,7 @@ impl MoveGenerator {
         &mut self,
         board: &mut Board,
         history_table: &HistoryTable,
-        move_history: Option<&Vec<Move>>,
+        last_move: Option<Move>,
         continuation_history: Option<&ContinuationHistoryTable>,
         killers: Option<&[Move; 2]>,
     ) {
@@ -302,7 +302,7 @@ impl MoveGenerator {
         extra_quiet_move_scoring(
             &mut self.move_buf[starting_move_buf_len..move_buf_len],
             board,
-            move_history,
+            last_move,
             continuation_history,
             killers,
         );
@@ -425,12 +425,12 @@ impl MoveGenerator {
 }
 
 fn apply_continuation_history_to_move_scores(
-    move_history: &Vec<Move>,
+    last_move: Move,
     board: &Board,
     continuation_history: &ContinuationHistoryTable,
     moves: &mut [ScoredMove],
 ) {
-    if let Some(relevant_cont_hist) = get_relevant_cont_hist(move_history, board, continuation_history) {
+    if let Some(relevant_cont_hist) = get_relevant_cont_hist(last_move, board, continuation_history) {
         for m in moves {
             if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
                 continue;
@@ -444,13 +444,11 @@ fn apply_continuation_history_to_move_scores(
 
 #[inline]
 fn get_relevant_cont_hist<'a>(
-    move_history: &[Move],
+    last_move: Move,
     board: &Board,
     continuation_history: &'a ContinuationHistoryTable,
 ) -> Option<&'a [[i16; 64]; 6]> {
-    if let Some(last_move) = move_history.last()
-        && *last_move != EMPTY_MOVE
-    {
+    if last_move != EMPTY_MOVE {
         let last_moved_to = last_move.to() as usize;
         let last_moved_piece = board.get_piece_64(last_moved_to);
         return Some(
@@ -481,14 +479,14 @@ fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_
 fn extra_quiet_move_scoring(
     moves: &mut [ScoredMove],
     board: &Board,
-    move_history: Option<&Vec<Move>>,
+    last_move: Option<Move>,
     continuation_history: Option<&ContinuationHistoryTable>,
     killers: Option<&[Move; 2]>,
 ) {
-    if let Some(move_history) = move_history
+    if let Some(last_move) = last_move
         && let Some(continuation_history) = continuation_history
     {
-        apply_continuation_history_to_move_scores(move_history, board, continuation_history, moves);
+        apply_continuation_history_to_move_scores(last_move, board, continuation_history, moves);
     }
 
     if let Some(killers) = killers

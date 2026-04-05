@@ -135,7 +135,8 @@ impl TranspositionTable {
     }
 
     fn replace_entry(old_entry: &mut TTEntry, mut val: TTEntry) {
-        if val.move_type == MoveType::FailLow && old_entry.move_type != MoveType::FailLow && old_entry.hash == val.hash {
+        if val.move_type == MoveType::FailLow && old_entry.move_type != MoveType::FailLow && old_entry.hash == val.hash
+        {
             val.important_move = old_entry.important_move;
         }
 

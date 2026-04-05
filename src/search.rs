@@ -71,6 +71,12 @@ struct PvData {
     pub selective_depth: u8,
 }
 
+struct SearchStack {
+    mov: Move,
+    excluded_move: Option<Move>,
+    killers: [Move; 2],
+}
+
 pub struct Searcher<'a> {
     board: &'a mut Board,
     rollback: MoveRollback,
@@ -86,7 +92,6 @@ pub struct Searcher<'a> {
     total_max_nodes: u64,
     max_nodes_for_current_iteration: u64,
     continuation_history: &'a mut ContinuationHistoryTable,
-    move_history: Vec<Move>,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
     extra_uci_options: RequiredUciOptions,
@@ -94,7 +99,8 @@ pub struct Searcher<'a> {
     pv_nodes_fractions: VecDeque<f32>,
     contempt: i16,
     white_started_search: bool,
-    excluded_move: Vec<Option<Move>>,
+    ss: Vec<SearchStack>,
+    root_killers: [Move; 2],
 }
 
 impl<'a> Searcher<'a> {
@@ -131,7 +137,6 @@ impl<'a> Searcher<'a> {
             total_max_nodes: u64::MAX,
             max_nodes_for_current_iteration: u64::MAX,
             continuation_history,
-            move_history: vec![],
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
             extra_uci_options,
@@ -139,7 +144,8 @@ impl<'a> Searcher<'a> {
             pv_nodes_fractions: VecDeque::new(),
             contempt,
             white_started_search,
-            excluded_move: Vec::new(),
+            ss: Vec::new(),
+            root_killers: [EMPTY_MOVE; 2],
         }
     }
 
@@ -292,8 +298,7 @@ impl<'a> Searcher<'a> {
         self.rollback = MoveRollback::default();
         self.stats.depth = draft;
         self.single_root_move = false;
-
-        let mut killers = [EMPTY_MOVE, EMPTY_MOVE];
+        self.root_killers = [EMPTY_MOVE; 2];
 
         let mut alpha;
         let mut beta;
@@ -315,24 +320,15 @@ impl<'a> Searcher<'a> {
         let mut pv = tiny_vec!();
 
         loop {
+            self.ss.clear();
             self.root_pvs.clear();
             self.stats.previous_iterations_total_nodes += self.stats.current_iteration_total_nodes;
             self.stats.current_iteration_total_nodes = 0;
             self.max_nodes_for_current_iteration = self.total_max_nodes - self.stats.previous_iterations_total_nodes;
 
-            let result = self.alpha_beta_recurse(
-                alpha,
-                beta,
-                draft,
-                0,
-                &mut killers,
-                self.starting_in_check,
-                true,
-                &mut pv,
-            );
+            let result = self.alpha_beta_recurse(alpha, beta, draft, 0, self.starting_in_check, true, &mut pv);
 
             if result.is_err() {
-                self.move_history.clear();
                 self.root_pvs.clear();
 
                 // In this case the state of the board will not been reset back to the starting state
@@ -340,7 +336,6 @@ impl<'a> Searcher<'a> {
             }
 
             debug_assert!(self.rollback.is_empty());
-            debug_assert!(self.move_history.is_empty());
 
             let low_score = self
                 .root_pvs
@@ -390,7 +385,6 @@ impl<'a> Searcher<'a> {
         beta: i16,
         mut draft: u8,
         ply: u8,
-        killers: &mut [Move; 2],
         in_check: bool,
         can_null_move: bool,
         parent_pv: &mut TinyVec<[Move; 32]>,
@@ -436,16 +430,21 @@ impl<'a> Searcher<'a> {
             return Ok(self.quiescense_side_to_move_relative(alpha, beta, ply + 1));
         }
 
+        if self.ss.get(ply as usize).is_none() {
+            self.ss.push(SearchStack::new());
+        } else {
+            self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
+        }
+
         // When at the root and with multi-pv enabled then this will be the lowest PV score
         let mut best_score = i16::MIN;
         // When at the root and with multi-pv enabled then this may not be the actual best move
         let mut best_move = None;
-        let mut new_killers = [EMPTY_MOVE, EMPTY_MOVE];
 
         let is_pv = alpha + 1 != beta;
 
         let mut move_gen = MoveGenerator::new();
-        let excluded_move = self.excluded_move.get(ply as usize).unwrap_or(&None).clone();
+        let excluded_move = self.ss[ply as usize].excluded_move.clone();
         let tt_entry = if excluded_move.is_none() {
             self.transposition_table
                 .get_entry(self.board.hash, self.starting_fullmove)
@@ -460,11 +459,18 @@ impl<'a> Searcher<'a> {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
                             // should history be updated here?
-                            let mut relevant_cont_hist = get_relevant_cont_hist(
-                                &self.move_history,
-                                &self.board,
-                                &mut *self.continuation_history,
-                            );
+                            let last_move = if ply > 0 {
+                                self.ss[ply as usize - 1].mov
+                            } else {
+                                EMPTY_MOVE
+                            };
+                            let killers = if ply > 0 {
+                                &mut self.ss[ply as usize - 1].killers
+                            } else {
+                                &mut self.root_killers
+                            };
+                            let mut relevant_cont_hist =
+                                get_relevant_cont_hist(last_move, &self.board, &mut *self.continuation_history);
                             update_killers_and_history(
                                 &self.board,
                                 &mut self.history_table,
@@ -526,26 +532,19 @@ impl<'a> Searcher<'a> {
                 | self.board.piece_bitboards[our_side][PIECE_KING as usize]
                 != self.board.side_occupancy[our_side]
         {
-            let mut null_move_killers = [EMPTY_MOVE, EMPTY_MOVE];
             self.board.make_null_move(&mut self.rollback);
-            self.move_history.push(EMPTY_MOVE);
+            self.ss[ply as usize].mov = EMPTY_MOVE;
+            let saved_killers = self.ss[ply as usize].killers;
+            self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
 
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
 
-            let nmp_score = -self.alpha_beta_recurse(
-                -beta,
-                -(beta - 1),
-                draft - reduction,
-                ply + 1,
-                &mut null_move_killers,
-                false,
-                false,
-                &mut pv,
-            )?;
+            let nmp_score =
+                -self.alpha_beta_recurse(-beta, -(beta - 1), draft - reduction, ply + 1, false, false, &mut pv)?;
 
             self.board.unmake_null_move(&mut self.rollback);
-            self.move_history.pop();
+            self.ss[ply as usize].killers = saved_killers;
 
             if nmp_score >= beta {
                 return Ok(nmp_score);
@@ -555,16 +554,9 @@ impl<'a> Searcher<'a> {
         // Internal Iterative Deepening
         if tt_entry.is_none() && is_pv && draft > 5 {
             let mut iid_pv = tiny_vec!();
-            self.alpha_beta_recurse(
-                alpha,
-                beta,
-                draft - 2,
-                ply,
-                killers,
-                in_check,
-                can_null_move,
-                &mut iid_pv,
-            )?;
+            self.alpha_beta_recurse(alpha, beta, draft - 2, ply, in_check, can_null_move, &mut iid_pv)?;
+
+            self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
 
             let tt_entry = self
                 .transposition_table
@@ -577,10 +569,20 @@ impl<'a> Searcher<'a> {
         if !in_check {
             move_gen.generate_moves_pseudo_legal(self.board);
         } else {
+            let last_move = if ply > 0 {
+                self.ss[ply as usize - 1].mov
+            } else {
+                EMPTY_MOVE
+            };
+            let killers = if ply > 0 {
+                &self.ss[ply as usize - 1].killers
+            } else {
+                &self.root_killers
+            };
             move_gen.generate_moves_check_evasion(
                 self.board,
                 Some(self.history_table),
-                Some(&self.move_history),
+                Some(last_move),
                 Some(self.continuation_history),
                 Some(killers),
             );
@@ -595,10 +597,20 @@ impl<'a> Searcher<'a> {
             let r#move = match move_gen.get_next_move() {
                 GetMoveResult::Move(scored_move) => scored_move,
                 GetMoveResult::GenerateMoves => {
+                    let last_move = if ply > 0 {
+                        self.ss[ply as usize - 1].mov
+                    } else {
+                        EMPTY_MOVE
+                    };
+                    let killers = if ply > 0 {
+                        &self.ss[ply as usize - 1].killers
+                    } else {
+                        &self.root_killers
+                    };
                     move_gen.generate_more_moves(
                         self.board,
                         Some(self.history_table),
-                        Some(&self.move_history),
+                        Some(last_move),
                         Some(self.continuation_history),
                         Some(killers),
                     );
@@ -655,10 +667,7 @@ impl<'a> Searcher<'a> {
             {
                 self.board.unmake_move(&r#move.m, &mut self.rollback);
 
-                while self.excluded_move.len() <= ply as usize {
-                    self.excluded_move.push(None);
-                }
-                self.excluded_move[ply as usize] = Some(r#move.m);
+                self.ss[ply as usize].excluded_move = Some(r#move.m);
 
                 let verification_draft = draft / 2;
                 let verification_beta = tt_entry.unwrap().get_score(ply) - draft as i16 * 2;
@@ -669,11 +678,12 @@ impl<'a> Searcher<'a> {
                     verification_beta,
                     verification_draft,
                     ply,
-                    killers,
                     in_check,
                     can_null_move,
                     parent_pv,
                 )?;
+
+                self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
 
                 // If there is only one move
                 if self.stats.current_iteration_total_nodes == beginning_nodes + 1 {
@@ -682,11 +692,11 @@ impl<'a> Searcher<'a> {
                     extension = 1;
                 }
 
-                self.excluded_move[ply as usize] = None;
+                self.ss[ply as usize].excluded_move = None;
                 self.board.make_move(&r#move.m, &mut self.rollback);
             }
 
-            self.move_history.push(r#move.m);
+            self.ss[ply as usize].mov = r#move.m;
 
             // Late move reduction
             let reduction_ply = if draft > 2 && searched_moves > 3 {
@@ -732,7 +742,6 @@ impl<'a> Searcher<'a> {
                     -alpha,
                     draft - reduction_ply - 1 + extension,
                     ply + 1,
-                    &mut new_killers,
                     gives_check,
                     can_null_move,
                     &mut pv,
@@ -745,7 +754,6 @@ impl<'a> Searcher<'a> {
                         -alpha,
                         draft - 1 + extension,
                         ply + 1,
-                        &mut new_killers,
                         gives_check,
                         can_null_move,
                         &mut pv,
@@ -758,7 +766,6 @@ impl<'a> Searcher<'a> {
                     -alpha,
                     draft - reduction_ply - 1 + extension,
                     ply + 1,
-                    &mut new_killers,
                     gives_check,
                     can_null_move,
                     &mut pv,
@@ -771,7 +778,6 @@ impl<'a> Searcher<'a> {
                         -alpha,
                         draft - 1 + extension,
                         ply + 1,
-                        &mut new_killers,
                         gives_check,
                         can_null_move,
                         &mut pv,
@@ -780,12 +786,21 @@ impl<'a> Searcher<'a> {
             }
 
             self.board.unmake_move(&r#move.m, &mut self.rollback);
-            self.move_history.pop();
             searched_moves += 1;
 
             if score >= beta {
+                let last_move = if ply > 0 {
+                    self.ss[ply as usize - 1].mov
+                } else {
+                    EMPTY_MOVE
+                };
+                let killers = if ply > 0 {
+                    &mut self.ss[ply as usize - 1].killers
+                } else {
+                    &mut self.root_killers
+                };
                 let mut relevant_cont_hist =
-                    get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history);
+                    get_relevant_cont_hist(last_move, &self.board, &mut *self.continuation_history);
 
                 update_killers_and_history(
                     &self.board,
@@ -1096,21 +1111,6 @@ impl<'a> Searcher<'a> {
         best_score
     }
 
-    fn apply_history_to_move_scores(&mut self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-        if let Some(relevant_cont_hist) =
-            get_relevant_cont_hist(&self.move_history, &self.board, &mut *self.continuation_history)
-        {
-            for m in moves {
-                if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
-                    continue;
-                }
-
-                let piece_to_move = self.board.get_piece_64(m.m.from() as usize);
-                m.score += relevant_cont_hist[((piece_to_move & PIECE_MASK) - 1) as usize][m.m.to() as usize];
-            }
-        }
-    }
-
     fn eval_draw(&self) -> i16 {
         self.contempt
             * if self.board.white_to_move ^ self.white_started_search {
@@ -1143,14 +1143,12 @@ fn update_killers_and_history(
         relevant_cont_hist,
     );
 
-    if killers[0] == *m {
-        return;
-    }
-
-    if killers[1] == *m {
-        (killers[0], killers[1]) = (killers[1], killers[0]);
-    } else {
-        killers[1] = *m;
+    if killers[0] != *m {
+        if killers[1] == *m {
+            (killers[0], killers[1]) = (killers[1], killers[0]);
+        } else {
+            killers[1] = *m;
+        }
     }
 }
 
@@ -1184,19 +1182,17 @@ fn update_history(
 
 #[inline]
 fn get_relevant_cont_hist<'a>(
-    move_history: &Vec<Move>,
+    last_move: Move,
     board: &Board,
     continuation_history: &'a mut ContinuationHistoryTable,
 ) -> Option<&'a mut [[i16; 64]; 6]> {
-    if let Some(last_move) = move_history.last() {
-        if *last_move != EMPTY_MOVE {
-            let last_moved_to = last_move.to() as usize;
-            let last_moved_piece = board.get_piece_64(last_moved_to);
-            return Some(
-                &mut continuation_history[if board.white_to_move { 0 } else { 1 }]
-                    [((last_moved_piece & PIECE_MASK) - 1) as usize][last_moved_to],
-            );
-        }
+    if last_move != EMPTY_MOVE {
+        let last_moved_to = last_move.to() as usize;
+        let last_moved_piece = board.get_piece_64(last_moved_to);
+        return Some(
+            &mut continuation_history[if board.white_to_move { 0 } else { 1 }]
+                [((last_moved_piece & PIECE_MASK) - 1) as usize][last_moved_to],
+        );
     }
 
     None
@@ -1216,4 +1212,14 @@ fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_
     }
 
     moves.swap(index_to_skip, best_move_index);
+}
+
+impl SearchStack {
+    pub fn new() -> Self {
+        Self {
+            mov: EMPTY_MOVE,
+            excluded_move: None,
+            killers: [EMPTY_MOVE; 2],
+        }
+    }
 }
