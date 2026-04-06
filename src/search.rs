@@ -476,7 +476,7 @@ impl<'a> Searcher<'a> {
                                 &mut self.history_table,
                                 killers,
                                 &tt_data.important_move,
-                                ply,
+                                draft,
                                 &mut relevant_cont_hist,
                             );
 
@@ -645,7 +645,7 @@ impl<'a> Searcher<'a> {
 
             // Futility pruning and late move pruning
             if (futility_prune
-                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < -750 - 50 * draft as i16))
+                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < 92 + (-110 * draft as i16)))
                 && searched_moves >= 1
                 && !gives_check
                 && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
@@ -807,11 +807,11 @@ impl<'a> Searcher<'a> {
                     &mut self.history_table,
                     killers,
                     &r#move.m,
-                    ply,
+                    draft,
                     &mut relevant_cont_hist,
                 );
 
-                let penalty = -(ply as i16) * (ply as i16);
+                let penalty = -(draft as i16) * (draft as i16);
                 for m in searched_quiet_moves {
                     update_history(
                         &self.board,
@@ -1127,7 +1127,7 @@ fn update_killers_and_history(
     history_table: &mut HistoryTable,
     killers: &mut [Move; 2],
     m: &Move,
-    ply_depth: u8,
+    draft: u8,
     relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
 ) {
     // TODO: Change this to check for capture flag specifically
@@ -1139,7 +1139,7 @@ fn update_killers_and_history(
         board,
         history_table,
         m,
-        (ply_depth as i16) * (ply_depth as i16),
+        (draft as i16) * (draft as i16),
         relevant_cont_hist,
     );
 
