@@ -33,8 +33,8 @@ pub const MOVE_SCORE_PROMOTION: i16 = 1000;
 pub const MOVE_SCORE_KING_CASTLE: i16 = 999;
 pub const MOVE_SCORE_QUEEN_CASTLE: i16 = 998;
 /// No idea what a good value is; only applied to quiet moves. Can also go down to negative this value.
-pub const MOVE_SCORE_HISTORY_MAX: i32 = 1582;
-pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 741;
+pub const MOVE_SCORE_HISTORY_MAX: i32 = 771;
+pub const MOVE_SCORE_CONST_HISTORY_MAX: i32 = 1257;
 pub const MOVE_SCORE_QUIET: i16 = 0;
 
 pub const MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR: i16 = 10;
