@@ -9,7 +9,10 @@ use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
     eval_values::CENTIPAWN_VALUES_MIDGAME,
     evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
-    move_generator::{MOVE_ARRAY_SIZE, MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX, ScoredMove},
+    move_generator::{
+        MOVE_ARRAY_SIZE, MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX,
+        ScoredMove,
+    },
     move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{
         MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move, MoveRollback,
@@ -25,6 +28,8 @@ pub type HistoryTable = [[[i16; 64]; 6]; 2];
 pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 
 pub type ContinuationHistoryTable = [[[[[i16; 64]; 6]; 64]; 6]; 2];
+pub type MutRelevantContinuationHistories<'a> = [Option<&'a mut [[i16; 64]; 6]>; 2];
+pub type RelevantContinuationHistories<'a> = [Option<&'a [[i16; 64]; 6]>; 2];
 
 /// Each value is in addition to the last
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
@@ -32,6 +37,11 @@ static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 pub const EMPTY_MOVE: Move = Move { data: 0 };
 
 include!(concat!(env!("OUT_DIR"), "/ln_fixedpoint_128_values.rs"));
+
+pub struct ContinuationHistoryTables {
+    pub ply1: ContinuationHistoryTable,
+    pub ply2: ContinuationHistoryTable,
+}
 
 #[derive(Default)]
 pub struct SearchStats {
@@ -71,8 +81,9 @@ struct PvData {
     pub selective_depth: u8,
 }
 
-struct SearchStack {
+pub struct SearchStack {
     mov: Move,
+    moved_piece_type: u8,
     excluded_move: Option<Move>,
     killers: [Move; 2],
 }
@@ -91,7 +102,7 @@ pub struct Searcher<'a> {
     stop_received: bool,
     total_max_nodes: u64,
     max_nodes_for_current_iteration: u64,
-    continuation_history: &'a mut ContinuationHistoryTable,
+    continuation_histories: &'a mut ContinuationHistoryTables,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
     extra_uci_options: RequiredUciOptions,
@@ -109,7 +120,7 @@ impl<'a> Searcher<'a> {
         transposition_table: &'a mut TranspositionTable,
         history_table: &'a mut HistoryTable,
         stop_rx: &'a Receiver<()>,
-        continuation_history: &'a mut ContinuationHistoryTable,
+        continuation_histories: &'a mut ContinuationHistoryTables,
         multi_pv: u8,
         extra_uci_options: RequiredUciOptions,
         contempt: i16,
@@ -136,7 +147,7 @@ impl<'a> Searcher<'a> {
             stop_received: false,
             total_max_nodes: u64::MAX,
             max_nodes_for_current_iteration: u64::MAX,
-            continuation_history,
+            continuation_histories,
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
             extra_uci_options,
@@ -459,25 +470,15 @@ impl<'a> Searcher<'a> {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
                             // should history be updated here?
-                            let last_move = if ply > 0 {
-                                self.ss[ply as usize - 1].mov
-                            } else {
-                                EMPTY_MOVE
-                            };
-                            let killers = if ply > 0 {
-                                &mut self.ss[ply as usize - 1].killers
-                            } else {
-                                &mut self.root_killers
-                            };
-                            let mut relevant_cont_hist =
-                                get_relevant_cont_hist(last_move, &self.board, &mut *self.continuation_history);
                             update_killers_and_history(
                                 &self.board,
-                                &mut self.history_table,
-                                killers,
                                 &tt_data.important_move,
                                 draft,
-                                &mut relevant_cont_hist,
+                                ply,
+                                &mut self.history_table,
+                                &mut self.continuation_histories,
+                                &mut self.ss,
+                                &mut self.root_killers,
                             );
 
                             return Ok(tt_score);
@@ -582,9 +583,10 @@ impl<'a> Searcher<'a> {
             move_gen.generate_moves_check_evasion(
                 self.board,
                 Some(self.history_table),
-                Some(last_move),
-                Some(self.continuation_history),
+                Some(&self.ss),
+                Some(self.continuation_histories),
                 Some(killers),
+                Some(ply),
             );
         }
 
@@ -610,9 +612,10 @@ impl<'a> Searcher<'a> {
                     move_gen.generate_more_moves(
                         self.board,
                         Some(self.history_table),
-                        Some(last_move),
-                        Some(self.continuation_history),
+                        Some(&self.ss),
+                        Some(self.continuation_histories),
                         Some(killers),
+                        Some(ply),
                     );
                     continue;
                 }
@@ -697,6 +700,7 @@ impl<'a> Searcher<'a> {
             }
 
             self.ss[ply as usize].mov = r#move.m;
+            self.ss[ply as usize].moved_piece_type = self.board.get_piece_64(r#move.m.to() as usize) & PIECE_MASK;
 
             // Late move reduction
             let reduction_ply = if draft > 2 && searched_moves > 3 {
@@ -789,26 +793,15 @@ impl<'a> Searcher<'a> {
             searched_moves += 1;
 
             if score >= beta {
-                let last_move = if ply > 0 {
-                    self.ss[ply as usize - 1].mov
-                } else {
-                    EMPTY_MOVE
-                };
-                let killers = if ply > 0 {
-                    &mut self.ss[ply as usize - 1].killers
-                } else {
-                    &mut self.root_killers
-                };
-                let mut relevant_cont_hist =
-                    get_relevant_cont_hist(last_move, &self.board, &mut *self.continuation_history);
-
-                update_killers_and_history(
+                let mut relevant_cont_histories = update_killers_and_history(
                     &self.board,
-                    &mut self.history_table,
-                    killers,
                     &r#move.m,
                     draft,
-                    &mut relevant_cont_hist,
+                    ply,
+                    &mut self.history_table,
+                    &mut self.continuation_histories,
+                    &mut self.ss,
+                    &mut self.root_killers,
                 );
 
                 let penalty = -(draft as i16) * (draft as i16);
@@ -818,7 +811,7 @@ impl<'a> Searcher<'a> {
                         &mut self.history_table,
                         &m,
                         penalty,
-                        &mut relevant_cont_hist,
+                        &mut relevant_cont_histories,
                     );
                 }
 
@@ -1122,25 +1115,35 @@ impl<'a> Searcher<'a> {
 }
 
 #[inline]
-fn update_killers_and_history(
+fn update_killers_and_history<'a>(
     board: &Board,
-    history_table: &mut HistoryTable,
-    killers: &mut [Move; 2],
     m: &Move,
     draft: u8,
-    relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
-) {
+    ply: u8,
+    history_table: &mut HistoryTable,
+    continuation_histories: &'a mut ContinuationHistoryTables,
+    ss: &mut Vec<SearchStack>,
+    root_killers: &mut [Move; 2],
+) -> MutRelevantContinuationHistories<'a> {
+    let mut relevant_cont_histories = get_relevant_cont_histories(ss, board, continuation_histories, ply as usize);
+
     // TODO: Change this to check for capture flag specifically
     if m.flags() != 0 {
-        return;
+        return relevant_cont_histories;
     }
+
+    let killers = if ply > 0 {
+        &mut ss[ply as usize - 1].killers
+    } else {
+        root_killers
+    };
 
     update_history(
         board,
         history_table,
         m,
         (draft as i16) * (draft as i16),
-        relevant_cont_hist,
+        &mut relevant_cont_histories,
     );
 
     if killers[0] != *m {
@@ -1150,6 +1153,8 @@ fn update_killers_and_history(
             killers[1] = *m;
         }
     }
+
+    return relevant_cont_histories;
 }
 
 #[inline]
@@ -1158,44 +1163,68 @@ fn update_history(
     history_table: &mut HistoryTable,
     m: &Move,
     bonus: i16,
-    relevant_cont_hist: &mut Option<&mut [[i16; 64]; 6]>,
+    relevant_cont_histories: &mut MutRelevantContinuationHistories,
 ) {
     // from https://www.chessprogramming.org/History_Heuristic
-    let piece_type = (board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize;
+    let piece_type_index = (board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize - 1;
     let history_color_value = if board.white_to_move { 0 } else { 1 };
     let to = m.to() as usize;
 
     let clamped_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-    let current_history = &mut history_table[history_color_value][piece_type - 1][to];
+    let current_history = &mut history_table[history_color_value][piece_type_index][to];
     *current_history += (clamped_history_bonus
         - ((*current_history as i32) * clamped_history_bonus.abs() / MOVE_SCORE_HISTORY_MAX))
         as i16;
 
-    let clamped_const_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_CONST_HISTORY_MAX, MOVE_SCORE_CONST_HISTORY_MAX);
-    if let Some(relevant_cont_hist) = relevant_cont_hist {
-        let current_cont_hist = &mut relevant_cont_hist[piece_type - 1][to];
+    if let Some(relevant_cont_hist) = &mut relevant_cont_histories[0] {
+        let clamped_const_history_bonus =
+            (bonus as i32).clamp(-MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY1_MAX);
+        let current_cont_hist = &mut relevant_cont_hist[piece_type_index][to];
         *current_cont_hist += (clamped_const_history_bonus
-            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONST_HISTORY_MAX))
+            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONT_HISTORY_PLY1_MAX))
+            as i16;
+    }
+
+    if let Some(relevant_cont_hist) = &mut relevant_cont_histories[1] {
+        let clamped_const_history_bonus =
+            ((bonus / 2) as i32).clamp(-MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX);
+        let current_cont_hist = &mut relevant_cont_hist[piece_type_index][to];
+        *current_cont_hist += (clamped_const_history_bonus
+            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONT_HISTORY_PLY2_MAX))
             as i16;
     }
 }
 
 #[inline]
-fn get_relevant_cont_hist<'a>(
-    last_move: Move,
+fn get_relevant_cont_histories<'a>(
+    ss: &Vec<SearchStack>,
     board: &Board,
-    continuation_history: &'a mut ContinuationHistoryTable,
-) -> Option<&'a mut [[i16; 64]; 6]> {
-    if last_move != EMPTY_MOVE {
-        let last_moved_to = last_move.to() as usize;
-        let last_moved_piece = board.get_piece_64(last_moved_to);
-        return Some(
-            &mut continuation_history[if board.white_to_move { 0 } else { 1 }]
-                [((last_moved_piece & PIECE_MASK) - 1) as usize][last_moved_to],
-        );
+    continuation_histories: &'a mut ContinuationHistoryTables,
+    ply: usize,
+) -> MutRelevantContinuationHistories<'a> {
+    let mut result = [None, None];
+    let side = if board.white_to_move { 0 } else { 1 };
+
+    let table_for_ply = &mut continuation_histories.ply1;
+    let ply_offset = 1;
+    if ply >= ply_offset {
+        let entry = &ss[ply - ply_offset];
+        if entry.mov != EMPTY_MOVE {
+            result[0] = Some(&mut table_for_ply[side][entry.moved_piece_type as usize - 1][entry.mov.to() as usize]);
+        }
     }
 
-    None
+    // I think I have to manually repeat this code or run afoul of the rules against mutably borrowing something multiple times
+    let table_for_ply = &mut continuation_histories.ply2;
+    let ply_offset = 2;
+    if ply >= ply_offset {
+        let entry = &ss[ply - ply_offset];
+        if entry.mov != EMPTY_MOVE {
+            result[1] = Some(&mut table_for_ply[side][entry.moved_piece_type as usize - 1][entry.mov.to() as usize]);
+        }
+    }
+
+    result
 }
 
 #[inline]
@@ -1218,8 +1247,17 @@ impl SearchStack {
     pub fn new() -> Self {
         Self {
             mov: EMPTY_MOVE,
+            moved_piece_type: 0xFF,
             excluded_move: None,
             killers: [EMPTY_MOVE; 2],
         }
+    }
+
+    pub fn get_mov(&self) -> Move {
+        self.mov
+    }
+
+    pub fn get_moved_piece_type(&self) -> u8 {
+        self.moved_piece_type
     }
 }

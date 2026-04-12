@@ -19,7 +19,7 @@ use crate::{
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
-    search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher},
+    search::{ContinuationHistoryTable, ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
@@ -29,7 +29,7 @@ pub struct UciInterface {
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
-    continuation_history: Box<ContinuationHistoryTable>,
+    continuation_histories: Box<ContinuationHistoryTables>,
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
     contempt: i16,
@@ -42,7 +42,7 @@ impl UciInterface {
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
-            continuation_history: Self::alloc_zeroed_continuation_history(),
+            continuation_histories: Self::alloc_zeroed_continuation_history_tables(),
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
@@ -70,7 +70,7 @@ impl UciInterface {
                     self.board = None;
                     self.transposition_table.clear();
                     self.history_table = [[[0; 64]; 6]; 2];
-                    self.continuation_history = Self::alloc_zeroed_continuation_history();
+                    self.continuation_histories = Self::alloc_zeroed_continuation_history_tables();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
@@ -133,7 +133,7 @@ impl UciInterface {
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
-                            &mut self.continuation_history,
+                            &mut self.continuation_histories,
                             self.multi_pv,
                             self.extra_uci_options.convert(),
                             self.contempt,
@@ -341,11 +341,14 @@ impl UciInterface {
         (message_rx, stop_rx)
     }
 
-    pub fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
+    pub fn alloc_zeroed_continuation_history_tables() -> Box<ContinuationHistoryTables> {
+        assert!(size_of::<ContinuationHistoryTables>() % size_of::<i16>() == 0);
         unsafe {
+            // Safety: 0 is a valid value for i16 and
+            // ContinuationHistoryTables is a multidimensional array of i16, so it can be represented as a single dimensional array of i16
             let mem =
-                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTable>() / size_of::<i16>()).unwrap());
-            let typed_mem = mem.cast::<ContinuationHistoryTable>();
+                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTables>() / size_of::<i16>()).unwrap());
+            let typed_mem = mem.cast::<ContinuationHistoryTables>();
             Box::from_raw(typed_mem)
         }
     }

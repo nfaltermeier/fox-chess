@@ -78,7 +78,7 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
         let r#move = match move_generator.get_next_move_unordered() {
             GetMoveResult::Move(scored_move) => scored_move,
             GetMoveResult::GenerateMoves => {
-                move_generator.generate_more_moves(board, None, None, None, None);
+                move_generator.generate_more_moves(board, None, None, None, None, None);
                 continue;
             }
             GetMoveResult::NoMoves => break,

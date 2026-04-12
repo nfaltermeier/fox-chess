@@ -75,7 +75,7 @@ pub fn bench() {
 
         let mut transposition_table = TranspositionTable::new(18);
         let mut history = DEFAULT_HISTORY_TABLE;
-        let mut continuation_history = UciInterface::alloc_zeroed_continuation_history();
+        let mut continuation_history = UciInterface::alloc_zeroed_continuation_history_tables();
 
         let (_, stop_rx) = mpsc::channel::<()>();
         let mut searcher = Searcher::new(
