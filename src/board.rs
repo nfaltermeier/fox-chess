@@ -518,10 +518,12 @@ impl Debug for Board {
     }
 }
 
+/// return value range is 1-8
 pub fn rank_8x8(index: u8) -> u8 {
     ((index & 0x38) >> 3) + 1
 }
 
+/// return value range is 0-7
 pub fn file_8x8(index: u8) -> u8 {
     index & 0x07
 }
