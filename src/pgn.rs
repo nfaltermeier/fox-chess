@@ -14,7 +14,7 @@ use crate::{
     STARTING_FEN, TuningArgs,
     board::{Board, PIECE_BISHOP, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, piece_to_name, rank_8x8},
     move_generator_struct::{GetMoveResult, MoveGenerator},
-    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move, MoveRollback},
+    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move}, repetition_tracker::RepetitionTracker,
 };
 
 const NORMAL_MOVE_REGEX_STR: &str = r"^(?P<movPiece>[BKNRQ])?(?P<srcFile>[a-h])?(?P<srcRank>[1-8])?x?(?P<dest>[a-h][1-8])(?P<promo>=[BNRQ])?(?P<check>\+|#)?$";
@@ -215,7 +215,7 @@ impl<'a> Pgn {
             ))
         } else {
             let fen = tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN);
-            let board = Board::from_fen(fen).unwrap();
+            let board = Board::from_fen(fen, None).unwrap();
             let starting_move_num = board.fullmove_counter;
             let started_as_white = board.white_to_move;
             Ok(Pgn {
@@ -296,7 +296,7 @@ impl<'a> Pgn {
             self.moves[idx - 1].mov.ends_with('+') || self.moves[idx - 1].mov.ends_with('#')
         } else {
             let fen = self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN);
-            let mut board = Board::from_fen(fen).unwrap();
+            let mut board = Board::from_fen(fen, None).unwrap();
             board.is_in_check(false)
         }
     }
@@ -305,7 +305,7 @@ impl<'a> Pgn {
         if idx == 0 {
             self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN)
         } else {
-            let mut rollback = MoveRollback::default();
+            let mut repetitions = RepetitionTracker::default();
 
             while idx > self.fens.len() {
                 let move_index = self.fens.len();
@@ -351,14 +351,13 @@ impl<'a> Pgn {
                                     continue;
                                 }
 
-                                let (legal, move_made) =
-                                    self.board.test_legality_and_maybe_make_move(mov, &mut rollback);
+                                let (legal, _) =
+                                    self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
                                 if !legal {
-                                    if move_made {
-                                        self.board.unmake_move(&mov, &mut rollback);
-                                    }
-
-                                    continue;
+                                    panic!("Found a matching move for {}, but it is not legal for position {}",
+                                        self.moves[move_index].mov,
+                                        self.board.to_fen()
+                                    );
                                 }
 
                                 break;
@@ -383,22 +382,18 @@ impl<'a> Pgn {
                         panic!("Move {} did not match expected move format", self.moves[move_index].mov);
                     };
 
-                    let (legal, move_made) = self.board.test_legality_and_maybe_make_move(mov, &mut rollback);
+                    let (legal, _) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
                     if !legal {
-                        if move_made {
-                            self.board.unmake_move(&mov, &mut rollback);
-                        }
-
                         panic!(
                             "Described move {} matched generated move {}, but it is illegal for position {}",
                             self.moves[move_index].mov,
-                            mov.pretty_print(Some(&self.board)),
+                            mov.pretty_print(None),
                             self.board.to_fen()
                         );
                     }
                 }
 
-                self.board.repetitions.clear();
+                repetitions.unmake_move(self.board.hash);
                 self.fens.push(self.board.to_fen());
             }
 

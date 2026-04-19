@@ -16,12 +16,11 @@ use crate::{
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
-        MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move, MoveRollback,
+        MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
+    repetition_tracker::RepetitionTracker,
     search::{DEFAULT_HISTORY_TABLE, HistoryTable},
 };
-
-pub const ENABLE_UNMAKE_MOVE_TEST: bool = false;
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
 /// Capturing promotions also have value of piece to become added so their additional range is +300 to +1800
@@ -50,8 +49,6 @@ impl Board {
         result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
     ) {
         self.generate_moves_pseudo_legal::<true, false>(history_table, result);
-
-        self.do_make_unmake_move_test(result);
     }
 
     #[inline]
@@ -62,15 +59,11 @@ impl Board {
     #[inline]
     pub fn generate_pseudo_legal_moves_without_history(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         self.generate_moves_pseudo_legal::<false, false>(&DEFAULT_HISTORY_TABLE, result);
-
-        self.do_make_unmake_move_test(result);
     }
 
     #[inline]
     pub fn generate_pseudo_legal_capture_moves(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         self.generate_moves_pseudo_legal::<false, true>(&DEFAULT_HISTORY_TABLE, result);
-
-        self.do_make_unmake_move_test(result);
     }
 
     /// if make and unmake move work properly then at the end board should be back to it's original state
@@ -83,12 +76,8 @@ impl Board {
         self.filter_to_legal_moves(result)
     }
 
-    fn filter_to_legal_moves(&mut self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-        let mut rollback = MoveRollback::default();
-        let mut board_copy = None;
-        if ENABLE_UNMAKE_MOVE_TEST {
-            board_copy = Some(self.clone());
-        }
+    fn filter_to_legal_moves(&self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+        let mut repetitions = RepetitionTracker::default();
 
         // if log_enabled!(log::Level::Trace) {
         //     for m in &moves {
@@ -97,31 +86,15 @@ impl Board {
         // }
 
         moves.retain(|r#move| {
-            let (result, move_made) = self.test_legality_and_maybe_make_move(r#move.m, &mut rollback);
+            let mut new_board = self.clone();
+            let (result, move_made) = new_board.test_legality_and_maybe_make_move(r#move.m, &mut repetitions);
 
             if move_made {
-                self.unmake_move(&r#move.m, &mut rollback);
-
-                if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self {
-                    error!("unmake move did not properly undo move {:?}", r#move.m);
-
-                    let board_copied = board_copy.as_ref().unwrap();
-                    if board_copied.hash != self.hash {
-                        for (i, v) in HASH_VALUES.iter().enumerate() {
-                            if board_copied.hash ^ v == self.hash {
-                                error!("make/unmake differs by value {i} of HASH_VALUES in hash");
-                            }
-                        }
-                    }
-
-                    assert_eq!(board_copy.as_ref().unwrap(), self);
-                }
+                repetitions.unmake_move(new_board.hash);
             }
 
             result
         });
-
-        debug_assert!(rollback.is_empty());
     }
 
     pub fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
@@ -636,12 +609,7 @@ impl Board {
     /// If the move is legal then the move will have been made.
     /// First bool of return: if move is legal
     /// Second bool of return: if move is made
-    pub fn test_legality_and_maybe_make_move(&mut self, m: Move, rollback: &mut MoveRollback) -> (bool, bool) {
-        let mut board_copy = None;
-        if ENABLE_UNMAKE_MOVE_TEST {
-            board_copy = Some(self.clone());
-        }
-
+    pub fn test_legality_and_maybe_make_move(&mut self, m: Move, repetitions: &mut RepetitionTracker) -> (bool, bool) {
         let mut result;
         let flags = m.flags();
 
@@ -656,26 +624,23 @@ impl Board {
             let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
             let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
 
-            self.make_move(&intermediate_move, rollback);
-            result = !self.can_capture_opponent_king(true);
-            self.unmake_move(&intermediate_move, rollback);
-
-            if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != self {
-                error!("unmake move did not properly undo move {:?}", intermediate_move);
-                assert_eq!(board_copy.as_ref().unwrap(), self);
-            }
+            let mut castle_intermediate_board = self.clone();
+            castle_intermediate_board.make_move(&intermediate_move, repetitions);
+            result = !castle_intermediate_board.can_capture_opponent_king(true);
+            repetitions.unmake_move(castle_intermediate_board.hash);
 
             if !result {
                 return (result, false);
             }
         }
 
-        self.make_move(&m, rollback);
+        self.make_move(&m, repetitions);
         result = !self.can_capture_opponent_king(true);
 
         (result, true)
     }
 
+    // TODO: make a non-mut version of this
     #[inline]
     pub fn is_in_check(&mut self, is_legality_test_after_move: bool) -> bool {
         self.white_to_move = !self.white_to_move;
@@ -727,33 +692,6 @@ impl Board {
 
         false
     }
-
-    #[inline]
-    fn do_make_unmake_move_test(&mut self, moves: &ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-        if ENABLE_UNMAKE_MOVE_TEST {
-            let board_copy = self.clone();
-            let mut rollback = MoveRollback::default();
-
-            for m in moves {
-                self.make_move(&m.m, &mut rollback);
-                self.unmake_move(&m.m, &mut rollback);
-
-                if board_copy != *self {
-                    error!("unmake move did not properly undo move {:?}", m.m);
-
-                    if board_copy.hash != self.hash {
-                        for (i, v) in HASH_VALUES.iter().enumerate() {
-                            if board_copy.hash ^ v == self.hash {
-                                error!("make/unmake differs by value {i} of HASH_VALUES in hash");
-                            }
-                        }
-                    }
-
-                    assert_eq!(board_copy, *self);
-                }
-            }
-        }
-    }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -785,7 +723,7 @@ mod check_evasion_tests {
 
                     initialize_magic_bitboards();
 
-                    let mut board = Board::from_fen(input).unwrap();
+                    let mut board = Board::from_fen(input, None).unwrap();
                     let mut evasion_generator_moves = ArrayVec::new();
                     board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE, &mut evasion_generator_moves);
                     board.filter_to_legal_moves(&mut evasion_generator_moves);

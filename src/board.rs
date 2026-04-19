@@ -68,7 +68,6 @@ pub struct Board {
     pub fullmove_counter: u16,
     pub hash: u64,
     pub game_stage: i16,
-    pub repetitions: RepetitionTracker,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
@@ -111,7 +110,7 @@ impl Board {
         self.squares[square_index] = piece;
     }
 
-    pub fn from_fen(fen: &str) -> Result<Board, String> {
+    pub fn from_fen(fen: &str, repetitions: Option<&mut RepetitionTracker>) -> Result<Board, String> {
         if !fen.is_ascii() {
             return Err(String::from("Expected FEN to only contain ASCII characters"));
         }
@@ -133,7 +132,6 @@ impl Board {
             fullmove_counter: 1,
             hash: 0,
             game_stage: 0,
-            repetitions: RepetitionTracker::default(),
             piece_counts: [[0; 7]; 2],
             piece_bitboards: [[0; 7]; 2],
             side_occupancy: [0; 2],
@@ -331,7 +329,10 @@ impl Board {
             }
         }
 
-        board.repetitions.add_start_position(board.hash);
+        if let Some(repetitions) = repetitions {
+            repetitions.clear();
+            repetitions.add_start_position(board.hash);
+        }
 
         Ok(board)
     }
@@ -436,7 +437,7 @@ impl Board {
     }
 
     pub fn flip_and_invert_colors(&self) -> Board {
-        let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1").unwrap();
+        let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1", None).unwrap();
 
         for i in 0..64 {
             let piece = self.get_piece_64(i);
@@ -455,7 +456,7 @@ impl Board {
 
         new_board.castling_rights = (self.castling_rights >> 2) | ((self.castling_rights & 0b11) << 2);
 
-        Self::from_fen(&new_board.to_fen()).unwrap()
+        Self::from_fen(&new_board.to_fen(), None).unwrap()
     }
 }
 
@@ -471,7 +472,6 @@ impl Debug for Board {
             .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
             .field("game_stage", &self.game_stage)
-            .field("repetitions", &self.repetitions)
             .field("piece_counts", &self.piece_counts)
             .field("piece_bitboards", &"See end value")
             .field("side_occupancy", &"See end value")
@@ -577,7 +577,7 @@ mod moves_tests {
                 fn $name() {
                     let (fen1, expected_fen2) = $value;
 
-                    let board1 = Board::from_fen(fen1).unwrap();
+                    let board1 = Board::from_fen(fen1, None).unwrap();
                     let board2 = board1.flip_and_invert_colors();
 
                     assert_eq!(expected_fen2, board2.to_fen());

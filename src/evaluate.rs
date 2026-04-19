@@ -505,8 +505,8 @@ mod eval_tests {
 
     #[test]
     pub fn simplest_kings_mirrorred() {
-        let b1 = Board::from_fen("8/8/8/1k6/8/8/8/4K3 w - - 0 1").unwrap();
-        let b2 = Board::from_fen("4k3/8/8/8/1K6/8/8/8 b - - 0 1").unwrap();
+        let b1 = Board::from_fen("8/8/8/1k6/8/8/8/4K3 w - - 0 1", None).unwrap();
+        let b2 = Board::from_fen("4k3/8/8/8/1K6/8/8/8 b - - 0 1", None).unwrap();
 
         assert_eq!(b1.evaluate(), -b2.evaluate());
         assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
@@ -514,8 +514,8 @@ mod eval_tests {
 
     #[test]
     pub fn unbalanced_pieces_mirrorred() {
-        let b1 = Board::from_fen("4k3/8/8/8/2P5/1PB2N2/6Q1/2R1K3 w - - 0 1").unwrap();
-        let b2 = Board::from_fen("2r1k3/6q1/1pb2n2/2p5/8/8/8/4K3 b - - 0 1").unwrap();
+        let b1 = Board::from_fen("4k3/8/8/8/2P5/1PB2N2/6Q1/2R1K3 w - - 0 1", None).unwrap();
+        let b2 = Board::from_fen("2r1k3/6q1/1pb2n2/2p5/8/8/8/4K3 b - - 0 1", None).unwrap();
 
         assert_eq!(b1.evaluate(), -b2.evaluate());
         assert_eq!(b1.evaluate_side_to_move_relative(), b2.evaluate_side_to_move_relative());
@@ -523,7 +523,7 @@ mod eval_tests {
 
     #[test]
     pub fn starting_position_is_even() {
-        let b = Board::from_fen(STARTING_FEN).unwrap();
+        let b = Board::from_fen(STARTING_FEN, None).unwrap();
 
         assert_eq!(0, b.evaluate());
     }
@@ -535,7 +535,7 @@ mod eval_tests {
                 fn $name() {
                     let (fen, expected_eval, m_str) = $value;
 
-                    let board = Board::from_fen(fen).unwrap();
+                    let board = Board::from_fen(fen, None).unwrap();
 
                     initialize_magic_bitboards();
 
@@ -574,8 +574,8 @@ mod eval_tests {
                 fn $name() {
                     let (fen1, fen2) = $value;
 
-                    let board1 = Board::from_fen(fen1).unwrap();
-                    let board2 = Board::from_fen(fen2).unwrap();
+                    let board1 = Board::from_fen(fen1, None).unwrap();
+                    let board2 = Board::from_fen(fen2, None).unwrap();
 
                     let flipped_board1 = board1.flip_and_invert_colors();
                     let flipped_board2 = board2.flip_and_invert_colors();
@@ -628,8 +628,8 @@ mod eval_tests {
                 fn $name() {
                     let (fen1, fen2) = $value;
 
-                    let board1 = Board::from_fen(fen1).unwrap();
-                    let board2 = Board::from_fen(fen2).unwrap();
+                    let board1 = Board::from_fen(fen1, None).unwrap();
+                    let board2 = Board::from_fen(fen2, None).unwrap();
 
                     let flipped_board1 = board1.flip_and_invert_colors();
                     let flipped_board2 = board2.flip_and_invert_colors();
@@ -675,7 +675,7 @@ mod eval_tests {
 
     #[test]
     fn au_sides_cancel_out() {
-        let board = Board::from_fen("1k3R2/5R2/5R2/8/8/6r1/6r1/1K4r1 w - - 0 1").unwrap();
+        let board = Board::from_fen("1k3R2/5R2/5R2/8/8/6r1/6r1/1K4r1 w - - 0 1", None).unwrap();
 
         initialize_magic_bitboards();
 

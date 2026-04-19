@@ -19,6 +19,7 @@ use crate::{
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
+    repetition_tracker::RepetitionTracker,
     search::{ContinuationHistoryTable, ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
@@ -33,6 +34,7 @@ pub struct UciInterface {
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
     contempt: i16,
+    repetitions: RepetitionTracker,
 }
 
 impl UciInterface {
@@ -46,6 +48,7 @@ impl UciInterface {
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
+            repetitions: RepetitionTracker::default(),
         }
     }
 
@@ -76,10 +79,10 @@ impl UciInterface {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
                     let start = Instant::now();
                     if startpos {
-                        self.board = Some(Board::from_fen(STARTING_FEN).unwrap())
+                        self.board = Some(Board::from_fen(STARTING_FEN, Some(&mut self.repetitions)).unwrap())
                     } else if fen.is_some() {
                         let fen_str = fen.unwrap().0;
-                        let result = Board::from_fen(&fen_str);
+                        let result = Board::from_fen(&fen_str, Some(&mut self.repetitions));
                         match result {
                             Ok(b) => self.board = Some(b),
                             Err(err_msg) => {
@@ -113,7 +116,7 @@ impl UciInterface {
                             (from, to, promo)
                         });
 
-                        find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
+                        find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect(), &mut self.repetitions)
                     }
                     let duration = start.elapsed();
                     trace!("Position with {} moves took {duration:#?} to calculate", moves.len());
@@ -126,10 +129,7 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = &self.board {
-                        // Search on a board copy to protect against the board state being changed by the search timing out
-                        let mut board_copy = b.clone();
                         let mut searcher = Searcher::new(
-                            &mut board_copy,
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
@@ -137,9 +137,13 @@ impl UciInterface {
                             self.multi_pv,
                             self.extra_uci_options.convert(),
                             self.contempt,
+                            &mut self.repetitions,
                         );
 
-                        let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
+                        // Search on a board copy to protect against the board state being changed by the search timing out
+                        let board_copy = b.clone();
+                        let search_result =
+                            searcher.iterative_deepening_search(board_copy, &time_control, &search_control);
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
                     } else {

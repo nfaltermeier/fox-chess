@@ -1,10 +1,7 @@
 use std::fmt::Debug;
 
-use log::error;
-
 use crate::{
-    board::{Board, HASH_VALUES, PIECE_MASK, PIECE_PAWN},
-    move_generator::ENABLE_UNMAKE_MOVE_TEST,
+    board::{Board, PIECE_MASK, PIECE_PAWN},
     moves::Move,
 };
 
@@ -45,21 +42,16 @@ impl RepetitionTracker {
         self.repetitions[(hash & TABLE_MASK) as usize] -= 1;
     }
 
-    pub fn test_repetition(board: &mut Board) -> bool {
-        if board.repetitions.repetitions[(board.hash & TABLE_MASK) as usize] >= MIN_REPETITIONS_FOR_DRAW {
+    pub fn test_repetition(&self, board: &Board) -> bool {
+        if self.repetitions[(board.hash & TABLE_MASK) as usize] >= MIN_REPETITIONS_FOR_DRAW {
             let mut check = true;
             let mut repetitions = 0;
             let target_hash = board.hash;
-            let original_move_history_len = board.repetitions.move_history_len;
+            let mut new_board = board.clone();
 
-            let mut board_copy = None;
-            if ENABLE_UNMAKE_MOVE_TEST {
-                board_copy = Some(board.clone());
-            }
-
-            let mut i = board.repetitions.move_history_len - 1;
+            let mut i = self.move_history_len - 1;
             loop {
-                if check && board.hash == target_hash {
+                if check && new_board.hash == target_hash {
                     repetitions += 1;
                     if repetitions == MIN_REPETITIONS_FOR_DRAW {
                         break;
@@ -68,36 +60,16 @@ impl RepetitionTracker {
 
                 // If irreversible move or out of moves
                 if i == 0
-                    || board.repetitions.move_history[i].flags() != 0
-                    || (board.get_piece_64(board.repetitions.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN
+                    || self.move_history[i].flags() != 0
+                    || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN
                 {
                     break;
                 }
 
-                board.unmake_reversible_move_for_repetitions(i);
+                new_board.unmake_reversible_move_for_repetitions(i, self);
 
                 i -= 1;
                 check = !check;
-            }
-
-            for move_index in (i + 1)..original_move_history_len {
-                board.make_reversible_move_for_repetitions(move_index);
-            }
-
-            if ENABLE_UNMAKE_MOVE_TEST && board_copy.as_ref().unwrap() != board {
-                error!("test_repetition did not properly undo board changes");
-
-                let board_copied = board_copy.as_ref().unwrap();
-                if board_copied.hash != board.hash {
-                    let hash_values = &*HASH_VALUES;
-                    for (i, v) in hash_values.iter().enumerate() {
-                        if board_copied.hash ^ v == board.hash {
-                            error!("make/unmake differs by value {i} of HASH_VALUES in hash");
-                        }
-                    }
-                }
-
-                assert_eq!(board_copy.as_ref().unwrap(), board);
             }
 
             repetitions >= MIN_REPETITIONS_FOR_DRAW

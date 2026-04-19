@@ -14,7 +14,6 @@ use clap::Args;
 use clap::{Parser, Subcommand};
 use log::{debug, error};
 use magic_bitboard::initialize_magic_bitboards;
-use move_generator::ENABLE_UNMAKE_MOVE_TEST;
 #[cfg(feature = "pgn")]
 use pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
 use uci::UciInterface;
@@ -148,10 +147,6 @@ fn main() {
     // dereference lazy cell to cause it to initialize
     let _ = *HASH_VALUES;
     initialize_magic_bitboards();
-
-    if ENABLE_UNMAKE_MOVE_TEST {
-        error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
-    }
 
     if let Some(command) = &args.command {
         handle_startup_command(command);
@@ -295,14 +290,14 @@ fn handle_startup_command(command: &Commands) {
 }
 
 fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
-    let mut board = Board::from_fen(fen).unwrap();
+    let mut board = Board::from_fen(fen, None).unwrap();
     for depth in 1..=up_to_depth {
         board.start_perft(depth, false);
     }
 }
 
 fn perft_test_position(fen: &str, expected_results: Vec<(u8, u64)>) {
-    let mut board = Board::from_fen(fen).unwrap();
+    let mut board = Board::from_fen(fen, None).unwrap();
 
     for (depth, nodes) in expected_results {
         assert_eq!(nodes, board.start_perft(depth, false))
