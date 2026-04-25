@@ -152,7 +152,7 @@ impl Board {
             + (endgame_values as i32 * (MIN_GAME_STAGE_FULLY_MIDGAME as i32 - capped_game_stage)))
             / (MIN_GAME_STAGE_FULLY_MIDGAME as i32)) as i16;
 
-        main_total + king_safety_eval + self.kbnk_modifier()
+        main_total + king_safety_eval + self.kbnk_modifier() + (10 * if self.white_to_move { 1 } else { -1 })
     }
 
     fn kbnk_modifier(&self) -> i16 {
