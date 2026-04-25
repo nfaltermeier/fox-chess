@@ -7,10 +7,8 @@ use num_format::{Locale, ToFormattedString};
 use crate::{
     board::Board,
     move_generator_struct::{GetMoveResult, MoveGenerator},
-    moves::{
-        MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move,
-        MoveRollback,
-    },
+    moves::{MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
+    repetition_tracker::RepetitionTracker,
 };
 
 const ENABLE_PERFT_STATS: bool = true;
@@ -21,11 +19,11 @@ const ENABLE_PERFT_STATS_CHECKMATES: bool = false;
 
 impl Board {
     pub fn start_perft(&mut self, depth: u8, divide: bool) -> u64 {
-        let mut rollback = MoveRollback::default();
         let mut stats = PerftStats::default();
+        let mut repetitions = RepetitionTracker::default();
 
         let start_time = Instant::now();
-        do_perft(depth, 1, self, &mut rollback, &mut stats, divide);
+        do_perft(depth, 1, self, &mut stats, &mut repetitions, divide);
         let elapsed = start_time.elapsed();
 
         if divide {
@@ -39,7 +37,6 @@ impl Board {
             (nps as u64).to_formatted_string(&Locale::en)
         );
         info!("{:?}", stats);
-        assert!(rollback.is_empty());
 
         stats.nodes
     }
@@ -57,7 +54,14 @@ pub struct PerftStats {
 }
 
 // Code referenced from https://www.chessprogramming.org/Perft
-fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, stats: &mut PerftStats, divide: bool) {
+fn do_perft(
+    draft: u8,
+    ply: u8,
+    board: &mut Board,
+    stats: &mut PerftStats,
+    repetitions: &mut RepetitionTracker,
+    divide: bool,
+) {
     if draft == 0 {
         let mut moves = ArrayVec::new();
         // slow as all heck
@@ -78,27 +82,27 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
         let r#move = match move_generator.get_next_move_unordered() {
             GetMoveResult::Move(scored_move) => scored_move,
             GetMoveResult::GenerateMoves => {
-                move_generator.generate_more_moves(board, None, None, None, None);
+                move_generator.generate_more_moves(board, None, None, None, None, None);
                 continue;
             }
             GetMoveResult::NoMoves => break,
         };
 
-        let (legal, move_made) = board.test_legality_and_maybe_make_move(r#move.m, rollback);
+        let mut new_board = board.clone();
+        let (legal, move_made) = new_board.test_legality_and_maybe_make_move(r#move.m, repetitions);
         if !legal {
             if move_made {
-                board.unmake_move(&r#move.m, rollback);
+                repetitions.unmake_move(new_board.hash);
             }
-
             continue;
         }
 
         if ENABLE_PERFT_STATS && draft == 1 {
-            check_perft_stats(&r#move.m, board, stats);
+            check_perft_stats(&r#move.m, &mut new_board, stats);
         }
 
         let start_nodes = stats.nodes;
-        do_perft(draft - 1, ply + 1, board, rollback, stats, divide);
+        do_perft(draft - 1, ply + 1, &mut new_board, stats, repetitions, divide);
 
         if divide && ply == 1 {
             println!(
@@ -108,7 +112,7 @@ fn do_perft(draft: u8, ply: u8, board: &mut Board, rollback: &mut MoveRollback, 
             )
         }
 
-        board.unmake_move(&r#move.m, rollback);
+        repetitions.unmake_move(new_board.hash);
     }
 }
 

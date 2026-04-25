@@ -380,7 +380,7 @@ mod bitboard_tests {
 
     #[test]
     pub fn basic_passed_pawns() {
-        let board = Board::from_fen("7k/3Pp2p/8/8/8/8/1PP1PPp1/K7 w - - 0 1").unwrap();
+        let board = Board::from_fen("7k/3Pp2p/8/8/8/8/1PP1PPp1/K7 w - - 0 1", None).unwrap();
 
         assert_eq!(3, board.white_passed_pawns().count_ones());
         assert_eq!(2, board.black_passed_pawns().count_ones());
@@ -388,7 +388,7 @@ mod bitboard_tests {
 
     #[test]
     pub fn doubled_pawns_are_not_passed_pawns() {
-        let board = Board::from_fen("7k/8/6p1/6p1/3P4/3P4/8/K7 w - - 0 1").unwrap();
+        let board = Board::from_fen("7k/8/6p1/6p1/3P4/3P4/8/K7 w - - 0 1", None).unwrap();
 
         assert_eq!(1, board.white_passed_pawns().count_ones());
         assert_eq!(1, board.black_passed_pawns().count_ones());
@@ -401,7 +401,7 @@ mod bitboard_tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    let board = Board::from_fen(input).unwrap();
+                    let board = Board::from_fen(input, None).unwrap();
 
                     assert_eq!(expected, board.can_probably_promote());
                 }
@@ -430,7 +430,7 @@ mod bitboard_tests {
                 fn $name() {
                     let (fen, expected_white_score, expected_black_score) = $value;
 
-                    let board = Board::from_fen(fen).unwrap();
+                    let board = Board::from_fen(fen, None).unwrap();
                     let white_score = board.score_pawn_shield(0);
                     let black_score = board.score_pawn_shield(1);
 
@@ -457,7 +457,7 @@ mod bitboard_tests {
                 fn $name() {
                     let (fen, expected_white_count, expected_black_count) = $value;
 
-                    let board = Board::from_fen(fen).unwrap();
+                    let board = Board::from_fen(fen, None).unwrap();
                     let white = board.get_connected_pawns(true);
                     let black = board.get_connected_pawns(false);
 
@@ -485,7 +485,7 @@ mod bitboard_tests {
                 fn $name() {
                     let fen = $value;
 
-                    let board = Board::from_fen(fen).unwrap();
+                    let board = Board::from_fen(fen, None).unwrap();
                     let white = board.get_connected_pawns(true);
                     let black = board.get_connected_pawns(false);
 
@@ -511,7 +511,7 @@ mod bitboard_tests {
                 fn $name() {
                     let (fen, w_value, b_value) = $value;
 
-                    let board = Board::from_fen(fen).unwrap();
+                    let board = Board::from_fen(fen, None).unwrap();
                     let white = board.get_pieces_threatened_by_pawns(true);
                     let black = board.get_pieces_threatened_by_pawns(false);
 
@@ -535,7 +535,7 @@ mod bitboard_tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    let board = Board::from_fen(input).unwrap();
+                    let board = Board::from_fen(input, None).unwrap();
                     let doubled_pawns = board.count_doubled_isolated_pawns().0;
 
                     assert_eq!(expected, doubled_pawns);

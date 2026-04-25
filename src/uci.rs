@@ -13,7 +13,7 @@ use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
-    STARTING_FEN, bench::bench, board::Board, evaluate::{MATE_THRESHOLD, MATE_VALUE}, get_build_info, moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves}, search::{ContinuationHistoryTable, HistoryTable, SearchStats, Searcher}, texel::DEFAULT_PARAMS, transposition_table::{TTEntry, TranspositionTable}, uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions}
+    STARTING_FEN, bench::bench, board::Board, evaluate::{MATE_THRESHOLD, MATE_VALUE}, get_build_info, moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves}, repetition_tracker::RepetitionTracker, search::{ContinuationHistoryTable, ContinuationHistoryTables, HistoryTable, SearchStats, Searcher}, texel::DEFAULT_PARAMS, transposition_table::{TTEntry, TranspositionTable}, uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions}
 };
 
 pub struct UciInterface {
@@ -21,10 +21,11 @@ pub struct UciInterface {
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
     stop_rx: Receiver<()>,
-    continuation_history: Box<ContinuationHistoryTable>,
+    continuation_histories: Box<ContinuationHistoryTables>,
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
     contempt: i16,
+    repetitions: RepetitionTracker,
 }
 
 impl UciInterface {
@@ -34,10 +35,11 @@ impl UciInterface {
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
             stop_rx,
-            continuation_history: Self::alloc_zeroed_continuation_history(),
+            continuation_histories: Self::alloc_zeroed_continuation_history_tables(),
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
+            repetitions: RepetitionTracker::default(),
         }
     }
 
@@ -62,16 +64,16 @@ impl UciInterface {
                     self.board = None;
                     self.transposition_table.clear();
                     self.history_table = [[[0; 64]; 6]; 2];
-                    self.continuation_history = Self::alloc_zeroed_continuation_history();
+                    self.continuation_histories = Self::alloc_zeroed_continuation_history_tables();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
                     let start = Instant::now();
                     if startpos {
-                        self.board = Some(Board::from_fen(STARTING_FEN).unwrap())
+                        self.board = Some(Board::from_fen(STARTING_FEN, Some(&mut self.repetitions)).unwrap())
                     } else if fen.is_some() {
                         let fen_str = fen.unwrap().0;
-                        let result = Board::from_fen(&fen_str);
+                        let result = Board::from_fen(&fen_str, Some(&mut self.repetitions));
                         match result {
                             Ok(b) => self.board = Some(b),
                             Err(err_msg) => {
@@ -107,7 +109,7 @@ impl UciInterface {
                             (from, to, promo)
                         });
 
-                        find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect())
+                        find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect(), &mut self.repetitions)
                     }
                     let duration = start.elapsed();
                     trace!("Position with {} moves took {duration:#?} to calculate", moves.len());
@@ -120,20 +122,21 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = &self.board {
-                        // Search on a board copy to protect against the board state being changed by the search timing out
-                        let mut board_copy = b.clone();
                         let mut searcher = Searcher::new(
-                            &mut board_copy,
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
-                            &mut self.continuation_history,
+                            &mut self.continuation_histories,
                             self.multi_pv,
                             self.extra_uci_options.convert(),
                             self.contempt,
+                            &mut self.repetitions,
                         );
 
-                        let search_result = searcher.iterative_deepening_search(&time_control, &search_control);
+                        // Search on a board copy to protect against the board state being changed by the search timing out
+                        let board_copy = b.clone();
+                        let search_result =
+                            searcher.iterative_deepening_search(board_copy, &time_control, &search_control);
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
                     } else {
@@ -336,11 +339,14 @@ impl UciInterface {
         (message_rx, stop_rx)
     }
 
-    pub fn alloc_zeroed_continuation_history() -> Box<ContinuationHistoryTable> {
+    pub fn alloc_zeroed_continuation_history_tables() -> Box<ContinuationHistoryTables> {
+        assert!(size_of::<ContinuationHistoryTables>() % size_of::<i16>() == 0);
         unsafe {
+            // Safety: 0 is a valid value for i16 and
+            // ContinuationHistoryTables is a multidimensional array of i16, so it can be represented as a single dimensional array of i16
             let mem =
-                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTable>() / size_of::<i16>()).unwrap());
-            let typed_mem = mem.cast::<ContinuationHistoryTable>();
+                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTables>() / size_of::<i16>()).unwrap());
+            let typed_mem = mem.cast::<ContinuationHistoryTables>();
             Box::from_raw(typed_mem)
         }
     }

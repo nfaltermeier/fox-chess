@@ -1,6 +1,8 @@
 #![feature(core_intrinsics)]
 #![feature(portable_simd)]
 
+#[cfg(feature = "pgn")]
+use std::path::Path;
 use std::{
     sync::mpsc::{self, TryRecvError},
     thread::sleep,
@@ -10,10 +12,13 @@ use std::{
 use crate::{bench::bench, texel::{DEFAULT_PARAMS, find_best_params, load_positions, load_preprocessed_positions, pretty_print_save_params}};
 use board::{Board, HASH_VALUES};
 use build_info::build_info;
+#[cfg(feature = "pgn")]
+use clap::Args;
 use clap::{Parser, Subcommand};
 use log::{debug, error};
 use magic_bitboard::initialize_magic_bitboards;
-use move_generator::ENABLE_UNMAKE_MOVE_TEST;
+#[cfg(feature = "pgn")]
+use pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
 use uci::UciInterface;
 use vampirc_uci::parse_with_unknown;
 
@@ -27,6 +32,8 @@ mod move_generator;
 mod move_generator_struct;
 mod moves;
 mod perft;
+#[cfg(feature = "pgn")]
+mod pgn;
 mod repetition_tracker;
 mod search;
 mod texel;
@@ -63,6 +70,73 @@ enum Commands {
     Bench,
     /// Prints the version of the program
     Version,
+    /// Tools for processing PGN files
+    #[cfg(feature = "pgn")]
+    #[command(subcommand)]
+    Pgn(PgnCommands),
+}
+
+#[cfg(feature = "pgn")]
+#[derive(Subcommand)]
+enum PgnCommands {
+    /// Prints positions from the PGN file's games in an EPD format. By default only includes games that terminated normally.
+    Epd {
+        /// Path of the input PGN file
+        filepath: String,
+        /// Includes games regardless of the Termination tag value. Normally only the 'normal' value is allowed.
+        #[arg(long)]
+        include_all_terminations: bool,
+    },
+    /// Prints selected quiet positions from the PGN file's games for tuning evaluation (gradient-tuning branch)
+    Tuning(TuningArgs),
+    Reprint {
+        /// Path of the input PGN file
+        filepath: String,
+    },
+}
+
+#[cfg(feature = "pgn")]
+#[derive(Args)]
+pub struct TuningArgs {
+    /// Path of the input PGN file
+    filepath: String,
+    /// Skips using games that end in a KBNvK draw
+    #[arg(long)]
+    include_kbnk_draws: bool,
+    /// Allows printing moves where the comment contains 'book'
+    #[arg(long)]
+    include_book_moves: bool,
+    /// Allows printing moves with no comments
+    #[arg(long)]
+    include_no_comment_moves: bool,
+    /// Additionally prints the move's score from the original game
+    #[arg(long)]
+    print_score: bool,
+    #[command(flatten)]
+    sampling: RandomSampling,
+    #[arg(long)]
+    win_adj_moves: Option<u16>,
+    #[arg(long)]
+    win_adj_score: Option<i16>,
+    #[arg(long)]
+    draw_adj_moves: Option<u16>,
+    #[arg(long)]
+    draw_adj_score: Option<i16>,
+    #[arg(long)]
+    draw_adj_min_ply: Option<u16>,
+}
+
+#[cfg(feature = "pgn")]
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+pub struct RandomSampling {
+    /// set the number of positions to randomly sample (approximately)
+    #[arg(long = "positions")]
+    positions_to_choose: u32,
+
+    /// Disables random sampling
+    #[arg(long = "no-sampling")]
+    no_random_sampling: bool,
 }
 
 fn main() {
@@ -80,10 +154,6 @@ fn main() {
     // dereference lazy cell to cause it to initialize
     let _ = *HASH_VALUES;
     initialize_magic_bitboards();
-
-    if ENABLE_UNMAKE_MOVE_TEST {
-        error!("Running with ENABLE_UNMAKE_MOVE_TEST enabled. Performance will be degraded heavily.")
-    }
 
     // rayon::ThreadPoolBuilder::new().num_threads(10).build_global().unwrap();
 
@@ -163,25 +233,24 @@ fn handle_startup_command(command: &Commands) {
             if !has_any_subarg {
                 run_perft_tests();
             } else {
-                if let Some(depth) = depth {
-                    if let Some(fen) = fen
-                        && fen != ""
+                if let Some(depth) = depth
+                    && let Some(fen) = fen
+                    && !fen.is_empty()
+                {
+                    let mut uci_command = format!("position fen {fen}");
+                    if let Some(moves) = moves
+                        && !moves.is_empty()
                     {
-                        let mut uci_command = format!("position fen {fen}");
-                        if let Some(moves) = moves
-                            && moves != ""
-                        {
-                            uci_command = format!("{uci_command} moves {moves}");
-                        }
-
-                        let messages = parse_with_unknown(&uci_command);
-                        let (_, stop_rx) = mpsc::channel::<()>();
-                        let mut uci = UciInterface::new(2, stop_rx);
-                        uci.process_command((uci_command.clone(), messages));
-
-                        uci.get_board_copy().unwrap().start_perft(depth, true);
-                        return;
+                        uci_command = format!("{uci_command} moves {moves}");
                     }
+
+                    let messages = parse_with_unknown(&uci_command);
+                    let (_, stop_rx) = mpsc::channel::<()>();
+                    let mut uci = UciInterface::new(2, stop_rx);
+                    uci.process_command((uci_command.clone(), messages));
+
+                    uci.get_board_copy().unwrap().start_perft(depth, true);
+                    return;
                 }
 
                 error!("If the depth perft argument is provided, fen must also be provided");
@@ -193,18 +262,55 @@ fn handle_startup_command(command: &Commands) {
         Commands::Version => {
             println!("{}", UciInterface::get_version());
         }
+        #[cfg(feature = "pgn")]
+        Commands::Pgn(subcommand) => match subcommand {
+            PgnCommands::Epd {
+                filepath,
+                include_all_terminations,
+            } => {
+                print_epds_for_pgn(Path::new(filepath), *include_all_terminations);
+            }
+            PgnCommands::Tuning(args) => {
+                if args.win_adj_score.is_some_and(|s| s < 0) {
+                    eprintln!("win_adj_score must be greater or equal to 0 when provided");
+                    return;
+                } else if args.draw_adj_score.is_some_and(|s| s < 0) {
+                    eprintln!("draw_adj_score must be greater or equal to 0 when provided");
+                    return;
+                } else if (args.draw_adj_min_ply.is_some()
+                    || args.draw_adj_moves.is_some()
+                    || args.draw_adj_score.is_some())
+                    && !(args.draw_adj_min_ply.is_some()
+                        && args.draw_adj_moves.is_some()
+                        && args.draw_adj_score.is_some())
+                {
+                    eprintln!("Draw adjudication will have no effect if not all arguments are provided");
+                    return;
+                } else if (args.win_adj_moves.is_some() || args.win_adj_score.is_some())
+                    && !(args.win_adj_moves.is_some() && args.win_adj_score.is_some())
+                {
+                    eprintln!("Score adjudication will have no effect if not all arguments are provided");
+                    return;
+                }
+
+                print_tuning_positions(args);
+            }
+            PgnCommands::Reprint { filepath } => {
+                reprint_pgns(Path::new(filepath));
+            }
+        },
     }
 }
 
 fn do_perfts_up_to(up_to_depth: u8, fen: &str) {
-    let mut board = Board::from_fen(fen).unwrap();
+    let mut board = Board::from_fen(fen, None).unwrap();
     for depth in 1..=up_to_depth {
         board.start_perft(depth, false);
     }
 }
 
 fn perft_test_position(fen: &str, expected_results: Vec<(u8, u64)>) {
-    let mut board = Board::from_fen(fen).unwrap();
+    let mut board = Board::from_fen(fen, None).unwrap();
 
     for (depth, nodes) in expected_results {
         assert_eq!(nodes, board.start_perft(depth, false))

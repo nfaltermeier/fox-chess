@@ -529,7 +529,7 @@ mod eval_tests {
                 fn $name() {
                     let (fen, expected_eval, m_str) = $value;
 
-                    let board = Board::from_fen(fen).unwrap();
+                    let board = Board::from_fen(fen, None).unwrap();
 
                     initialize_magic_bitboards();
 

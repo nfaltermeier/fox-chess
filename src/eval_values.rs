@@ -212,4 +212,4 @@ pub static MOBILITY_QUEEN_MIDGAME: [i16; 14] = [   2,  -1,   1,   5,  12,  18,  
 pub static MOBILITY_QUEEN_ENDGAME: [i16; 14] = [   1,   2,   3,   4,   5,   6,   9,  14,  12,  10,   9,  12,  13,  14];
 
 /// Knight, bishop, rook, queen
-pub static KING_ATTACK_UNIT_PIECE_VALUES: [u16; 4] = [14,  37,  77,  62];
+pub static KING_ATTACK_UNIT_PIECE_VALUES: [u16; 4] = [14, 37, 77, 62];

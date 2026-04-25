@@ -11,6 +11,7 @@ use crate::{
         rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
+    repetition_tracker::RepetitionTracker,
 };
 
 // Assumes flags have been shifted to bits 1-4
@@ -190,22 +191,8 @@ impl std::fmt::Debug for Move {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct MoveRollback {
-    // Only added when a piece is actually captured
-    pub captured_pieces: Vec<u8>,
-    pub ep_index: Vec<Option<u8>>,
-}
-
-impl MoveRollback {
-    pub fn is_empty(&self) -> bool {
-        self.captured_pieces.is_empty()
-            && self.ep_index.is_empty()
-    }
-}
-
 impl Board {
-    pub fn make_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
+    pub fn make_move(&mut self, r#move: &Move, repetitions: &mut RepetitionTracker) {
         let from = r#move.from() as usize;
         let to = r#move.to() as usize;
         let flags = r#move.flags();
@@ -216,7 +203,6 @@ impl Board {
         if capture && !ep_capture {
             let capture_target_piece = self.get_piece_64(to);
             self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
-            rollback.captured_pieces.push(capture_target_piece);
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
             // Remove the piece that is being captured from bitboards TODO: fix commented out logic to replace writing a blank piece
             // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] |= BIT_SQUARES[to];
@@ -236,8 +222,6 @@ impl Board {
                 }
             }
         }
-
-        rollback.ep_index.push(self.en_passant_target_square_index);
 
         let moved_piece = self.get_piece_64(from);
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
@@ -326,168 +310,14 @@ impl Board {
 
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
-    }
 
-    pub fn unmake_move(&mut self, r#move: &Move, rollback: &mut MoveRollback) {
-        let from = r#move.from() as usize;
-        let to = r#move.to() as usize;
-        let flags = r#move.flags();
-        let hash_values = &*HASH_VALUES;
-
-        let moved_piece = self.get_piece_64(to);
-
-        let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
-        let ep_capture = flags == MOVE_EP_CAPTURE;
-        if capture && !ep_capture {
-            let captured_piece = rollback.captured_pieces.pop().unwrap();
-            let moved_piece_val = moved_piece & PIECE_MASK;
-
-            // Remove the piece that did the capture from bitboards TODO: fix commented out logic to replace writing a blank piece
-            // self.side_occupancy[if self.white_to_move { 1 } else { 0 }] &= !BIT_SQUARES[to];
-            // self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][moved_piece_val as usize] &= !BIT_SQUARES[to];
-            self.write_piece(PIECE_NONE, to);
-
-            self.write_piece(captured_piece, to);
-            self.hash ^= get_hash_value(captured_piece & PIECE_MASK, self.white_to_move, to, hash_values);
-            self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
-            self.game_stage += GAME_STAGE_VALUES[(captured_piece & PIECE_MASK) as usize];
-
-            if captured_piece & PIECE_MASK == PIECE_BISHOP {
-                self.bishop_colors[if self.white_to_move { 0 } else { 1 }] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
-                    BISHOP_COLORS_DARK
-                } else {
-                    BISHOP_COLORS_LIGHT
-                };
-            }
-
-            if captured_piece & PIECE_MASK == PIECE_BISHOP {
-                self.bishop_colors[if self.white_to_move { 0 } else { 1 }] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
-                    BISHOP_COLORS_DARK
-                } else {
-                    BISHOP_COLORS_LIGHT
-                };
-            }
-
-            if captured_piece & PIECE_MASK == PIECE_BISHOP {
-                self.bishop_colors[if self.white_to_move { 0 } else { 1 }] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
-                    BISHOP_COLORS_DARK
-                } else {
-                    BISHOP_COLORS_LIGHT
-                };
-            }
-
-            if flags & MOVE_FLAG_PROMOTION == 0 {
-                self.write_piece(moved_piece, from);
-                self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
-            } else {
-                let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
-                self.write_piece(PIECE_PAWN | color_flag, from);
-                self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
-                self.game_stage -= GAME_STAGE_VALUES[moved_piece_val as usize];
-                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
-
-                if moved_piece_val == PIECE_BISHOP {
-                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
-                        & DARK_SQUARES
-                        == 0
-                    {
-                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_DARK;
-                    }
-                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
-                        & LIGHT_SQUARES
-                        == 0
-                    {
-                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_LIGHT;
-                    }
-                }
-            }
-        } else if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
-            let king_from;
-            let rook_to;
-            let rook_from;
-            let king_to = to;
-            if flags == MOVE_KING_CASTLE {
-                rook_from = king_to + 1;
-                rook_to = king_to - 1;
-                king_from = king_to - 2;
-            } else {
-                rook_from = king_to - 2;
-                rook_to = king_to + 1;
-                king_from = king_to + 2;
-            }
-
-            let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
-            self.write_piece(PIECE_NONE, king_to);
-            self.hash ^= get_hash_value(PIECE_KING, !self.white_to_move, king_to, hash_values);
-            self.write_piece(PIECE_NONE, rook_to);
-            self.hash ^= get_hash_value(PIECE_ROOK, !self.white_to_move, rook_to, hash_values);
-            self.write_piece(PIECE_KING | color_flag, king_from);
-            self.hash ^= get_hash_value(PIECE_KING, !self.white_to_move, king_from, hash_values);
-            self.write_piece(PIECE_ROOK | color_flag, rook_from);
-            self.hash ^= get_hash_value(PIECE_ROOK, !self.white_to_move, rook_from, hash_values);
-        } else {
-            if ep_capture {
-                let opponent_color = if self.white_to_move { 0 } else { COLOR_BLACK };
-                let diff = (to as isize).checked_sub_unsigned(from).unwrap();
-                if diff == 7 || diff == -9 {
-                    self.write_piece(PIECE_PAWN | opponent_color, from - 1);
-                    self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from - 1, hash_values);
-                } else {
-                    self.write_piece(PIECE_PAWN | opponent_color, from + 1);
-                    self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from + 1, hash_values);
-                }
-                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
-            }
-
-            let moved_piece_val = moved_piece & PIECE_MASK;
-            self.write_piece(PIECE_NONE, to);
-            self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, to, hash_values);
-
-            if flags & MOVE_FLAG_PROMOTION == 0 {
-                self.write_piece(moved_piece, from);
-                self.hash ^= get_hash_value(moved_piece_val, !self.white_to_move, from, hash_values);
-            } else {
-                let color_flag = if self.white_to_move { COLOR_BLACK } else { 0 };
-                self.write_piece(PIECE_PAWN | color_flag, from);
-                self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from, hash_values);
-                self.game_stage -= GAME_STAGE_VALUES[moved_piece_val as usize];
-                self.game_stage += GAME_STAGE_VALUES[PIECE_PAWN as usize];
-
-                if moved_piece_val == PIECE_BISHOP {
-                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
-                        & DARK_SQUARES
-                        == 0
-                    {
-                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_DARK;
-                    }
-                    if self.piece_bitboards[if self.white_to_move { 1 } else { 0 }][PIECE_BISHOP as usize]
-                        & LIGHT_SQUARES
-                        == 0
-                    {
-                        self.bishop_colors[if self.white_to_move { 1 } else { 0 }] &= !BISHOP_COLORS_LIGHT;
-                    }
-                }
-            }
-        }
-
-        if self.en_passant_target_square_index.is_some() {
-            let file = file_8x8(self.en_passant_target_square_index.unwrap());
-            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
-        }
-        self.en_passant_target_square_index = rollback.ep_index.pop().unwrap();
-        if self.en_passant_target_square_index.is_some() {
-            let file = file_8x8(self.en_passant_target_square_index.unwrap());
-            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
-        }
-
-        self.white_to_move = !self.white_to_move;
-        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+        repetitions.make_move(*r#move, self.hash);
     }
 
     /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
     /// This is a simplified, specialized copy of unmake_move that must stay in sync.
-    pub fn unmake_reversible_move_for_repetitions(&mut self, move_index: usize) {
-        let m = Move { data: 0 };
+    pub fn unmake_reversible_move_for_repetitions(&mut self, move_index: usize, repetitions: &RepetitionTracker) {
+        let m = repetitions.get_move_ref(move_index);
         let from = m.from() as usize;
         let to = m.to() as usize;
         let hash_values = &*HASH_VALUES;
@@ -495,6 +325,7 @@ impl Board {
         debug_assert_eq!(m.flags(), 0);
 
         let moved_piece = self.get_piece_64(to);
+        debug_assert_ne!(moved_piece, 0);
 
         let moved_piece_val = moved_piece & PIECE_MASK;
         self.write_piece(PIECE_NONE, to);
@@ -506,32 +337,11 @@ impl Board {
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
 
-    /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
-    /// This is a simplified, specialized copy of make_move that must stay in sync.
-    pub fn make_reversible_move_for_repetitions(&mut self, move_index: usize) {
-        let m = Move { data: 0 };
-        let from = m.from() as usize;
-        let to = m.to() as usize;
+    #[must_use]
+    pub fn make_null_move(&mut self) -> Option<u8> {
         let hash_values = &*HASH_VALUES;
 
-        debug_assert_eq!(m.flags(), 0);
-
-        let moved_piece = self.get_piece_64(from);
-
-        let moved_piece_val = moved_piece & PIECE_MASK;
-        self.write_piece(PIECE_NONE, from);
-        self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, from, hash_values);
-        self.write_piece(moved_piece, to);
-        self.hash ^= get_hash_value(moved_piece_val, self.white_to_move, to, hash_values);
-
-        self.white_to_move = !self.white_to_move;
-        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
-    }
-
-    pub fn make_null_move(&mut self, rollback: &mut MoveRollback) {
-        let hash_values = &*HASH_VALUES;
-
-        rollback.ep_index.push(self.en_passant_target_square_index);
+        let en_passant_target_square_index = self.en_passant_target_square_index;
 
         if self.en_passant_target_square_index.is_some() {
             let file = file_8x8(self.en_passant_target_square_index.unwrap());
@@ -543,14 +353,16 @@ impl Board {
         // should I increment move clocks/counters?
         self.white_to_move = !self.white_to_move;
         self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+
+        en_passant_target_square_index
     }
 
-    pub fn unmake_null_move(&mut self, rollback: &mut MoveRollback) {
+    pub fn unmake_null_move(&mut self, en_passant_target_square_index: Option<u8>) {
         let hash_values = &*HASH_VALUES;
 
-        self.en_passant_target_square_index = rollback.ep_index.pop().unwrap();
-        if self.en_passant_target_square_index.is_some() {
-            let file = file_8x8(self.en_passant_target_square_index.unwrap());
+        self.en_passant_target_square_index = en_passant_target_square_index;
+        if en_passant_target_square_index.is_some() {
+            let file = file_8x8(en_passant_target_square_index.unwrap());
             self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         }
 
@@ -561,9 +373,7 @@ impl Board {
 }
 
 /// indices data is intended to come from vampiric uci parsing a position command
-pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>) {
-    let mut rollback = MoveRollback::default();
-
+pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>, repetitions: &mut RepetitionTracker) {
     for (i, r#move) in indices.iter().enumerate() {
         let mut moves = ArrayVec::new();
         board.generate_pseudo_legal_moves_without_history(&mut moves);
@@ -597,7 +407,11 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             clear_threefold_repetition = piece & PIECE_MASK == PIECE_PAWN;
         }
 
-        let (legal, _) = board.test_legality_and_maybe_make_move(gen_move.m, &mut rollback);
+        if clear_threefold_repetition {
+            repetitions.clear();
+        }
+
+        let (legal, _) = board.test_legality_and_maybe_make_move(gen_move.m, repetitions);
         if !legal {
             error!(
                 "Requested move {} from {} {} to {} {}. Move is pseudo legal but not legal.",
@@ -623,10 +437,11 @@ mod moves_tests {
         board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, HASH_VALUES},
         magic_bitboard::initialize_magic_bitboards,
         moves::MOVE_FLAG_CAPTURE,
+        repetition_tracker::RepetitionTracker,
         uci::UciInterface,
     };
 
-    use super::{Move, MoveRollback};
+    use super::Move;
 
     #[test]
     pub fn board_same_for_fen_and_uci_position_moves() {
@@ -650,7 +465,7 @@ mod moves_tests {
             let from_uci = uci.get_board_copy().unwrap();
 
             let fen = from_uci.to_fen();
-            let from_fen = Board::from_fen(&fen).unwrap();
+            let from_fen = Board::from_fen(&fen, None).unwrap();
 
             // For debugging if the test is failing
             // println!("Now comparing fen {fen} which came from move {m}");
@@ -669,63 +484,50 @@ mod moves_tests {
                 }
             }
 
-            // Can't simply compare the boards because repetition tracker will differ
-            assert_eq!(from_fen.hash, from_uci.hash);
-            assert_eq!(from_fen.piece_bitboards, from_uci.piece_bitboards);
-            assert_eq!(from_fen.side_occupancy, from_uci.side_occupancy);
-            assert_eq!(from_fen.occupancy, from_uci.occupancy);
-            assert_eq!(from_fen.game_stage, from_uci.game_stage);
-            assert_eq!(
-                from_fen.en_passant_target_square_index,
-                from_uci.en_passant_target_square_index
-            );
-            assert_eq!(from_fen.white_to_move, from_uci.white_to_move);
-            assert_eq!(from_fen.bishop_colors, from_uci.bishop_colors);
+            assert_eq!(from_fen, from_uci);
         }
     }
 
     #[test]
     pub fn repeated_position_has_same_hash() {
-        let from_fen = Board::from_fen("1r1r4/p1p2pp1/3kp2p/3n4/1b1P4/4PB2/PBbN1PPP/2R1K1R1 b - - 8 24").unwrap();
+        let mut repetitions = RepetitionTracker::default();
+        let from_fen = Board::from_fen(
+            "1r1r4/p1p2pp1/3kp2p/3n4/1b1P4/4PB2/PBbN1PPP/2R1K1R1 b - - 8 24",
+            Some(&mut repetitions),
+        )
+        .unwrap();
         let mut from_repetitions = from_fen.clone();
-        let mut rollback = MoveRollback::default();
 
         // c2d3
-        from_repetitions.make_move(&Move { data: 1226 }, &mut rollback);
+        from_repetitions.make_move(&Move { data: 1226 }, &mut repetitions);
 
         // c1d1
-        from_repetitions.make_move(&Move { data: 194 }, &mut rollback);
+        from_repetitions.make_move(&Move { data: 194 }, &mut repetitions);
 
         // d3c2
-        from_repetitions.make_move(&Move { data: 659 }, &mut rollback);
+        from_repetitions.make_move(&Move { data: 659 }, &mut repetitions);
 
         // d1c1
-        from_repetitions.make_move(&Move { data: 131 }, &mut rollback);
+        from_repetitions.make_move(&Move { data: 131 }, &mut repetitions);
 
-        assert_eq!(from_fen.hash, from_repetitions.hash);
-        assert_eq!(from_fen.piece_bitboards, from_repetitions.piece_bitboards);
-        assert_eq!(from_fen.side_occupancy, from_repetitions.side_occupancy);
-        assert_eq!(from_fen.occupancy, from_repetitions.occupancy);
-        assert_eq!(from_fen.game_stage, from_repetitions.game_stage);
-        assert_eq!(
-            from_fen.en_passant_target_square_index,
-            from_repetitions.en_passant_target_square_index
-        );
-        assert_eq!(from_fen.white_to_move, from_repetitions.white_to_move);
-        assert_eq!(from_fen.bishop_colors, from_repetitions.bishop_colors);
+        assert_eq!(from_fen, from_repetitions);
     }
 
     #[test]
     pub fn proper_bishop_colors_are_set_when_taking() {
-        let mut board = Board::from_fen("1n1qk1nr/pppppppp/8/r2bb3/3BB3/8/PPPPPPPP/RN1QK1NR w KQk -").unwrap();
-        let mut rollback = MoveRollback::default();
+        let mut repetitions = RepetitionTracker::default();
+        let mut board = Board::from_fen(
+            "1n1qk1nr/pppppppp/8/r2bb3/3BB3/8/PPPPPPPP/RN1QK1NR w KQk -",
+            Some(&mut repetitions),
+        )
+        .unwrap();
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
         assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
 
         board.make_move(
             &Move::from_simple_long_algebraic_notation("e4d5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
+            &mut repetitions,
         );
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
@@ -733,7 +535,7 @@ mod moves_tests {
 
         board.make_move(
             &Move::from_simple_long_algebraic_notation("a5d5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
+            &mut repetitions,
         );
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
@@ -741,7 +543,7 @@ mod moves_tests {
 
         board.make_move(
             &Move::from_simple_long_algebraic_notation("d4e5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
+            &mut repetitions,
         );
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
@@ -749,56 +551,24 @@ mod moves_tests {
 
         board.make_move(
             &Move::from_simple_long_algebraic_notation("d5e5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
+            &mut repetitions,
         );
 
         assert_eq!(board.bishop_colors[0], 0);
         assert_eq!(board.bishop_colors[1], 0);
-
-        board.unmake_move(
-            &Move::from_simple_long_algebraic_notation("d5e5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
-        );
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
-        assert_eq!(board.bishop_colors[1], 0);
-
-        board.unmake_move(
-            &Move::from_simple_long_algebraic_notation("d4e5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
-        );
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
-        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
-
-        board.unmake_move(
-            &Move::from_simple_long_algebraic_notation("a5d5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
-        );
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
-        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
-
-        board.unmake_move(
-            &Move::from_simple_long_algebraic_notation("e4d5", MOVE_FLAG_CAPTURE),
-            &mut rollback,
-        );
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
-        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
     }
 
     #[test]
     pub fn taking_a_doubled_bishop_does_not_affect_board_bishop_colors() {
-        let mut board = Board::from_fen("8/8/8/8/2rB4/2B4k/8/7K b - -").unwrap();
-        let mut rollback = MoveRollback::default();
+        let mut repetitions = RepetitionTracker::default();
+        let mut board = Board::from_fen("8/8/8/8/2rB4/2B4k/8/7K b - -", Some(&mut repetitions)).unwrap();
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
         assert_eq!(board.bishop_colors[1], 0);
 
         board.make_move(
             &Move::from_simple_long_algebraic_notation("c4d4", MOVE_FLAG_CAPTURE),
-            &mut rollback,
+            &mut repetitions,
         );
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
@@ -807,56 +577,33 @@ mod moves_tests {
 
     #[test]
     pub fn proper_bishop_colors_are_set_when_promoting() {
-        let mut board = Board::from_fen("K3n3/3P1P2/8/8/8/8/4pp2/7k w - -").unwrap();
-        let mut rollback = MoveRollback::default();
+        let mut repetitions = RepetitionTracker::default();
+        let mut board = Board::from_fen("K3n3/3P1P2/8/8/8/8/4pp2/7k w - -", Some(&mut repetitions)).unwrap();
 
         assert_eq!(board.bishop_colors[0], 0);
         assert_eq!(board.bishop_colors[1], 0);
 
         board.make_move(
             &Move::from_simple_long_algebraic_notation("d7e8b", MOVE_FLAG_CAPTURE),
-            &mut rollback,
+            &mut repetitions,
         );
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
         assert_eq!(board.bishop_colors[1], 0);
 
-        board.make_move(&Move::from_simple_long_algebraic_notation("e2e1b", 0), &mut rollback);
+        board.make_move(&Move::from_simple_long_algebraic_notation("e2e1b", 0), &mut repetitions);
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
         assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
 
-        board.make_move(&Move::from_simple_long_algebraic_notation("f7f8b", 0), &mut rollback);
+        board.make_move(&Move::from_simple_long_algebraic_notation("f7f8b", 0), &mut repetitions);
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK);
         assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
 
-        board.make_move(&Move::from_simple_long_algebraic_notation("f2f1b", 0), &mut rollback);
+        board.make_move(&Move::from_simple_long_algebraic_notation("f2f1b", 0), &mut repetitions);
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
         assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK | BISHOP_COLORS_LIGHT);
-
-        board.unmake_move(&Move::from_simple_long_algebraic_notation("f2f1b", 0), &mut rollback);
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT | BISHOP_COLORS_DARK);
-        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
-
-        board.unmake_move(&Move::from_simple_long_algebraic_notation("f7f8b", 0), &mut rollback);
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
-        assert_eq!(board.bishop_colors[1], BISHOP_COLORS_DARK);
-
-        board.unmake_move(&Move::from_simple_long_algebraic_notation("e2e1b", 0), &mut rollback);
-
-        assert_eq!(board.bishop_colors[0], BISHOP_COLORS_LIGHT);
-        assert_eq!(board.bishop_colors[1], 0);
-
-        board.unmake_move(
-            &Move::from_simple_long_algebraic_notation("d7e8b", MOVE_FLAG_CAPTURE),
-            &mut rollback,
-        );
-
-        assert_eq!(board.bishop_colors[0], 0);
-        assert_eq!(board.bishop_colors[1], 0);
     }
 }

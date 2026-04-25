@@ -32,5 +32,6 @@ syn = "2.0.111"
 default = ["use_pext"]
 # pext is supported but slow on zen1 and zen2. If you are using one of those, it is suggested you disable this feature.
 use_pext = []
+pgn = []
 
 [workspace]

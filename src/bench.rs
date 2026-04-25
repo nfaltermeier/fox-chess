@@ -4,6 +4,7 @@ use vampirc_uci::UciSearchControl;
 
 use crate::{
     board::Board,
+    repetition_tracker::RepetitionTracker,
     search::{DEFAULT_HISTORY_TABLE, Searcher},
     transposition_table::TranspositionTable,
     uci::UciInterface,
@@ -71,15 +72,15 @@ pub fn bench() {
     let start_time = Instant::now();
 
     for fen in bench_fens {
-        let mut board = Board::from_fen(fen).unwrap();
+        let mut repetitions = RepetitionTracker::default();
+        let board = Board::from_fen(fen, Some(&mut repetitions)).unwrap();
 
         let mut transposition_table = TranspositionTable::new(18);
         let mut history = DEFAULT_HISTORY_TABLE;
-        let mut continuation_history = UciInterface::alloc_zeroed_continuation_history();
+        let mut continuation_history = UciInterface::alloc_zeroed_continuation_history_tables();
 
         let (_, stop_rx) = mpsc::channel::<()>();
         let mut searcher = Searcher::new(
-            &mut board,
             &mut transposition_table,
             &mut history,
             &stop_rx,
@@ -87,9 +88,10 @@ pub fn bench() {
             1,
             RequiredUciOptions::default(),
             0,
+            &mut repetitions,
         );
 
-        searcher.iterative_deepening_search(&tc, &sc);
+        searcher.iterative_deepening_search(board, &tc, &sc);
 
         nodes += searcher.stats.current_iteration_total_nodes + searcher.stats.previous_iterations_total_nodes;
     }

@@ -1,10 +1,7 @@
 use std::fmt::Debug;
 
-use log::error;
-
 use crate::{
-    board::{Board, HASH_VALUES, PIECE_MASK, PIECE_PAWN},
-    move_generator::ENABLE_UNMAKE_MOVE_TEST,
+    board::{Board, PIECE_MASK, PIECE_PAWN},
     moves::Move,
 };
 
@@ -46,8 +43,40 @@ impl RepetitionTracker {
         self.repetitions[(hash & TABLE_MASK) as usize] -= 1;
     }
 
-    pub fn test_repetition(board: &mut Board) -> bool {
-        false
+    pub fn test_repetition(&self, board: &Board) -> bool {
+        if self.repetitions[(board.hash & TABLE_MASK) as usize] >= MIN_REPETITIONS_FOR_DRAW {
+            let mut check = true;
+            let mut repetitions = 0;
+            let target_hash = board.hash;
+            let mut new_board = board.clone();
+
+            let mut i = self.move_history_len - 1;
+            loop {
+                if check && new_board.hash == target_hash {
+                    repetitions += 1;
+                    if repetitions == MIN_REPETITIONS_FOR_DRAW {
+                        break;
+                    }
+                }
+
+                // If irreversible move or out of moves
+                if i == 0
+                    || self.move_history[i].flags() != 0
+                    || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN
+                {
+                    break;
+                }
+
+                new_board.unmake_reversible_move_for_repetitions(i, self);
+
+                i -= 1;
+                check = !check;
+            }
+
+            repetitions >= MIN_REPETITIONS_FOR_DRAW
+        } else {
+            false
+        }
     }
 
     pub fn clear(&mut self) {

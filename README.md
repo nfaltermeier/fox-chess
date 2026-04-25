@@ -5,10 +5,16 @@ A UCI chess engine. Intended for use with a chess GUI such as Cute Chess or Aren
 
 The program is available for challenge some of the time at [lichess](https://lichess.org/@/FoxChessBot). I run it on my own computer so availability is sporadic and is not guranteed.
 
+## Rating
+| Version | CCRL 40/15 | Biggest additions |
+|---------|------------|-------------------|
+| v1.1 | est. 2870 | Singular extensions, mobility eval, and fixing history using ply instead of depth |
+| v1.0 | 2720 | |
 
 ## Uci Options
 * Hash: transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2.
 * MultiPV: The engine will search for and print this many Principal Variations / bestmoves. Values greater than 1 make search slower but produce more accurate results. Value must be at least 1 and less than 256.
+* Contempt: Sets the engine's draw score (in centipawns). Higher means the engine wants to avoid a draw more. Default is 0 and range is -100 to 100.
 
 ## Prerequisites for Building
 The MSRV is currently 1.88.

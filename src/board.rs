@@ -99,7 +99,7 @@ impl Board {
         self.squares[square_index] = piece;
     }
 
-    pub fn from_fen(fen: &str) -> Result<Board, String> {
+    pub fn from_fen(fen: &str, repetitions: Option<&mut RepetitionTracker>) -> Result<Board, String> {
         if !fen.is_ascii() {
             return Err(String::from("Expected FEN to only contain ASCII characters"));
         }
@@ -327,7 +327,7 @@ impl Board {
     }
 
     pub fn flip_and_invert_colors(&self) -> Board {
-        let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1").unwrap();
+        let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1", None).unwrap();
 
         for i in 0..64 {
             let piece = self.get_piece_64(i);
@@ -342,7 +342,7 @@ impl Board {
         new_board.white_to_move = !self.white_to_move;
         new_board.en_passant_target_square_index = self.en_passant_target_square_index.map(|ep_index| ep_index ^ 56);
 
-        Self::from_fen(&new_board.to_fen()).unwrap()
+        Self::from_fen(&new_board.to_fen(), None).unwrap()
     }
 }
 
@@ -400,10 +400,12 @@ impl Debug for Board {
     }
 }
 
+/// return value range is 1-8
 pub fn rank_8x8(index: u8) -> u8 {
     ((index & 0x38) >> 3) + 1
 }
 
+/// return value range is 0-7
 pub fn file_8x8(index: u8) -> u8 {
     index & 0x07
 }
@@ -456,7 +458,7 @@ mod moves_tests {
                 fn $name() {
                     let (fen1, expected_fen2) = $value;
 
-                    let board1 = Board::from_fen(fen1).unwrap();
+                    let board1 = Board::from_fen(fen1, None).unwrap();
                     let board2 = board1.flip_and_invert_colors();
 
                     assert_eq!(expected_fen2, board2.to_fen());

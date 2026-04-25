@@ -25,10 +25,10 @@ use rayon::prelude::*;
 
 use crate::board::PIECE_PAWN;
 use crate::evaluate::MIN_GAME_STAGE_FULLY_MIDGAME;
+use crate::repetition_tracker::RepetitionTracker;
 use crate::{
     STARTING_FEN,
     board::{Board, PIECE_KING},
-    moves::MoveRollback,
 };
 
 pub struct TexelPosition {
@@ -333,7 +333,7 @@ pub fn load_positions(filename: &str) -> Vec<TexelPosition> {
 
             let fen = &line[..c0_index];
 
-            let board = Board::from_fen(fen).unwrap();
+            let board = Board::from_fen(fen, None).unwrap();
 
             let c1_index = line.find("c1");
             if c1_index.is_none() {
@@ -404,7 +404,7 @@ pub fn load_preprocessed_positions(filename: &str) -> Vec<TexelPosition> {
         if !line.is_empty() {
             let semicolon_index = line.find(";").unwrap();
             let fen = &line[0..semicolon_index];
-            let board = Board::from_fen(fen).unwrap();
+            let board = Board::from_fen(fen, None).unwrap();
 
             let match_result = &line[semicolon_index + 1..];
             let match_result_value = match match_result {
@@ -837,7 +837,7 @@ fn search_error_for_params(positions: &mut [TexelPosition], params: &EvalParams,
 
     positions
         .par_iter_mut()
-        .map_with(MoveRollback::default(), |r, p| {
+        .map_with(RepetitionTracker::default(), |r, p| {
             let result = p
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r, &king_attack_unit_values).0;
@@ -861,7 +861,7 @@ fn qsearch_for_features(positions: &mut [TexelPosition], params: &EvalParams) ->
 
     positions
         .par_iter_mut()
-        .map_with(MoveRollback::default(), |r, p| {
+        .map_with(RepetitionTracker::default(), |r, p| {
             let result = p
                 .board
                 .quiescense_side_to_move_relative(-i16::MAX, i16::MAX, 255, params, r, &king_attack_unit_values);

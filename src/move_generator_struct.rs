@@ -12,15 +12,18 @@ use crate::{
     eval_values::CENTIPAWN_VALUES_MIDGAME,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     move_generator::{
-        MOVE_ARRAY_SIZE, MOVE_SCORE_CAPTURE, MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR, MOVE_SCORE_CONST_HISTORY_MAX,
-        MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2, MOVE_SCORE_KING_CASTLE,
-        MOVE_SCORE_QUEEN_CASTLE, MOVE_SCORE_QUIET, ScoredMove,
+        MOVE_ARRAY_SIZE, MOVE_SCORE_CAPTURE, MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR, MOVE_SCORE_CONT_HISTORY_PLY1_MAX,
+        MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
+        MOVE_SCORE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE, MOVE_SCORE_QUIET, ScoredMove,
     },
     moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_KING_CASTLE,
         MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
-    search::{ContinuationHistoryTable, DEFAULT_HISTORY_TABLE, EMPTY_MOVE, HistoryTable},
+    search::{
+        ContinuationHistoryTable, ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, EMPTY_MOVE, HistoryTable,
+        RelevantContinuationHistories, SearchStack,
+    },
 };
 
 pub struct MoveGenerator {
@@ -95,7 +98,8 @@ impl MoveGenerator {
             return self.get_next_move();
         }
 
-        if m.score > (MOVE_SCORE_HISTORY_MAX + MOVE_SCORE_CONST_HISTORY_MAX) as i16
+        if m.score
+            > (MOVE_SCORE_HISTORY_MAX + MOVE_SCORE_CONT_HISTORY_PLY1_MAX + MOVE_SCORE_CONT_HISTORY_PLY2_MAX) as i16
             || self.state == MoveGeneratorState::AllGenerated
         {
             self.moves_selected += 1;
@@ -124,22 +128,24 @@ impl MoveGenerator {
         &mut self,
         board: &mut Board,
         history_table: Option<&HistoryTable>,
-        move_history: Option<&Vec<Move>>,
-        continuation_history: Option<&ContinuationHistoryTable>,
+        ss: Option<&Vec<SearchStack>>,
+        continuation_histories: Option<&ContinuationHistoryTables>,
         killers: Option<&[Move; 2]>,
+        ply: Option<u8>,
     ) {
         match self.state {
             MoveGeneratorState::AllGenerated => {}
             MoveGeneratorState::GeneratePending => self.generate_pending_moves(
                 board,
                 history_table.unwrap_or(&DEFAULT_HISTORY_TABLE),
-                move_history,
-                continuation_history,
+                ss,
+                continuation_histories,
                 killers,
+                ply,
             ),
             MoveGeneratorState::GeneratePseudolegal => self.generate_moves_pseudo_legal_impl(board),
             MoveGeneratorState::GenerateCheckEvasions => {
-                self.generate_moves_check_evasion(board, history_table, move_history, continuation_history, killers)
+                self.generate_moves_check_evasion(board, history_table, ss, continuation_histories, killers, ply)
             }
         }
     }
@@ -158,9 +164,10 @@ impl MoveGenerator {
         &mut self,
         board: &mut Board,
         history_table: Option<&HistoryTable>,
-        move_history: Option<&Vec<Move>>,
-        continuation_history: Option<&ContinuationHistoryTable>,
+        ss: Option<&Vec<SearchStack>>,
+        continuation_histories: Option<&ContinuationHistoryTables>,
         killers: Option<&[Move; 2]>,
+        ply: Option<u8>,
     ) {
         // If no tt move
         if self.move_buf.is_empty() || self.tt_move_used {
@@ -172,7 +179,7 @@ impl MoveGenerator {
             // board.generate_pseudo_legal_check_evasions clears the move buffer
             self.moves_selected = 0;
 
-            extra_quiet_move_scoring(&mut self.move_buf, board, move_history, continuation_history, killers);
+            extra_quiet_move_scoring(&mut self.move_buf, board, ss, continuation_histories, killers, ply);
         } else {
             // Moves will be generated after tt move is searched
             self.state = MoveGeneratorState::GenerateCheckEvasions;
@@ -183,9 +190,10 @@ impl MoveGenerator {
         &mut self,
         board: &mut Board,
         history_table: &HistoryTable,
-        move_history: Option<&Vec<Move>>,
-        continuation_history: Option<&ContinuationHistoryTable>,
+        ss: Option<&Vec<SearchStack>>,
+        continuation_histories: Option<&ContinuationHistoryTables>,
         killers: Option<&[Move; 2]>,
+        ply: Option<u8>,
     ) {
         let starting_move_buf_len = self.move_buf.len();
         let side = if board.white_to_move { 0 } else { 1 };
@@ -266,9 +274,10 @@ impl MoveGenerator {
         extra_quiet_move_scoring(
             &mut self.move_buf[starting_move_buf_len..move_buf_len],
             board,
-            move_history,
-            continuation_history,
+            ss,
+            continuation_histories,
             killers,
+            ply,
         );
     }
 
@@ -389,41 +398,68 @@ impl MoveGenerator {
 }
 
 fn apply_continuation_history_to_move_scores(
-    move_history: &Vec<Move>,
+    ss: &Vec<SearchStack>,
     board: &Board,
-    continuation_history: &ContinuationHistoryTable,
+    continuation_histories: &ContinuationHistoryTables,
     moves: &mut [ScoredMove],
+    ply: u8,
 ) {
-    if let Some(relevant_cont_hist) = get_relevant_cont_hist(move_history, board, continuation_history) {
-        for m in moves {
-            if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
-                continue;
-            }
+    let relevant_cont_histories = get_relevant_cont_histories(ss, board, continuation_histories, ply as usize);
 
-            let piece_to_move = board.get_piece_64(m.m.from() as usize);
-            m.score += relevant_cont_hist[((piece_to_move & PIECE_MASK) - 1) as usize][m.m.to() as usize];
+    if relevant_cont_histories[0].is_none() && relevant_cont_histories[1].is_none() {
+        return;
+    }
+
+    for m in moves {
+        if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+            continue;
+        }
+
+        let piece_to_move = board.get_piece_64(m.m.from() as usize);
+        let piece_index = ((piece_to_move & PIECE_MASK) - 1) as usize;
+        let to = m.m.to() as usize;
+
+        if let Some(relevant_cont_hist) = &relevant_cont_histories[0] {
+            m.score += relevant_cont_hist[piece_index][to];
+        }
+        if let Some(relevant_cont_hist) = &relevant_cont_histories[1] {
+            m.score += relevant_cont_hist[piece_index][to];
         }
     }
 }
 
 #[inline]
-fn get_relevant_cont_hist<'a>(
-    move_history: &[Move],
+fn get_relevant_cont_histories<'a>(
+    ss: &Vec<SearchStack>,
     board: &Board,
-    continuation_history: &'a ContinuationHistoryTable,
-) -> Option<&'a [[i16; 64]; 6]> {
-    if let Some(last_move) = move_history.last()
-        && *last_move != EMPTY_MOVE
-    {
-        let last_moved_to = last_move.to() as usize;
-        let last_moved_piece = board.get_piece_64(last_moved_to);
-        return Some(
-            &continuation_history[if board.white_to_move { 0 } else { 1 }]
-                [((last_moved_piece & PIECE_MASK) - 1) as usize][last_moved_to],
-        );
+    continuation_histories: &'a ContinuationHistoryTables,
+    ply: usize,
+) -> RelevantContinuationHistories<'a> {
+    let mut result = [None, None];
+    let side = if board.white_to_move { 0 } else { 1 };
+
+    let table_for_ply = &continuation_histories.ply1;
+    let ply_offset = 1;
+    if ply >= ply_offset {
+        let entry = &ss[ply - ply_offset];
+        if entry.get_mov() != EMPTY_MOVE {
+            result[0] =
+                Some(&table_for_ply[side][entry.get_moved_piece_type() as usize - 1][entry.get_mov().to() as usize]);
+        }
     }
 
-    None
+    // I think I have to manually repeat this code or run afoul of the rules against mutably borrowing something multiple times
+    let table_for_ply = &continuation_histories.ply2;
+    let ply_offset = 2;
+    if ply >= ply_offset {
+        let entry = &ss[ply - ply_offset];
+        if entry.get_mov() != EMPTY_MOVE {
+            result[1] =
+                Some(&table_for_ply[side][entry.get_moved_piece_type() as usize - 1][entry.get_mov().to() as usize]);
+        }
+    }
+
+    result
 }
 
 #[inline]
@@ -445,14 +481,16 @@ fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_
 fn extra_quiet_move_scoring(
     moves: &mut [ScoredMove],
     board: &Board,
-    move_history: Option<&Vec<Move>>,
-    continuation_history: Option<&ContinuationHistoryTable>,
+    ss: Option<&Vec<SearchStack>>,
+    continuation_histories: Option<&ContinuationHistoryTables>,
     killers: Option<&[Move; 2]>,
+    ply: Option<u8>,
 ) {
-    if let Some(move_history) = move_history
-        && let Some(continuation_history) = continuation_history
+    if let Some(ss) = ss
+        && let Some(continuation_histories) = continuation_histories
+        && let Some(ply) = ply
     {
-        apply_continuation_history_to_move_scores(move_history, board, continuation_history, moves);
+        apply_continuation_history_to_move_scores(ss, board, continuation_histories, moves, ply);
     }
 
     if let Some(killers) = killers
