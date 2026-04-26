@@ -494,21 +494,23 @@ impl<'a> Searcher<'a> {
         let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
 
         let mut futility_prune = false;
-        if draft < 4 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
+        if draft < 6 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
             let eval = board.evaluate_side_to_move_relative();
 
             // Reverse futility pruning
-            if eval - 120 - 128 * (draft - 1) as i16 >= beta {
+            if eval - (90 * draft as i16) >= beta {
                 return Ok((eval + beta) / 2);
             }
 
-            futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
+            if draft < 4 {
+                futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
 
-            // Razoring
-            if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
-                let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply + 1);
-                if score < alpha {
-                    return Ok(score);
+                // Razoring
+                if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
+                    let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply + 1);
+                    if score < alpha {
+                        return Ok(score);
+                    }
                 }
             }
         }
