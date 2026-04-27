@@ -495,14 +495,25 @@ impl<'a> Searcher<'a> {
 
         let mut futility_prune = false;
         if draft < 6 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
-            let eval = board.evaluate_side_to_move_relative();
+            let rfp_threshold = beta + (90 * draft as i16);
+            let mut static_eval = None;
+            let rfp_eval = if tt_entry.is_some_and(|e| {
+                e.move_type == MoveType::Best
+                    || (e.move_type == MoveType::FailHigh && e.get_score(ply) >= rfp_threshold)
+                    || (e.move_type == MoveType::FailLow && e.get_score(ply) < rfp_threshold)
+            }) {
+                tt_entry.unwrap().get_score(ply)
+            } else {
+                *static_eval.get_or_insert_with(|| board.evaluate_side_to_move_relative())
+            };
 
             // Reverse futility pruning
-            if eval - (90 * draft as i16) >= beta {
-                return Ok((eval + beta) / 2);
+            if rfp_eval >= rfp_threshold {
+                return Ok((rfp_eval + beta) / 2);
             }
 
             if draft < 4 {
+                let eval = *static_eval.get_or_insert_with(|| board.evaluate_side_to_move_relative());
                 futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
 
                 // Razoring
