@@ -35,6 +35,7 @@ pub struct UciInterface {
     extra_uci_options: RequiredUciOptionsAsOptions,
     contempt: i16,
     repetitions: RepetitionTracker,
+    use_uci_mode: bool,
 }
 
 impl UciInterface {
@@ -49,6 +50,7 @@ impl UciInterface {
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
             repetitions: RepetitionTracker::default(),
+            use_uci_mode: false,
         }
     }
 
@@ -58,6 +60,7 @@ impl UciInterface {
         for m in cmds.1 {
             match m {
                 UciMessage::Uci => {
+                    self.use_uci_mode = true;
                     println!("id name FoxChess {}", UciInterface::get_version());
                     println!("id author nfaltermeier");
                     println!("option name Hash type spin default 128 min 1 max 1048576");
@@ -138,6 +141,7 @@ impl UciInterface {
                             self.extra_uci_options.convert(),
                             self.contempt,
                             &mut self.repetitions,
+                            self.use_uci_mode,
                         );
 
                         // Search on a board copy to protect against the board state being changed by the search timing out

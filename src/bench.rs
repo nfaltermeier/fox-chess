@@ -89,6 +89,7 @@ pub fn bench() {
             RequiredUciOptions::default(),
             0,
             &mut repetitions,
+            true,
         );
 
         searcher.iterative_deepening_search(board, &tc, &sc);

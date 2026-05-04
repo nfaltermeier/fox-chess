@@ -7,8 +7,8 @@ use crate::{
     board::{
         BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES,
         HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_BISHOP, PIECE_KING,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value, index_8x8_to_pos_str, piece_to_name,
-        rank_8x8,
+        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value, index_8x8_to_pos_str,
+        piece_to_colored_letter, rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
@@ -88,7 +88,7 @@ impl Move {
             // +2 converts promo code to piece code
             let promo_to_piece = color_flag | (promo_value + 2);
 
-            promoted_to = piece_to_name(promo_to_piece);
+            promoted_to = piece_to_colored_letter(promo_to_piece);
         }
 
         let from = self.from() as u8;
@@ -96,7 +96,7 @@ impl Move {
         let piece_name = match board {
             Some(b) => {
                 let piece = b.get_piece_64(from as usize);
-                piece_to_name(piece)
+                piece_to_colored_letter(piece)
             }
             None => '?',
         };
@@ -143,7 +143,7 @@ impl Move {
             // +2 converts promo code to piece code
             let promo_to_piece = COLOR_BLACK | (promo_value + 2);
 
-            format!("{}{}", result, piece_to_name(promo_to_piece))
+            format!("{}{}", result, piece_to_colored_letter(promo_to_piece))
         }
     }
 

@@ -15,6 +15,7 @@ use crate::{
     },
     move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move},
+    pretty_print_stats::{pretty_print_stats, print_header},
     repetition_tracker::RepetitionTracker,
     time_management::{get_cutoff_times, modify_cutoff_time},
     transposition_table::{self, MoveType, TTEntry, TranspositionTable},
@@ -109,6 +110,7 @@ pub struct Searcher<'a> {
     ss: Vec<SearchStack>,
     root_killers: [Move; 2],
     repetitions: &'a mut RepetitionTracker,
+    use_uci_mode: bool,
 }
 
 impl<'a> Searcher<'a> {
@@ -121,6 +123,7 @@ impl<'a> Searcher<'a> {
         extra_uci_options: RequiredUciOptions,
         contempt: i16,
         repetitions: &'a mut RepetitionTracker,
+        use_uci_mode: bool,
     ) -> Self {
         assert!(multi_pv >= 1);
 
@@ -147,6 +150,7 @@ impl<'a> Searcher<'a> {
             ss: Vec::new(),
             root_killers: [EMPTY_MOVE; 2],
             repetitions,
+            use_uci_mode,
         }
     }
 
@@ -161,6 +165,10 @@ impl<'a> Searcher<'a> {
         let mut search_control: SearchControl;
         let mut max_depth = 40;
         let mut cutoff_times = None;
+
+        if !self.use_uci_mode {
+            print_header();
+        }
 
         // Don't forget to set these if search is started some other way
         self.starting_fullmove = board.fullmove_counter as u8;
@@ -247,16 +255,30 @@ impl<'a> Searcher<'a> {
                 let elapsed = start_time.elapsed();
 
                 for (i, pv) in self.root_pvs.iter().enumerate() {
-                    UciInterface::print_search_info(
-                        pv.search_result.score,
-                        &self.stats,
-                        &elapsed,
-                        &self.transposition_table,
-                        &pv.pv,
-                        self.starting_fullmove,
-                        i as u8 + 1,
-                        pv.selective_depth,
-                    );
+                    if self.use_uci_mode {
+                        UciInterface::print_search_info(
+                            pv.search_result.score,
+                            &self.stats,
+                            &elapsed,
+                            &self.transposition_table,
+                            &pv.pv,
+                            self.starting_fullmove,
+                            i as u8 + 1,
+                            pv.selective_depth,
+                        );
+                    } else {
+                        pretty_print_stats(
+                            pv.search_result.score,
+                            &self.stats,
+                            &elapsed,
+                            &self.transposition_table,
+                            &pv.pv,
+                            self.starting_fullmove,
+                            i as u8 + 1,
+                            pv.selective_depth,
+                            &board,
+                        );
+                    }
                 }
 
                 self.stats.aspiration_researches = 0;

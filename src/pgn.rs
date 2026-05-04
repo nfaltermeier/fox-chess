@@ -14,7 +14,8 @@ use crate::{
     STARTING_FEN, TuningArgs,
     board::{Board, PIECE_BISHOP, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, piece_to_name, rank_8x8},
     move_generator_struct::{GetMoveResult, MoveGenerator},
-    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move}, repetition_tracker::RepetitionTracker,
+    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
+    repetition_tracker::RepetitionTracker,
 };
 
 const NORMAL_MOVE_REGEX_STR: &str = r"^(?P<movPiece>[BKNRQ])?(?P<srcFile>[a-h])?(?P<srcRank>[1-8])?x?(?P<dest>[a-h][1-8])(?P<promo>=[BNRQ])?(?P<check>\+|#)?$";
@@ -351,10 +352,10 @@ impl<'a> Pgn {
                                     continue;
                                 }
 
-                                let (legal, _) =
-                                    self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
+                                let (legal, _) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
                                 if !legal {
-                                    panic!("Found a matching move for {}, but it is not legal for position {}",
+                                    panic!(
+                                        "Found a matching move for {}, but it is not legal for position {}",
                                         self.moves[move_index].mov,
                                         self.board.to_fen()
                                     );

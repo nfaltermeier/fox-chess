@@ -339,7 +339,7 @@ impl Board {
 
     pub fn pretty_print(&self) -> String {
         (0..64)
-            .map(|i| piece_to_name(self.get_piece_64(i)).to_string())
+            .map(|i| piece_to_colored_letter(self.get_piece_64(i)).to_string())
             // Could not chunk the map result directly for some reason
             .collect::<Vec<_>>()
             .chunks_exact(8)
@@ -367,7 +367,7 @@ impl Board {
                         empty_count = 0;
                     }
 
-                    result += piece_to_name(piece).to_string().as_str();
+                    result += piece_to_colored_letter(piece).to_string().as_str();
                 } else {
                     empty_count += 1;
 
@@ -528,8 +528,8 @@ pub fn file_8x8(index: u8) -> u8 {
     index & 0x07
 }
 
-pub fn piece_to_name(piece: u8) -> char {
-    let result = match piece & PIECE_MASK {
+pub fn piece_to_letter(piece: u8) -> char {
+    match piece & PIECE_MASK {
         PIECE_PAWN => 'P',
         PIECE_KNIGHT => 'N',
         PIECE_BISHOP => 'B',
@@ -537,13 +537,17 @@ pub fn piece_to_name(piece: u8) -> char {
         PIECE_QUEEN => 'Q',
         PIECE_KING => 'K',
         PIECE_NONE => ' ',
-        _ => panic!("Unexpected piece {piece} passed to piece_to_name"),
-    };
+        _ => panic!("Unexpected piece {piece} passed to piece_to_letter"),
+    }
+}
+
+pub fn piece_to_colored_letter(piece: u8) -> char {
+    let letter = piece_to_letter(piece);
 
     if piece & COLOR_BLACK != 0 {
-        result.to_ascii_lowercase()
+        letter.to_ascii_lowercase()
     } else {
-        result
+        letter
     }
 }
 

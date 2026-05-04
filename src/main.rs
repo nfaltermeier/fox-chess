@@ -31,6 +31,7 @@ mod moves;
 mod perft;
 #[cfg(feature = "pgn")]
 mod pgn;
+mod pretty_print_stats;
 mod repetition_tracker;
 mod search;
 mod time_management;
