@@ -17,7 +17,7 @@ The program is available for challenge some of the time at [lichess](https://lic
 * Contempt: Sets the engine's draw score (in centipawns). Higher means the engine wants to avoid a draw more. Default is 0 and range is -100 to 100.
 
 ## Prerequisites for Building
-The MSRV is currently 1.88.
+The MSRV is currently 1.88. Using the latest version is probably best. I'm using 1.95.0 currently.
 
 To create a PGO optimized build (recommended) you will need the `llvm-profdata` binary which can be installed with:
 ```
