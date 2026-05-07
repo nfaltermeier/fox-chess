@@ -20,7 +20,7 @@ use crate::{
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     repetition_tracker::RepetitionTracker,
-    search::{ContinuationHistoryTable, ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
+    search::{ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
@@ -79,7 +79,6 @@ impl UciInterface {
                     self.continuation_histories = Self::alloc_zeroed_continuation_history_tables();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
-                    // TODO: optimize for how cutechess works, try to not recalculate the whole game? Or recalculate without searching for moves?
                     let start = Instant::now();
                     if startpos {
                         self.board = Some(Board::from_fen(STARTING_FEN, Some(&mut self.repetitions)).unwrap())
@@ -97,20 +96,22 @@ impl UciInterface {
                         }
                     }
 
-                    if !moves.is_empty() && self.board.is_some() {
+                    if !moves.is_empty()
+                        && let Some(board) = &mut self.board
+                    {
                         trace!("running {} moves", moves.len());
                         let mapped = moves.iter().map(|m| {
                             let from = (m.from.file as u8) - b'a' + ((m.from.rank - 1) * 8);
                             let to = (m.to.file as u8) - b'a' + ((m.to.rank - 1) * 8);
                             let mut promo = None;
-                            if m.promotion.is_some() {
-                                promo = match m.promotion.unwrap() {
+                            if let Some(promotion) = m.promotion {
+                                promo = match promotion {
                                     UciPiece::Knight => Some(FLAGS_PROMO_KNIGHT),
                                     UciPiece::Bishop => Some(FLAGS_PROMO_BISHOP),
                                     UciPiece::Rook => Some(FLAGS_PROMO_ROOK),
                                     UciPiece::Queen => Some(FLAGS_PROMO_QUEEN),
                                     _ => {
-                                        error!("Unexpected promotion value '{:?}'", m.promotion.unwrap());
+                                        error!("Unexpected promotion value '{:?}'", promotion);
                                         panic!("Unexpected promotion value")
                                     }
                                 };
@@ -119,7 +120,7 @@ impl UciInterface {
                             (from, to, promo)
                         });
 
-                        find_and_run_moves(self.board.as_mut().unwrap(), mapped.collect(), &mut self.repetitions)
+                        find_and_run_moves(board, mapped.collect(), &mut self.repetitions)
                     }
                     let duration = start.elapsed();
                     trace!("Position with {} moves took {duration:#?} to calculate", moves.len());
@@ -132,7 +133,7 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = &self.board {
-                        let mut searcher = Searcher::new(
+                        let searcher = Searcher::new(
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
@@ -146,7 +147,7 @@ impl UciInterface {
 
                         // Search on a board copy to protect against the board state being changed by the search timing out
                         let board_copy = b.clone();
-                        let search_result =
+                        let (search_result, _) =
                             searcher.iterative_deepening_search(board_copy, &time_control, &search_control);
 
                         println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
@@ -283,7 +284,7 @@ impl UciInterface {
     }
 
     pub fn print_search_info(
-        eval: i16,
+        score: i16,
         stats: &SearchStats,
         elapsed: &Duration,
         transposition_table: &TranspositionTable,
@@ -292,13 +293,13 @@ impl UciInterface {
         multi_pv: u8,
         selective_depth: u8,
     ) {
-        let abs_cp = eval.abs();
+        let abs_cp = score.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
             let moves = (diff as f32 / 20.0).ceil();
-            format!("score mate {}{moves}", if eval < 0 { "-" } else { "" })
+            format!("score mate {}{moves}", if score < 0 { "-" } else { "" })
         } else {
-            format!("score cp {eval}")
+            format!("score cp {score}")
         };
 
         let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
@@ -350,7 +351,7 @@ impl UciInterface {
     }
 
     pub fn alloc_zeroed_continuation_history_tables() -> Box<ContinuationHistoryTables> {
-        assert!(size_of::<ContinuationHistoryTables>() % size_of::<i16>() == 0);
+        assert!(size_of::<ContinuationHistoryTables>().is_multiple_of(size_of::<i16>()));
         unsafe {
             // Safety: 0 is a valid value for i16 and
             // ContinuationHistoryTables is a multidimensional array of i16, so it can be represented as a single dimensional array of i16

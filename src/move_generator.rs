@@ -1,5 +1,4 @@
 use arrayvec::ArrayVec;
-use log::error;
 
 use crate::{
     bitboard::{
@@ -9,8 +8,7 @@ use crate::{
     },
     board::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
-        HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN,
-        PIECE_ROOK,
+        PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
     eval_values::CENTIPAWN_VALUES_MIDGAME,
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
@@ -43,58 +41,13 @@ pub const MOVE_ARRAY_SIZE: usize = 256;
 
 impl Board {
     #[inline]
-    pub fn generate_pseudo_legal_moves_with_history(
-        &mut self,
-        history_table: &HistoryTable,
-        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
-    ) {
-        self.generate_moves_pseudo_legal::<true, false>(history_table, result);
-    }
-
-    #[inline]
-    pub fn generate_legal_moves_without_history(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-        self.generate_legal_moves::<false, false>(&DEFAULT_HISTORY_TABLE, result);
-    }
-
-    #[inline]
-    pub fn generate_pseudo_legal_moves_without_history(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+    pub fn generate_pseudo_legal_moves_without_history(&self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         self.generate_moves_pseudo_legal::<false, false>(&DEFAULT_HISTORY_TABLE, result);
     }
 
     #[inline]
-    pub fn generate_pseudo_legal_capture_moves(&mut self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+    pub fn generate_pseudo_legal_capture_moves(&self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
         self.generate_moves_pseudo_legal::<false, true>(&DEFAULT_HISTORY_TABLE, result);
-    }
-
-    /// if make and unmake move work properly then at the end board should be back to it's original state
-    pub fn generate_legal_moves<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
-        &mut self,
-        history_table: &HistoryTable,
-        result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
-    ) {
-        self.generate_moves_pseudo_legal::<USE_HISTORY, ONLY_CAPTURES>(history_table, result);
-        self.filter_to_legal_moves(result)
-    }
-
-    fn filter_to_legal_moves(&self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-        let mut repetitions = RepetitionTracker::default();
-
-        // if log_enabled!(log::Level::Trace) {
-        //     for m in &moves {
-        //         trace!("{}", m.pretty_print(Some(self)));
-        //     }
-        // }
-
-        moves.retain(|r#move| {
-            let mut new_board = self.clone();
-            let (result, move_made) = new_board.test_legality_and_maybe_make_move(r#move.m, &mut repetitions);
-
-            if move_made {
-                repetitions.unmake_move(new_board.hash);
-            }
-
-            result
-        });
     }
 
     pub fn generate_moves_pseudo_legal<const USE_HISTORY: bool, const ONLY_CAPTURES: bool>(
@@ -514,23 +467,22 @@ impl Board {
                 self.add_pawn_moves::<true, false, false, true>(moves, offset, result, self_side, history_table);
 
                 // En passant
-                if let Some(ep_target_64) = self.en_passant_target_square_index {
-                    if move_to_mask
+                if let Some(ep_target_64) = self.en_passant_target_square_index
+                    && move_to_mask
                         & BIT_SQUARES[ep_target_64
                             .checked_add_signed(if self.white_to_move { -8 } else { 8 })
                             .unwrap() as usize]
                         != 0
-                    {
-                        let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
-                        let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
-                        while takers != 0 {
-                            let from = bitscan_forward_and_reset(&mut takers) as u8;
+                {
+                    let potential_takers = lookup_pawn_attack(ep_target_64, !self.white_to_move);
+                    let mut takers = potential_takers & self.piece_bitboards[self_side][PIECE_PAWN as usize];
+                    while takers != 0 {
+                        let from = bitscan_forward_and_reset(&mut takers) as u8;
 
-                            result.push(ScoredMove {
-                                m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
-                                score: MOVE_SCORE_CAPTURE,
-                            });
-                        }
+                        result.push(ScoredMove {
+                            m: Move::new(from, ep_target_64, MOVE_EP_CAPTURE),
+                            score: MOVE_SCORE_CAPTURE,
+                        });
                     }
                 }
             }
@@ -609,9 +561,13 @@ impl Board {
     /// If the move is legal then the move will have been made.
     /// First bool of return: if move is legal
     /// Second bool of return: if move is made
-    pub fn test_legality_and_maybe_make_move(&mut self, m: Move, repetitions: &mut RepetitionTracker) -> (bool, bool) {
+    pub fn test_legality_and_maybe_make_move(
+        &mut self,
+        mov: Move,
+        repetitions: &mut RepetitionTracker,
+    ) -> (bool, bool) {
         let mut result;
-        let flags = m.flags();
+        let flags = mov.flags();
 
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             // Check the king isn't in check to begin with
@@ -620,12 +576,12 @@ impl Board {
             }
 
             let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
-            let from = m.from();
+            let from = mov.from();
             let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
             let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
 
             let mut castle_intermediate_board = self.clone();
-            castle_intermediate_board.make_move(&intermediate_move, repetitions);
+            castle_intermediate_board.make_move(intermediate_move, repetitions);
             result = !castle_intermediate_board.can_capture_opponent_king(true);
             repetitions.unmake_move(castle_intermediate_board.hash);
 
@@ -634,59 +590,59 @@ impl Board {
             }
         }
 
-        self.make_move(&m, repetitions);
+        self.make_move(mov, repetitions);
         result = !self.can_capture_opponent_king(true);
 
         (result, true)
     }
 
-    // TODO: make a non-mut version of this
     #[inline]
-    pub fn is_in_check(&mut self, is_legality_test_after_move: bool) -> bool {
-        self.white_to_move = !self.white_to_move;
-        let result = self.can_capture_opponent_king(is_legality_test_after_move);
-        self.white_to_move = !self.white_to_move;
-
-        result
+    pub fn is_in_check(&self, is_legality_test_after_move: bool) -> bool {
+        self.is_side_in_check(self.white_to_move, is_legality_test_after_move)
     }
 
+    #[inline]
     pub fn can_capture_opponent_king(&self, is_legality_test_after_move: bool) -> bool {
-        let side = if self.white_to_move { 0 } else { 1 };
-        let other_side = if self.white_to_move { 1 } else { 0 };
+        self.is_side_in_check(!self.white_to_move, is_legality_test_after_move)
+    }
 
-        let king_pos = self.piece_bitboards[other_side as usize][PIECE_KING as usize].trailing_zeros() as u8;
+    fn is_side_in_check(&self, test_white: bool, is_legality_test_after_move: bool) -> bool {
+        let attacking_side = if test_white { 1 } else { 0 };
+        let king_side = if test_white { 0 } else { 1 };
+
+        let king_pos = self.piece_bitboards[king_side as usize][PIECE_KING as usize].trailing_zeros() as u8;
         if king_pos == 64 {
             if is_legality_test_after_move {
                 // The king is gone, checkmate already happened
                 return true;
             } else {
-                panic!("Could not find opponent king in can_capture_opponent_king")
+                panic!("Could not find king in is_side_in_check")
             }
         }
 
-        let danger_rooks = self.piece_bitboards[side as usize][PIECE_ROOK as usize]
-            | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
+        let danger_rooks = self.piece_bitboards[attacking_side as usize][PIECE_ROOK as usize]
+            | self.piece_bitboards[attacking_side as usize][PIECE_QUEEN as usize];
         if danger_rooks != 0 && lookup_rook_attack(king_pos, self.occupancy) & danger_rooks != 0 {
             return true;
         }
 
-        let danger_bishops = self.piece_bitboards[side as usize][PIECE_BISHOP as usize]
-            | self.piece_bitboards[side as usize][PIECE_QUEEN as usize];
+        let danger_bishops = self.piece_bitboards[attacking_side as usize][PIECE_BISHOP as usize]
+            | self.piece_bitboards[attacking_side as usize][PIECE_QUEEN as usize];
         if danger_bishops != 0 && lookup_bishop_attack(king_pos, self.occupancy) & danger_bishops != 0 {
             return true;
         }
 
-        let knights = self.piece_bitboards[side as usize][PIECE_KNIGHT as usize];
+        let knights = self.piece_bitboards[attacking_side as usize][PIECE_KNIGHT as usize];
         if knights != 0 && lookup_knight_attack(king_pos) & knights != 0 {
             return true;
         }
 
-        let pawns = self.piece_bitboards[side as usize][PIECE_PAWN as usize];
-        if pawns != 0 && lookup_pawn_attack(king_pos, !self.white_to_move) & pawns != 0 {
+        let pawns = self.piece_bitboards[attacking_side as usize][PIECE_PAWN as usize];
+        if pawns != 0 && lookup_pawn_attack(king_pos, test_white) & pawns != 0 {
             return true;
         }
 
-        if lookup_king_attack(king_pos) & self.piece_bitboards[side as usize][PIECE_KING as usize] != 0 {
+        if lookup_king_attack(king_pos) & self.piece_bitboards[attacking_side as usize][PIECE_KING as usize] != 0 {
             return true;
         }
 
@@ -714,6 +670,28 @@ mod check_evasion_tests {
     use super::*;
     use crate::initialize_magic_bitboards;
 
+    impl Board {
+        pub fn generate_legal_moves(&self, result: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+            self.generate_moves_pseudo_legal::<false, false>(&DEFAULT_HISTORY_TABLE, result);
+            self.filter_to_legal_moves(result)
+        }
+
+        fn filter_to_legal_moves(&self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+            let mut repetitions = RepetitionTracker::default();
+
+            moves.retain(|mov| {
+                let mut new_board = self.clone();
+                let (result, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut repetitions);
+
+                if move_made {
+                    repetitions.unmake_move(new_board.hash);
+                }
+
+                result
+            });
+        }
+    }
+
     macro_rules! check_evasion_tests_legal_moves {
         ($($name:ident: $value:expr,)*) => {
             $(
@@ -723,7 +701,7 @@ mod check_evasion_tests {
 
                     initialize_magic_bitboards();
 
-                    let mut board = Board::from_fen(input, None).unwrap();
+                    let board = Board::from_fen(input, None).unwrap();
                     let mut evasion_generator_moves = ArrayVec::new();
                     board.generate_pseudo_legal_check_evasions(&DEFAULT_HISTORY_TABLE, &mut evasion_generator_moves);
                     board.filter_to_legal_moves(&mut evasion_generator_moves);
@@ -731,7 +709,7 @@ mod check_evasion_tests {
                     assert_eq!(expected, evasion_generator_moves.len());
 
                     let mut legal_moves = ArrayVec::new();
-                    board.generate_legal_moves_without_history(&mut legal_moves);
+                    board.generate_legal_moves(&mut legal_moves);
 
                     assert_eq!(expected, legal_moves.len());
                 }

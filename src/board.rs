@@ -1,6 +1,5 @@
 use std::{fmt::Debug, sync::LazyLock};
 
-use log::error;
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
@@ -19,7 +18,6 @@ pub const PIECE_ROOK: u8 = 0x4;
 pub const PIECE_QUEEN: u8 = 0x5;
 pub const PIECE_KING: u8 = 0x6;
 
-pub const COLOR_FLAG_MASK: u8 = 1 << 3;
 pub const COLOR_BLACK: u8 = 1 << 3;
 
 #[derive(Copy, Clone)]
@@ -40,10 +38,7 @@ pub static HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
     let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
     let mut result = [0; 781];
 
-    if result.try_fill(&mut rng).is_err() {
-        error!("Failed to initialize hash values with random data.");
-        panic!("Failed to initialize hash values with random data.");
-    }
+    u64::fill_slice(&mut result, &mut rng);
 
     result
 });
@@ -435,29 +430,6 @@ impl Board {
 
         result
     }
-
-    pub fn flip_and_invert_colors(&self) -> Board {
-        let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1", None).unwrap();
-
-        for i in 0..64 {
-            let piece = self.get_piece_64(i);
-            if piece != PIECE_NONE {
-                let piece_type = piece & PIECE_MASK;
-                let inverted_color = (piece & COLOR_FLAG_MASK) ^ COLOR_FLAG_MASK;
-
-                new_board.write_piece(piece_type | inverted_color, (i ^ 56) as usize);
-            }
-        }
-
-        new_board.white_to_move = !self.white_to_move;
-        new_board.halfmove_clock = self.halfmove_clock;
-        new_board.fullmove_counter = self.fullmove_counter;
-        new_board.en_passant_target_square_index = self.en_passant_target_square_index.map(|ep_index| ep_index ^ 56);
-
-        new_board.castling_rights = (self.castling_rights >> 2) | ((self.castling_rights & 0b11) << 2);
-
-        Self::from_fen(&new_board.to_fen(), None).unwrap()
-    }
 }
 
 impl Debug for Board {
@@ -572,7 +544,39 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
 
 #[cfg(test)]
 mod moves_tests {
-    use crate::{Board, STARTING_FEN};
+    use super::Board;
+    use crate::{
+        STARTING_FEN,
+        board::{PIECE_MASK, PIECE_NONE},
+    };
+
+    pub const COLOR_FLAG_MASK: u8 = 1 << 3;
+
+    impl Board {
+        pub fn flip_and_invert_colors(&self) -> Board {
+            let mut new_board = Self::from_fen("8/8/8/8/8/8/8/8 w - - 0 1", None).unwrap();
+
+            for i in 0..64 {
+                let piece = self.get_piece_64(i);
+                if piece != PIECE_NONE {
+                    let piece_type = piece & PIECE_MASK;
+                    let inverted_color = (piece & COLOR_FLAG_MASK) ^ COLOR_FLAG_MASK;
+
+                    new_board.write_piece(piece_type | inverted_color, i ^ 56);
+                }
+            }
+
+            new_board.white_to_move = !self.white_to_move;
+            new_board.halfmove_clock = self.halfmove_clock;
+            new_board.fullmove_counter = self.fullmove_counter;
+            new_board.en_passant_target_square_index =
+                self.en_passant_target_square_index.map(|ep_index| ep_index ^ 56);
+
+            new_board.castling_rights = (self.castling_rights >> 2) | ((self.castling_rights & 0b11) << 2);
+
+            Self::from_fen(&new_board.to_fen(), None).unwrap()
+        }
+    }
 
     macro_rules! flip_and_invert_colors_test {
         ($($name:ident: $value:expr,)*) => {

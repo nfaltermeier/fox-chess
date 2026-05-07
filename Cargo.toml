@@ -8,21 +8,21 @@ rust-version = "1.88"
 [dependencies]
 array-macro = "2.1.8"
 arrayvec = "0.7.6"
-build-info = "0.0.39"
+build-info = "0.0.44"
 clap = { version = "4.5.23", features = ["derive"]}
 fern = "0.7.1"
 humantime = "2.1.0"
 log = "0.4.22"
 log-panics = "2.1.0"
 num-format = "0.4.4"
-rand = "0.8.5"
+rand = "0.10.1"
 regex = "1.11.1"
 tinyvec = { version = "1.9.0", features = ["alloc"] }
 vampirc-uci = "0.11.1"
 fox-chess-proc = { path = "fox-chess-proc" }
 
 [build-dependencies]
-build-info-build = "0.0.39"
+build-info-build = "0.0.44"
 prettyplease = "0.2.37"
 quote = "1.0.42"
 syn = "2.0.111"
@@ -32,5 +32,7 @@ default = ["use_pext"]
 # pext is supported but slow on zen1 and zen2. If you are using one of those, it is suggested you disable this feature.
 use_pext = []
 pgn = []
+# Enabling this results in approximately a 25-33% slowdown for perft
+perft_track_checks = []
 
 [workspace]

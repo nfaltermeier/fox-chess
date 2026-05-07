@@ -24,7 +24,7 @@ pub fn uci_fields_struct_impl(
     let new_fields_as_options = fields_to_add_data.iter().map(|d| format_as_pub_field(d, true));
     let field_names = fields_to_add_data.iter().map(|f| &f.0);
     let assign_default_values = fields_to_add_data.iter().map(assign_default_value);
-    let print_uci_options = fields_to_add_data.iter().map(|f| print_field_uci_option(f));
+    let print_uci_options = fields_to_add_data.iter().map(print_field_uci_option);
 
     quote! {
         /// Fields will be added to this struct according to the fields listed in fox-chess-proc/src/lib.rs.

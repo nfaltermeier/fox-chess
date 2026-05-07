@@ -21,16 +21,16 @@ use crate::{
         MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
     search::{
-        ContinuationHistoryTable, ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, EMPTY_MOVE, HistoryTable,
-        RelevantContinuationHistories, SearchStack,
+        ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, EMPTY_MOVE, HistoryTable, RelevantContinuationHistories,
+        SearchStack,
     },
 };
 
-pub struct MoveGenerator {
+pub struct StagedMoveGenerator {
     move_buf: ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>,
     moves_selected: usize,
     tt_move: Move,
-    state: MoveGeneratorState,
+    state: StagedMoveGeneratorState,
     pending_moves: ArrayVec<PendingMoves, 20>,
     tt_move_used: bool,
 }
@@ -47,20 +47,20 @@ pub enum GetMoveResult {
 }
 
 #[derive(PartialEq, Eq)]
-enum MoveGeneratorState {
+enum StagedMoveGeneratorState {
     AllGenerated,
     GeneratePending,
     GeneratePseudolegal,
     GenerateCheckEvasions,
 }
 
-impl MoveGenerator {
+impl StagedMoveGenerator {
     pub fn new() -> Self {
         Self {
             move_buf: ArrayVec::new(),
             moves_selected: 0,
             tt_move: EMPTY_MOVE,
-            state: MoveGeneratorState::AllGenerated,
+            state: StagedMoveGeneratorState::AllGenerated,
             pending_moves: ArrayVec::new(),
             tt_move_used: true,
         }
@@ -68,26 +68,25 @@ impl MoveGenerator {
 
     pub fn set_tt_move(&mut self, m: Move) {
         self.move_buf.clear();
-        self.move_buf.push(ScoredMove { m, score: i16::MAX });
         self.tt_move = m;
         self.tt_move_used = false;
     }
 
     pub fn get_next_move(&mut self) -> GetMoveResult {
-        if self.moves_selected >= self.move_buf.len() {
-            if self.state == MoveGeneratorState::AllGenerated {
-                return GetMoveResult::NoMoves;
-            } else {
-                return GetMoveResult::GenerateMoves;
-            }
-        }
-
         if !self.tt_move_used && self.tt_move != EMPTY_MOVE {
             self.tt_move_used = true;
             return GetMoveResult::Move(ScoredMove {
                 m: self.tt_move,
-                score: 1,
+                score: i16::MAX,
             });
+        }
+
+        if self.moves_selected >= self.move_buf.len() {
+            if self.state == StagedMoveGeneratorState::AllGenerated {
+                return GetMoveResult::NoMoves;
+            } else {
+                return GetMoveResult::GenerateMoves;
+            }
         }
 
         select_next_move(&mut self.move_buf, self.moves_selected);
@@ -100,7 +99,7 @@ impl MoveGenerator {
 
         if m.score
             > (MOVE_SCORE_HISTORY_MAX + MOVE_SCORE_CONT_HISTORY_PLY1_MAX + MOVE_SCORE_CONT_HISTORY_PLY2_MAX) as i16
-            || self.state == MoveGeneratorState::AllGenerated
+            || self.state == StagedMoveGeneratorState::AllGenerated
         {
             self.moves_selected += 1;
             GetMoveResult::Move(m)
@@ -109,33 +108,34 @@ impl MoveGenerator {
         }
     }
 
-    /// For perft, does not sort moves and expects tt move to be unset
-    pub fn get_next_move_unordered(&mut self) -> GetMoveResult {
+    /// None indicates that there are no more moves. Does not sort moves and ignores the tt move.
+    pub fn get_next_move_unordered(&mut self, board: &Board) -> Option<Move> {
         if self.moves_selected >= self.move_buf.len() {
-            if self.state == MoveGeneratorState::AllGenerated {
-                return GetMoveResult::NoMoves;
+            if self.state == StagedMoveGeneratorState::AllGenerated {
+                return None;
             } else {
-                return GetMoveResult::GenerateMoves;
+                self.generate_more_moves(board, None, None, None, None, None);
+                return self.get_next_move_unordered(board);
             }
         }
 
         let m = self.move_buf[self.moves_selected];
         self.moves_selected += 1;
-        GetMoveResult::Move(m)
+        Some(m.m)
     }
 
     pub fn generate_more_moves(
         &mut self,
-        board: &mut Board,
+        board: &Board,
         history_table: Option<&HistoryTable>,
-        ss: Option<&Vec<SearchStack>>,
+        ss: Option<&[SearchStack]>,
         continuation_histories: Option<&ContinuationHistoryTables>,
         killers: Option<&[Move; 2]>,
         ply: Option<u8>,
     ) {
         match self.state {
-            MoveGeneratorState::AllGenerated => {}
-            MoveGeneratorState::GeneratePending => self.generate_pending_moves(
+            StagedMoveGeneratorState::AllGenerated => {}
+            StagedMoveGeneratorState::GeneratePending => self.generate_pending_moves(
                 board,
                 history_table.unwrap_or(&DEFAULT_HISTORY_TABLE),
                 ss,
@@ -143,54 +143,54 @@ impl MoveGenerator {
                 killers,
                 ply,
             ),
-            MoveGeneratorState::GeneratePseudolegal => self.generate_moves_pseudo_legal_impl(board),
-            MoveGeneratorState::GenerateCheckEvasions => {
+            StagedMoveGeneratorState::GeneratePseudolegal => self.generate_moves_pseudo_legal_impl(board),
+            StagedMoveGeneratorState::GenerateCheckEvasions => {
                 self.generate_moves_check_evasion(board, history_table, ss, continuation_histories, killers, ply)
             }
         }
     }
 
-    pub fn generate_moves_pseudo_legal(&mut self, board: &mut Board) {
+    pub fn generate_moves_pseudo_legal(&mut self, board: &Board) {
         // If no tt move
-        if self.move_buf.is_empty() {
+        if self.tt_move_used || self.tt_move == EMPTY_MOVE {
             self.generate_moves_pseudo_legal_impl(board);
         } else {
             // Moves will be generated after tt move is searched
-            self.state = MoveGeneratorState::GeneratePseudolegal;
+            self.state = StagedMoveGeneratorState::GeneratePseudolegal;
         }
     }
 
     pub fn generate_moves_check_evasion(
         &mut self,
-        board: &mut Board,
+        board: &Board,
         history_table: Option<&HistoryTable>,
-        ss: Option<&Vec<SearchStack>>,
+        ss: Option<&[SearchStack]>,
         continuation_histories: Option<&ContinuationHistoryTables>,
         killers: Option<&[Move; 2]>,
         ply: Option<u8>,
     ) {
         // If no tt move
-        if self.move_buf.is_empty() || self.tt_move_used {
+        if self.tt_move_used || self.tt_move == EMPTY_MOVE {
             board.generate_pseudo_legal_check_evasions(
                 history_table.unwrap_or(&DEFAULT_HISTORY_TABLE),
                 &mut self.move_buf,
             );
-            self.state = MoveGeneratorState::AllGenerated;
+            self.state = StagedMoveGeneratorState::AllGenerated;
             // board.generate_pseudo_legal_check_evasions clears the move buffer
             self.moves_selected = 0;
 
             extra_quiet_move_scoring(&mut self.move_buf, board, ss, continuation_histories, killers, ply);
         } else {
             // Moves will be generated after tt move is searched
-            self.state = MoveGeneratorState::GenerateCheckEvasions;
+            self.state = StagedMoveGeneratorState::GenerateCheckEvasions;
         }
     }
 
     fn generate_pending_moves(
         &mut self,
-        board: &mut Board,
+        board: &Board,
         history_table: &HistoryTable,
-        ss: Option<&Vec<SearchStack>>,
+        ss: Option<&[SearchStack]>,
         continuation_histories: Option<&ContinuationHistoryTables>,
         killers: Option<&[Move; 2]>,
         ply: Option<u8>,
@@ -304,7 +304,7 @@ impl MoveGenerator {
             }
         }
 
-        self.state = MoveGeneratorState::AllGenerated;
+        self.state = StagedMoveGeneratorState::AllGenerated;
         let move_buf_len = self.move_buf.len();
 
         extra_quiet_move_scoring(
@@ -318,12 +318,12 @@ impl MoveGenerator {
     }
 
     /// set_tt_move() should be called before this method, if it is going to be called
-    fn generate_moves_pseudo_legal_impl(&mut self, board: &mut Board) {
+    fn generate_moves_pseudo_legal_impl(&mut self, board: &Board) {
         let side = if board.white_to_move { 0 } else { 1 };
         let other_side = if board.white_to_move { 1 } else { 0 };
         let occ = board.occupancy;
 
-        self.state = MoveGeneratorState::GeneratePending;
+        self.state = StagedMoveGeneratorState::GeneratePending;
 
         let pawn_data: [(fn(u64) -> u64, i8); 2] = if board.white_to_move {
             [(north_east_one, -9), (north_west_one, -7)]
@@ -400,7 +400,7 @@ impl MoveGenerator {
 
     fn add_captures_and_delay_quiets<F: Fn(u8) -> u64>(
         &mut self,
-        board: &mut Board,
+        board: &Board,
         piece_type: u8,
         side: usize,
         other_side: usize,
@@ -434,7 +434,7 @@ impl MoveGenerator {
 }
 
 fn apply_continuation_history_to_move_scores(
-    ss: &Vec<SearchStack>,
+    ss: &[SearchStack],
     board: &Board,
     continuation_histories: &ContinuationHistoryTables,
     moves: &mut [ScoredMove],
@@ -466,7 +466,7 @@ fn apply_continuation_history_to_move_scores(
 
 #[inline]
 fn get_relevant_cont_histories<'a>(
-    ss: &Vec<SearchStack>,
+    ss: &[SearchStack],
     board: &Board,
     continuation_histories: &'a ContinuationHistoryTables,
     ply: usize,
@@ -517,7 +517,7 @@ fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_
 fn extra_quiet_move_scoring(
     moves: &mut [ScoredMove],
     board: &Board,
-    ss: Option<&Vec<SearchStack>>,
+    ss: Option<&[SearchStack]>,
     continuation_histories: Option<&ContinuationHistoryTables>,
     killers: Option<&[Move; 2]>,
     ply: Option<u8>,

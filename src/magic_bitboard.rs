@@ -34,10 +34,13 @@ pub static COMBINED_BISHOP_RAYS: [u64; 64] = array![i => {
     rays[NORTH_EAST] | rays[SOUTH_EAST] | rays[SOUTH_WEST] | rays[NORTH_WEST]
 }; 64];
 
+// Silence dead code warnings because magic and shift are used when pext is unavailable or disabled
 struct MagicEntry {
     attacks_offset: u32,
     mask: u64,
+    #[allow(dead_code)]
     magic: u64,
+    #[allow(dead_code)]
     shift: u8,
 }
 
@@ -251,6 +254,7 @@ const fn get_occluded_negative_ray(square_index: u8, occupancy: u64, direction: 
     }
 }
 
+// TODO: When I move the minimum rust version to 1.95.0+, use cfg_select! here instead of separate methods
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2", feature = "use_pext"))]
 #[inline]
 unsafe fn get_index(occupancy: u64, entry: *const MagicEntry) -> u64 {

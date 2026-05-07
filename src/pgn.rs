@@ -7,15 +7,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use regex::Regex;
 
 use crate::{
-    STARTING_FEN, TuningArgs,
-    board::{Board, PIECE_BISHOP, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, piece_to_name, rank_8x8},
-    move_generator_struct::{GetMoveResult, MoveGenerator},
+    STARTING_FEN,
+    board::{
+        Board, PIECE_BISHOP, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, piece_to_letter, rank_8x8,
+    },
+    cli::TuningArgs,
     moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
     repetition_tracker::RepetitionTracker,
+    staged_move_generator::StagedMoveGenerator,
 };
 
 const NORMAL_MOVE_REGEX_STR: &str = r"^(?P<movPiece>[BKNRQ])?(?P<srcFile>[a-h])?(?P<srcRank>[1-8])?x?(?P<dest>[a-h][1-8])(?P<promo>=[BNRQ])?(?P<check>\+|#)?$";
@@ -297,7 +300,7 @@ impl<'a> Pgn {
             self.moves[idx - 1].mov.ends_with('+') || self.moves[idx - 1].mov.ends_with('#')
         } else {
             let fen = self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN);
-            let mut board = Board::from_fen(fen, None).unwrap();
+            let board = Board::from_fen(fen, None).unwrap();
             board.is_in_check(false)
         }
     }
@@ -327,52 +330,48 @@ impl<'a> Pgn {
                     let src_rank = move_parts.name("srcRank").map(|f| f.as_str().as_bytes()[0] - b'0');
                     let promo_piece = move_parts.name("promo").map(|f| f.as_str().chars().nth(1).unwrap());
 
-                    let mut move_gen = MoveGenerator::new();
+                    let mut move_gen = StagedMoveGenerator::new();
                     move_gen.generate_moves_pseudo_legal(&mut self.board);
 
-                    loop {
-                        match move_gen.get_next_move_unordered() {
-                            GetMoveResult::Move(scored_move) => {
-                                let mov = scored_move.m;
-                                if mov.to() != dest_sq {
-                                    continue;
-                                }
+                    let mut move_matched = false;
+                    while let Some(mov) = move_gen.get_next_move_unordered(&self.board) {
+                        if mov.to() != dest_sq {
+                            continue;
+                        }
 
-                                let moving_piece_type = self.board.get_piece_64(mov.from() as usize) & PIECE_MASK;
-                                if piece_to_name(moving_piece_type) != moving_piece {
-                                    continue;
-                                }
+                        let moving_piece_type = self.board.get_piece_64(mov.from() as usize) & PIECE_MASK;
+                        if piece_to_letter(moving_piece_type) != moving_piece {
+                            continue;
+                        }
 
-                                if src_file.is_some_and(|sf| sf != file_8x8(mov.from() as u8))
-                                    || src_rank.is_some_and(|sr| sr != rank_8x8(mov.from() as u8))
-                                    || promo_piece.is_some_and(|promo_piece| {
-                                        promo_piece != piece_to_name(((mov.flags() as u8) & 3) + 2)
-                                    })
-                                {
-                                    continue;
-                                }
+                        if src_file.is_some_and(|sf| sf != file_8x8(mov.from() as u8))
+                            || src_rank.is_some_and(|sr| sr != rank_8x8(mov.from() as u8))
+                            || promo_piece.is_some_and(|promo_piece| {
+                                promo_piece != piece_to_letter(((mov.flags() as u8) & 3) + 2)
+                            })
+                        {
+                            continue;
+                        }
 
-                                let (legal, _) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
-                                if !legal {
-                                    panic!(
-                                        "Found a matching move for {}, but it is not legal for position {}",
-                                        self.moves[move_index].mov,
-                                        self.board.to_fen()
-                                    );
-                                }
-
-                                break;
-                            }
-                            GetMoveResult::GenerateMoves => {
-                                move_gen.generate_more_moves(&mut self.board, None, None, None, None, None);
-                                continue;
-                            }
-                            GetMoveResult::NoMoves => panic!(
-                                "Did not find any move matching {} for position {}",
+                        let (legal, _) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
+                        if !legal {
+                            panic!(
+                                "Found a matching move for {}, but it is not legal for position {}",
                                 self.moves[move_index].mov,
                                 self.board.to_fen()
-                            ),
-                        };
+                            );
+                        }
+
+                        move_matched = true;
+                        break;
+                    }
+
+                    if !move_matched {
+                        panic!(
+                            "Did not find any move matching {} for position {}",
+                            self.moves[move_index].mov,
+                            self.board.to_fen()
+                        );
                     }
                 } else {
                     let mov = if self.moves[move_index].mov.starts_with("O-O-O") {
@@ -403,31 +402,24 @@ impl<'a> Pgn {
     }
 
     fn find_castle_move(&mut self, flag: u16) -> Move {
-        let mut move_gen = MoveGenerator::new();
+        let mut move_gen = StagedMoveGenerator::new();
         move_gen.generate_moves_pseudo_legal(&mut self.board);
 
-        loop {
-            match move_gen.get_next_move_unordered() {
-                GetMoveResult::Move(scored_move) => {
-                    if scored_move.m.flags() == flag {
-                        return scored_move.m;
-                    }
-                }
-                GetMoveResult::GenerateMoves => {
-                    move_gen.generate_more_moves(&mut self.board, None, None, None, None, None);
-                    continue;
-                }
-                GetMoveResult::NoMoves => panic!(
-                    "Did not find any move matching {} for position {}",
-                    if flag == MOVE_QUEEN_CASTLE {
-                        "Queenside castle"
-                    } else {
-                        "Kingside castle"
-                    },
-                    self.board.to_fen()
-                ),
-            };
+        while let Some(mov) = move_gen.get_next_move_unordered(&self.board) {
+            if mov.flags() == flag {
+                return mov;
+            }
         }
+
+        panic!(
+            "Did not find any move matching {} for position {}",
+            if flag == MOVE_QUEEN_CASTLE {
+                "Queenside castle"
+            } else {
+                "Kingside castle"
+            },
+            self.board.to_fen()
+        );
     }
 
     /// Returns Err if the fen has not been stored already
@@ -677,7 +669,7 @@ pub fn print_tuning_positions(args: &TuningArgs) {
             }
 
             let mut positions_to_take =
-                if extra_positions_left > 0 && rand.gen_ratio(extra_positions, normal_term_games_count) {
+                if extra_positions_left > 0 && rand.random_ratio(extra_positions, normal_term_games_count) {
                     extra_positions_left -= 1;
                     positions_per_game + 1
                 } else {
@@ -695,7 +687,7 @@ pub fn print_tuning_positions(args: &TuningArgs) {
             }
 
             while !possible_positions.is_empty() && (args.sampling.no_random_sampling || positions_to_take > 0) {
-                let position = possible_positions.swap_remove(rand.gen_range(0..possible_positions.len()));
+                let position = possible_positions.swap_remove(rand.random_range(0..possible_positions.len()));
 
                 // Look for quiet positions (bestmove not a capture or promotion, not in check) where mate is not seen
                 if pgn.is_move_capture(position)

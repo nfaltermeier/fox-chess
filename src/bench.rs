@@ -80,7 +80,7 @@ pub fn bench() {
         let mut continuation_history = UciInterface::alloc_zeroed_continuation_history_tables();
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let mut searcher = Searcher::new(
+        let searcher = Searcher::new(
             &mut transposition_table,
             &mut history,
             &stop_rx,
@@ -92,9 +92,9 @@ pub fn bench() {
             true,
         );
 
-        searcher.iterative_deepening_search(board, &tc, &sc);
+        let (_, stats) = searcher.iterative_deepening_search(board, &tc, &sc);
 
-        nodes += searcher.stats.current_iteration_total_nodes + searcher.stats.previous_iterations_total_nodes;
+        nodes += stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
     }
 
     let elapsed = start_time.elapsed();

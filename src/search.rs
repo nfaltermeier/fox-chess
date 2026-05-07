@@ -13,10 +13,10 @@ use crate::{
         MOVE_ARRAY_SIZE, MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX,
         ScoredMove,
     },
-    move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move},
     pretty_print_stats::{pretty_print_stats, print_header},
     repetition_tracker::RepetitionTracker,
+    staged_move_generator::{GetMoveResult, StagedMoveGenerator},
     time_management::{get_cutoff_times, modify_cutoff_time},
     transposition_table::{self, MoveType, TTEntry, TranspositionTable},
     uci::UciInterface,
@@ -67,12 +67,6 @@ pub struct SearchResult {
     pub score: i16,
 }
 
-pub struct AlphaBetaResult {
-    pub search_result: Option<SearchResult>,
-    pub end_search: bool,
-    pub pv: TinyVec<[Move; 32]>,
-}
-
 struct PvData {
     /// PVs are stored as a stack, FILO
     pub pv: TinyVec<[Move; 32]>,
@@ -88,7 +82,7 @@ pub struct SearchStack {
 }
 
 pub struct Searcher<'a> {
-    pub stats: SearchStats,
+    stats: SearchStats,
     transposition_table: &'a mut TranspositionTable,
     history_table: &'a mut HistoryTable,
     starting_fullmove: u8,
@@ -102,6 +96,8 @@ pub struct Searcher<'a> {
     continuation_histories: &'a mut ContinuationHistoryTables,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
+    // This field is intentionally unused except when tuning
+    #[allow(dead_code)]
     extra_uci_options: RequiredUciOptions,
     root_pv_branch_nodes: u64,
     pv_nodes_fractions: VecDeque<f32>,
@@ -155,11 +151,11 @@ impl<'a> Searcher<'a> {
     }
 
     pub fn iterative_deepening_search(
-        &mut self,
+        mut self,
         mut board: Board,
-        time: &Option<UciTimeControl>,
-        search: &Option<UciSearchControl>,
-    ) -> SearchResult {
+        time_options: &Option<UciTimeControl>,
+        search_options: &Option<UciSearchControl>,
+    ) -> (SearchResult, SearchStats) {
         let start_time = Instant::now();
         let mut soft_cutoff_time = None;
         let mut search_control: SearchControl;
@@ -176,7 +172,7 @@ impl<'a> Searcher<'a> {
         self.white_started_search = board.white_to_move;
 
         self.hard_cutoff_time = None;
-        if let Some(t) = time {
+        if let Some(t) = time_options {
             match t {
                 UciTimeControl::TimeLeft {
                     white_time,
@@ -220,17 +216,17 @@ impl<'a> Searcher<'a> {
             search_control = SearchControl::Unknown;
         }
 
-        if let Some(s) = search {
-            if s.depth.is_some() {
+        if let Some(search) = search_options {
+            if let Some(depth) = search.depth {
                 if search_control == SearchControl::Unknown {
                     search_control = SearchControl::Depth;
                 }
-                max_depth = s.depth.unwrap();
-            } else if s.nodes.is_some() {
+                max_depth = depth;
+            } else if let Some(nodes) = search.nodes {
                 if search_control == SearchControl::Unknown {
                     search_control = SearchControl::Nodes;
                 }
-                self.total_max_nodes = s.nodes.unwrap();
+                self.total_max_nodes = nodes;
             }
         }
 
@@ -248,8 +244,11 @@ impl<'a> Searcher<'a> {
             {
                 // Max nodes are infrequently checked in the search so do an additional check here
                 if self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration {
-                    return latest_result
-                        .expect("iterative_deepening_search exceeded max nodes before completing any searches");
+                    return (
+                        latest_result
+                            .expect("iterative_deepening_search exceeded max nodes before completing any searches"),
+                        self.stats,
+                    );
                 }
 
                 let elapsed = start_time.elapsed();
@@ -260,7 +259,7 @@ impl<'a> Searcher<'a> {
                             pv.search_result.score,
                             &self.stats,
                             &elapsed,
-                            &self.transposition_table,
+                            self.transposition_table,
                             &pv.pv,
                             self.starting_fullmove,
                             i as u8 + 1,
@@ -271,7 +270,7 @@ impl<'a> Searcher<'a> {
                             pv.search_result.score,
                             &self.stats,
                             &elapsed,
-                            &self.transposition_table,
+                            self.transposition_table,
                             &pv.pv,
                             self.starting_fullmove,
                             i as u8 + 1,
@@ -287,7 +286,7 @@ impl<'a> Searcher<'a> {
                     || (search_control != SearchControl::Infinite
                         && (end_search || worst_pv.search_result.score.abs() >= MATE_THRESHOLD || depth >= max_depth))
                 {
-                    return best_pv.search_result.clone();
+                    return (best_pv.search_result.clone(), self.stats);
                 }
 
                 if matches!(search_control, SearchControl::Time) {
@@ -305,7 +304,7 @@ impl<'a> Searcher<'a> {
                     }
 
                     if elapsed >= soft_cutoff_time.unwrap() {
-                        return best_pv.search_result.clone();
+                        return (best_pv.search_result.clone(), self.stats);
                     }
                 }
 
@@ -315,8 +314,8 @@ impl<'a> Searcher<'a> {
                     debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
                 }
 
-                return latest_result
-                    .expect("iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches");
+                return (latest_result
+                    .expect("iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches"), self.stats);
             }
 
             depth += 1;
@@ -463,15 +462,10 @@ impl<'a> Searcher<'a> {
             self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
         }
 
-        // When at the root and with multi-pv enabled then this will be the lowest PV score
-        let mut best_score = i16::MIN;
-        // When at the root and with multi-pv enabled then this may not be the actual best move
-        let mut best_move = None;
-
         let is_pv = alpha + 1 != beta;
 
-        let mut move_gen = MoveGenerator::new();
-        let excluded_move = self.ss[ply as usize].excluded_move.clone();
+        let mut move_gen = StagedMoveGenerator::new();
+        let excluded_move = self.ss[ply as usize].excluded_move;
         let tt_entry = if excluded_move.is_none() {
             self.transposition_table.get_entry(board.hash, self.starting_fullmove)
         } else {
@@ -486,12 +480,12 @@ impl<'a> Searcher<'a> {
                         if tt_score >= beta {
                             // should history be updated here?
                             update_killers_and_history(
-                                &board,
-                                &tt_data.important_move,
+                                board,
+                                tt_data.important_move,
                                 draft,
                                 ply,
-                                &mut self.history_table,
-                                &mut self.continuation_histories,
+                                self.history_table,
+                                self.continuation_histories,
                                 &mut self.ss,
                                 &mut self.root_killers,
                             );
@@ -512,8 +506,6 @@ impl<'a> Searcher<'a> {
 
             move_gen.set_tt_move(tt_data.important_move);
         }
-
-        let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
 
         let mut futility_prune = false;
         if draft < 6 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
@@ -547,6 +539,8 @@ impl<'a> Searcher<'a> {
                 }
             }
         }
+
+        let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
 
         // Null move pruning
         let our_side = if board.white_to_move { 0 } else { 1 };
@@ -604,16 +598,12 @@ impl<'a> Searcher<'a> {
         if !in_check {
             move_gen.generate_moves_pseudo_legal(board);
         } else {
-            let last_move = if ply > 0 {
-                self.ss[ply as usize - 1].mov
-            } else {
-                EMPTY_MOVE
-            };
             let killers = if ply > 0 {
                 &self.ss[ply as usize - 1].killers
             } else {
                 &self.root_killers
             };
+
             move_gen.generate_moves_check_evasion(
                 board,
                 Some(self.history_table),
@@ -624,25 +614,26 @@ impl<'a> Searcher<'a> {
             );
         }
 
-        let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
+        // When at the root and with multi-pv enabled then this will be the lowest PV score
+        let mut best_score = i16::MIN;
+        // When at the root and with multi-pv enabled then this may not be the actual best move
+        let mut best_move = None;
         let mut searched_moves = 0;
         let mut has_legal_move = false;
         let mut improved_alpha = false;
+
+        let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
         let see_margin = (draft as i16).pow(2) * -16;
         loop {
-            let r#move = match move_gen.get_next_move() {
+            let mov = match move_gen.get_next_move() {
                 GetMoveResult::Move(scored_move) => scored_move,
                 GetMoveResult::GenerateMoves => {
-                    let last_move = if ply > 0 {
-                        self.ss[ply as usize - 1].mov
-                    } else {
-                        EMPTY_MOVE
-                    };
                     let killers = if ply > 0 {
                         &self.ss[ply as usize - 1].killers
                     } else {
                         &self.root_killers
                     };
+
                     move_gen.generate_more_moves(
                         board,
                         Some(self.history_table),
@@ -656,18 +647,19 @@ impl<'a> Searcher<'a> {
                 GetMoveResult::NoMoves => break,
             };
 
-            if excluded_move.is_some_and(|em| em == r#move.m) {
+            if excluded_move.is_some_and(|em| em == mov.m) {
                 continue;
             }
 
-            if !is_pv && r#move.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
-                if !board.is_static_exchange_eval_at_least(r#move.m, see_margin) {
-                    continue;
-                }
+            if !is_pv
+                && mov.m.data & MOVE_FLAG_CAPTURE_FULL != 0
+                && !board.is_static_exchange_eval_at_least(mov.m, see_margin)
+            {
+                continue;
             }
 
             let mut new_board = board.clone();
-            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(r#move.m, self.repetitions);
+            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, self.repetitions);
             if !legal {
                 if move_made {
                     self.repetitions.unmake_move(new_board.hash);
@@ -679,11 +671,10 @@ impl<'a> Searcher<'a> {
             let gives_check = new_board.is_in_check(false);
 
             // Futility pruning and late move pruning
-            if (futility_prune
-                || (!is_pv && !in_check && searched_moves >= 6 && r#move.score < 51 + (-92 * draft as i16)))
+            if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && mov.score < 51 + (-92 * draft as i16)))
                 && searched_moves >= 1
                 && !gives_check
-                && r#move.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+                && mov.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
             {
                 self.repetitions.unmake_move(new_board.hash);
                 continue;
@@ -694,14 +685,14 @@ impl<'a> Searcher<'a> {
                 && draft >= 5
                 && excluded_move.is_none()
                 && tt_entry.is_some_and(|tt_entry| {
-                    tt_entry.important_move == r#move.m
+                    tt_entry.important_move == mov.m
                         && tt_entry.draft >= draft - 3
                         && tt_entry.move_type != MoveType::FailLow
                         && tt_entry.get_score(ply).abs() < MATE_THRESHOLD - 2600
                 })
             {
                 self.repetitions.unmake_move(new_board.hash);
-                self.ss[ply as usize].excluded_move = Some(r#move.m);
+                self.ss[ply as usize].excluded_move = Some(mov.m);
 
                 let verification_draft = draft / 2;
                 let verification_beta = tt_entry.unwrap().get_score(ply) - draft as i16 * 2;
@@ -728,15 +719,15 @@ impl<'a> Searcher<'a> {
                 }
 
                 self.ss[ply as usize].excluded_move = None;
-                self.repetitions.make_move(r#move.m, new_board.hash);
+                self.repetitions.make_move(mov.m, new_board.hash);
             }
 
-            self.ss[ply as usize].mov = r#move.m;
-            self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(r#move.m.to() as usize) & PIECE_MASK;
+            self.ss[ply as usize].mov = mov.m;
+            self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
 
             // Late move reduction
             let reduction_ply = if draft > 2 && searched_moves > 3 {
-                let flags = r#move.m.flags();
+                let flags = mov.m.flags();
 
                 // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
                 let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0
@@ -830,32 +821,26 @@ impl<'a> Searcher<'a> {
 
             if score >= beta {
                 let mut relevant_cont_histories = update_killers_and_history(
-                    &board,
-                    &r#move.m,
+                    board,
+                    mov.m,
                     draft,
                     ply,
-                    &mut self.history_table,
-                    &mut self.continuation_histories,
+                    self.history_table,
+                    self.continuation_histories,
                     &mut self.ss,
                     &mut self.root_killers,
                 );
 
                 let penalty = -(draft as i16) * (draft as i16);
-                for m in searched_quiet_moves {
-                    update_history(
-                        &board,
-                        &mut self.history_table,
-                        &m,
-                        penalty,
-                        &mut relevant_cont_histories,
-                    );
+                for sqm in searched_quiet_moves {
+                    update_history(board, self.history_table, sqm, penalty, &mut relevant_cont_histories);
                 }
 
                 if ply == 0 {
                     let pv_data = PvData {
                         pv: TinyVec::default(),
                         search_result: SearchResult {
-                            best_move: r#move.m,
+                            best_move: mov.m,
                             score,
                         },
                         selective_depth: self.stats.selective_depth,
@@ -872,7 +857,7 @@ impl<'a> Searcher<'a> {
                 if excluded_move.is_none() {
                     self.transposition_table.store_entry(TTEntry::new(
                         board.hash,
-                        r#move.m,
+                        mov.m,
                         MoveType::FailHigh,
                         score,
                         draft,
@@ -887,12 +872,12 @@ impl<'a> Searcher<'a> {
             if score > best_score {
                 if ply == 0 {
                     *parent_pv = pv.clone();
-                    parent_pv.push(r#move.m);
+                    parent_pv.push(mov.m);
 
                     let pv_data = PvData {
                         pv: parent_pv.clone(),
                         search_result: SearchResult {
-                            best_move: r#move.m,
+                            best_move: mov.m,
                             score,
                         },
                         selective_depth: self.stats.selective_depth,
@@ -915,7 +900,7 @@ impl<'a> Searcher<'a> {
 
                 if ply != 0 || self.root_pvs.len() == self.multi_pv as usize {
                     best_score = score;
-                    best_move = Some(r#move.m);
+                    best_move = Some(mov.m);
                     if score > alpha {
                         alpha = score;
                         improved_alpha = true;
@@ -923,15 +908,15 @@ impl<'a> Searcher<'a> {
                         // This will be handled separately for root nodes
                         if is_pv && ply != 0 {
                             *parent_pv = pv.clone();
-                            parent_pv.push(r#move.m);
+                            parent_pv.push(mov.m);
                         }
                     }
                 }
             }
 
             // TODO: change to check for capture flag
-            if r#move.m.flags() == 0 {
-                searched_quiet_moves.push(r#move.m);
+            if mov.m.flags() == 0 {
+                searched_quiet_moves.push(mov.m);
             }
         }
 
@@ -1054,19 +1039,19 @@ impl<'a> Searcher<'a> {
         for round in 0..2 {
             for move_index in 0..moves.len() {
                 select_next_move(&mut moves, move_index);
-                let r#move = &moves[move_index];
+                let mov = moves[move_index];
 
-                if round == 1 && tt_entry.is_some_and(|v| v.important_move == r#move.m) {
+                if round == 1 && tt_entry.is_some_and(|v| v.important_move == mov.m) {
                     continue;
                 }
 
                 // SEE is coded to be run before the move is made so have to do it before testing legality
-                if !board.is_static_exchange_eval_at_least(r#move.m, 0) {
+                if !board.is_static_exchange_eval_at_least(mov.m, 0) {
                     continue;
                 }
 
                 let mut new_board = board.clone();
-                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(r#move.m, self.repetitions);
+                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, self.repetitions);
                 if !legal {
                     if move_made {
                         self.repetitions.unmake_move(new_board.hash);
@@ -1082,7 +1067,7 @@ impl<'a> Searcher<'a> {
                 if score >= beta {
                     self.transposition_table.store_entry(TTEntry::new(
                         board.hash,
-                        r#move.m,
+                        mov.m,
                         MoveType::FailHigh,
                         score,
                         0,
@@ -1095,7 +1080,7 @@ impl<'a> Searcher<'a> {
 
                 if best_score < score {
                     best_score = score;
-                    best_move = Some(r#move.m);
+                    best_move = Some(mov.m);
 
                     if alpha < score {
                         alpha = score;
@@ -1148,18 +1133,18 @@ impl<'a> Searcher<'a> {
 #[inline]
 fn update_killers_and_history<'a>(
     board: &Board,
-    m: &Move,
+    mov: Move,
     draft: u8,
     ply: u8,
     history_table: &mut HistoryTable,
     continuation_histories: &'a mut ContinuationHistoryTables,
-    ss: &mut Vec<SearchStack>,
+    ss: &mut [SearchStack],
     root_killers: &mut [Move; 2],
 ) -> MutRelevantContinuationHistories<'a> {
     let mut relevant_cont_histories = get_relevant_cont_histories(ss, board, continuation_histories, ply as usize);
 
     // TODO: Change this to check for capture flag specifically
-    if m.flags() != 0 {
+    if mov.flags() != 0 {
         return relevant_cont_histories;
     }
 
@@ -1172,34 +1157,34 @@ fn update_killers_and_history<'a>(
     update_history(
         board,
         history_table,
-        m,
+        mov,
         (draft as i16) * (draft as i16),
         &mut relevant_cont_histories,
     );
 
-    if killers[0] != *m {
-        if killers[1] == *m {
+    if killers[0] != mov {
+        if killers[1] == mov {
             (killers[0], killers[1]) = (killers[1], killers[0]);
         } else {
-            killers[1] = *m;
+            killers[1] = mov;
         }
     }
 
-    return relevant_cont_histories;
+    relevant_cont_histories
 }
 
 #[inline]
 fn update_history(
     board: &Board,
     history_table: &mut HistoryTable,
-    m: &Move,
+    mov: Move,
     bonus: i16,
     relevant_cont_histories: &mut MutRelevantContinuationHistories,
 ) {
     // from https://www.chessprogramming.org/History_Heuristic
-    let piece_type_index = (board.get_piece_64(m.from() as usize) & PIECE_MASK) as usize - 1;
+    let piece_type_index = (board.get_piece_64(mov.from() as usize) & PIECE_MASK) as usize - 1;
     let history_color_value = if board.white_to_move { 0 } else { 1 };
-    let to = m.to() as usize;
+    let to = mov.to() as usize;
 
     let clamped_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
     let current_history = &mut history_table[history_color_value][piece_type_index][to];
@@ -1228,7 +1213,7 @@ fn update_history(
 
 #[inline]
 fn get_relevant_cont_histories<'a>(
-    ss: &Vec<SearchStack>,
+    ss: &[SearchStack],
     board: &Board,
     continuation_histories: &'a mut ContinuationHistoryTables,
     ply: usize,

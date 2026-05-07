@@ -5,10 +5,10 @@ use tinyvec::TinyVec;
 use crate::{
     board::{Board, PIECE_MASK, PIECE_PAWN, file_8x8, piece_to_letter, rank_8x8},
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    move_generator_struct::{GetMoveResult, MoveGenerator},
     moves::{MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
     repetition_tracker::RepetitionTracker,
     search::SearchStats,
+    staged_move_generator::StagedMoveGenerator,
     transposition_table::TranspositionTable,
 };
 
@@ -81,19 +81,9 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
         } else if mov.flags() == MOVE_QUEEN_CASTLE {
             result.push_str("0-0-0");
         } else {
-            let mut move_generator = MoveGenerator::new();
-            move_generator.generate_moves_pseudo_legal(&mut board);
-            loop {
-                let generated_move = match move_generator.get_next_move_unordered() {
-                    GetMoveResult::Move(scored_move) => scored_move,
-                    GetMoveResult::GenerateMoves => {
-                        move_generator.generate_more_moves(&mut board, None, None, None, None, None);
-                        continue;
-                    }
-                    GetMoveResult::NoMoves => break,
-                }
-                .m;
-
+            let mut move_generator = StagedMoveGenerator::new();
+            move_generator.generate_moves_pseudo_legal(&board);
+            while let Some(generated_move) = move_generator.get_next_move_unordered(&board) {
                 // Exclude when the PV move and the generated move has the same from so alternate promotions don't trigger disambiguation
                 if generated_move != *mov
                     && generated_move.from() as u8 != from
@@ -169,19 +159,9 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
                 // assume checkmate until disproven
                 checkmate = true;
 
-                let mut move_generator = MoveGenerator::new();
-                move_generator.generate_moves_check_evasion(&mut board, None, None, None, None, None);
-                loop {
-                    let generated_move = match move_generator.get_next_move_unordered() {
-                        GetMoveResult::Move(scored_move) => scored_move,
-                        GetMoveResult::GenerateMoves => {
-                            move_generator.generate_more_moves(&mut board, None, None, None, None, None);
-                            continue;
-                        }
-                        GetMoveResult::NoMoves => break,
-                    }
-                    .m;
-
+                let mut move_generator = StagedMoveGenerator::new();
+                move_generator.generate_moves_check_evasion(&board, None, None, None, None, None);
+                while let Some(generated_move) = move_generator.get_next_move_unordered(&board) {
                     let mut new_board = board.clone();
                     let (legal, _) = new_board.test_legality_and_maybe_make_move(generated_move, &mut repetitions);
                     if legal {
@@ -189,13 +169,11 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
                         break;
                     }
                 }
-
-                if checkmate {
-                    result.push('#');
-                }
             }
 
-            if !checkmate {
+            if checkmate {
+                result.push('#');
+            } else {
                 result.push('+');
             }
         }

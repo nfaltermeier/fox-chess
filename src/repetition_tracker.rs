@@ -84,10 +84,10 @@ impl RepetitionTracker {
         self.repetitions = [0; 1 << TABLE_LOG_2_SIZE];
     }
 
-    pub fn get_move_ref(&self, move_index: usize) -> &Move {
+    pub fn get_move(&self, move_index: usize) -> Move {
         debug_assert!(move_index < self.move_history_len);
 
-        &self.move_history[move_index]
+        self.move_history[move_index]
     }
 
     pub fn add_start_position(&mut self, hash: u64) {
