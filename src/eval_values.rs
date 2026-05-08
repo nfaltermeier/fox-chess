@@ -3,6 +3,8 @@ use array_macro::array;
 // Not currently part of eval tuning, so keeping it up here to separate it a bit
 pub const TEMPO_BONUS: i16 = 10;
 
+pub const MINOR_ATTACKS_MAJOR: i16 = 50;
+
 #[rustfmt::skip]
 const PAWN_MIDGAME_SQUARE_TABLE: [i16; 64] = [
    0,   0,   0,   0,   0,   0,   0,   0,
