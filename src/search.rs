@@ -651,6 +651,14 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
+            // Futility pruning and late move pruning
+            if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && mov.score < 51 + (-92 * draft as i16)))
+                && searched_moves >= 1
+                && mov.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
+            {
+                continue;
+            }
+
             if !is_pv
                 && mov.m.data & MOVE_FLAG_CAPTURE_FULL != 0
                 && !board.is_static_exchange_eval_at_least(mov.m, see_margin)
@@ -668,17 +676,6 @@ impl<'a> Searcher<'a> {
             }
 
             has_legal_move = true;
-            let gives_check = new_board.is_in_check(false);
-
-            // Futility pruning and late move pruning
-            if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && mov.score < 51 + (-92 * draft as i16)))
-                && searched_moves >= 1
-                && !gives_check
-                && mov.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
-            {
-                self.repetitions.unmake_move(new_board.hash);
-                continue;
-            }
 
             let mut extension = 0;
             if ply != 0
@@ -756,6 +753,7 @@ impl<'a> Searcher<'a> {
                 0
             };
 
+            let gives_check = new_board.is_in_check(false);
             let start_of_search_nodes = self.stats.current_iteration_total_nodes;
             if ply == 0 {
                 self.stats.selective_depth = 0;
