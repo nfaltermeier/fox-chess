@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score       time nodes hashfull pv");
+    println!("  d/sd pv#  score       time nodes nodes/s hashfull pv");
 }
 
 #[inline(never)]
@@ -55,13 +55,17 @@ pub fn pretty_print_stats(
 
     let depth = stats.depth;
 
-    let nodes = format_nodes(stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes);
+    let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+    let nodes_str = format_nodes(total_nodes);
+
+    let nps = (total_nodes as f32 / elapsed.as_secs_f32()).round() as u64;
+    let nps_str = format!("{}/s", format_nodes(nps));
 
     let hashfull = transposition_table.hashfull(search_starting_fullmove) as f32 / 10.0;
 
     let pv_str = format_moves_san(board, pv_moves);
 
-    println!("{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string}  {time} {nodes} {hashfull:>7.1}% {pv_str}");
+    println!("{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string}  {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}");
 }
 
 fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
