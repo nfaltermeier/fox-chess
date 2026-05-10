@@ -299,15 +299,18 @@ impl<'a> Pgn {
         if idx != 0 {
             self.moves[idx - 1].mov.ends_with('+') || self.moves[idx - 1].mov.ends_with('#')
         } else {
-            let fen = self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN);
-            let board = Board::from_fen(fen, None).unwrap();
+            let board = Board::from_fen(self.get_starting_fen(), None).unwrap();
             board.is_in_check(false)
         }
     }
 
+    fn get_starting_fen(&'a self) -> &'a str {
+        self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN)
+    }
+
     pub fn get_fen_for_position(&'a mut self, idx: usize) -> &'a str {
         if idx == 0 {
-            self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN)
+            self.get_starting_fen()
         } else {
             let mut repetitions = RepetitionTracker::default();
 
@@ -331,9 +334,10 @@ impl<'a> Pgn {
                     let promo_piece = move_parts.name("promo").map(|f| f.as_str().chars().nth(1).unwrap());
 
                     let mut move_gen = StagedMoveGenerator::new();
-                    move_gen.generate_moves_pseudo_legal(&mut self.board);
+                    move_gen.generate_moves_pseudo_legal(&self.board);
 
                     let mut move_matched = false;
+                    let board_copy = self.board.clone();
                     while let Some(mov) = move_gen.get_next_move_unordered(&self.board) {
                         if mov.to() != dest_sq {
                             continue;
@@ -353,13 +357,15 @@ impl<'a> Pgn {
                             continue;
                         }
 
-                        let (legal, _) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
+                        let (legal, move_made) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
                         if !legal {
-                            panic!(
-                                "Found a matching move for {}, but it is not legal for position {}",
-                                self.moves[move_index].mov,
-                                self.board.to_fen()
-                            );
+                            // If two pieces can pseudolegally move to a square but one of them is pinned,
+                            // then the disambiguating rank/file may not be printed in the PGN so we need to backtrack
+                            if move_made {
+                                self.board = board_copy.clone();
+                            }
+
+                            continue;
                         }
 
                         move_matched = true;
@@ -368,9 +374,9 @@ impl<'a> Pgn {
 
                     if !move_matched {
                         panic!(
-                            "Did not find any move matching {} for position {}",
+                            "Did not find any legal move matching {} for position {}",
                             self.moves[move_index].mov,
-                            self.board.to_fen()
+                            self.fens.last().map_or_else(|| self.get_starting_fen(), |f| f.as_str()),
                         );
                     }
                 } else {
@@ -388,7 +394,7 @@ impl<'a> Pgn {
                             "Described move {} matched generated move {}, but it is illegal for position {}",
                             self.moves[move_index].mov,
                             mov.pretty_print(None),
-                            self.board.to_fen()
+                            self.fens.last().map_or_else(|| self.get_starting_fen(), |f| f.as_str()),
                         );
                     }
                 }
@@ -403,7 +409,7 @@ impl<'a> Pgn {
 
     fn find_castle_move(&mut self, flag: u16) -> Move {
         let mut move_gen = StagedMoveGenerator::new();
-        move_gen.generate_moves_pseudo_legal(&mut self.board);
+        move_gen.generate_moves_pseudo_legal(&self.board);
 
         while let Some(mov) = move_gen.get_next_move_unordered(&self.board) {
             if mov.flags() == flag {
@@ -425,7 +431,7 @@ impl<'a> Pgn {
     /// Returns Err if the fen has not been stored already
     pub fn get_stored_fen(&'a self, idx: usize) -> Result<&'a str, ()> {
         if idx == 0 {
-            Ok(self.tags.get("FEN").map(|v| v.as_str()).unwrap_or(STARTING_FEN))
+            Ok(self.get_starting_fen())
         } else if idx - 1 < self.fens.len() {
             Ok(&self.fens[idx - 1])
         } else {
@@ -539,8 +545,15 @@ pub fn print_tuning_positions(args: &TuningArgs) {
             games_parsed += 1;
             if games_parsed > games_parsed_milestone {
                 games_parsed_milestone += actual_total_games_count / 20;
-                if start_time.elapsed() > Duration::from_secs(10) {
-                    eprintln!("Parsed {games_parsed} games so far");
+                let elapsed = start_time.elapsed();
+                if elapsed > Duration::from_secs(10) {
+                    let percentage = games_parsed as f32 / actual_total_games_count as f32;
+                    let estimated_total_time = elapsed.div_f32(percentage);
+                    let estimated_time_left = estimated_total_time - elapsed;
+                    eprintln!(
+                        "Processed {games_parsed} ({:.0}%) games so far. Estimated time left: {estimated_time_left:#?}",
+                        percentage * 100.0
+                    );
                 }
             }
 
