@@ -654,9 +654,12 @@ impl<'a> Searcher<'a> {
             // Futility pruning and late move pruning
             if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && mov.score < 51 + (-92 * draft as i16)))
                 && searched_moves >= 1
-                && mov.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0
             {
-                continue;
+                move_gen.prune_quiet_non_promos();
+
+                if mov.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0 {
+                    continue;
+                }
             }
 
             if !is_pv

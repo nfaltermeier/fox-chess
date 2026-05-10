@@ -17,8 +17,7 @@ use crate::{
         MOVE_SCORE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE, MOVE_SCORE_QUIET, ScoredMove,
     },
     moves::{
-        MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_KING_CASTLE,
-        MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
+        MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION_FULL, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move
     },
     search::{
         ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, EMPTY_MOVE, HistoryTable, RelevantContinuationHistories,
@@ -33,6 +32,7 @@ pub struct StagedMoveGenerator {
     state: StagedMoveGeneratorState,
     pending_moves: ArrayVec<PendingMoves, 20>,
     tt_move_used: bool,
+    prune_quiets_non_promos: bool,
 }
 
 struct PendingMoves {
@@ -63,6 +63,7 @@ impl StagedMoveGenerator {
             state: StagedMoveGeneratorState::AllGenerated,
             pending_moves: ArrayVec::new(),
             tt_move_used: true,
+            prune_quiets_non_promos: false,
         }
     }
 
@@ -122,6 +123,24 @@ impl StagedMoveGenerator {
         let m = self.move_buf[self.moves_selected];
         self.moves_selected += 1;
         Some(m.m)
+    }
+
+    // Not guranteed to work properly if used with generate_moves_check_evasion
+    pub fn prune_quiet_non_promos(&mut self) {
+        if self.prune_quiets_non_promos {
+            return;
+        }
+
+        self.prune_quiets_non_promos = true;
+        if self.state == StagedMoveGeneratorState::AllGenerated {
+            // Remove generated quiets to speed up selection sort, betting that we aren't going to fail high
+            for i in self.moves_selected..self.move_buf.len() {
+                if self.move_buf[i].m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0 {
+                    self.move_buf.swap(i, self.moves_selected);
+                    self.moves_selected += 1;
+                }
+            }
+        }
     }
 
     pub fn generate_more_moves(
@@ -206,16 +225,19 @@ impl StagedMoveGenerator {
         let pawn_advance = mv(board.piece_bitboards[side][PIECE_PAWN as usize]) & !board.occupancy;
         let mut promos = pawn_advance & (RANK_1 | RANK_8);
         let mut non_promos = pawn_advance & !(RANK_1 | RANK_8);
+        // Important that double_push is calculated before non_promos is mutated
         let mut double_push = mv(non_promos & double_push_intermediate) & !board.occupancy;
 
-        while non_promos != 0 {
-            let to = bitscan_forward_and_reset(&mut non_promos) as u8;
-            let from = to.checked_add_signed(offset).unwrap();
+        if !self.prune_quiets_non_promos {
+            while non_promos != 0 {
+                let to = bitscan_forward_and_reset(&mut non_promos) as u8;
+                let from = to.checked_add_signed(offset).unwrap();
 
-            self.move_buf.push(ScoredMove {
-                m: Move::new(from, to, 0),
-                score: MOVE_SCORE_QUIET + history_table[side][PIECE_PAWN as usize - 1][to as usize],
-            });
+                self.move_buf.push(ScoredMove {
+                    m: Move::new(from, to, 0),
+                    score: MOVE_SCORE_QUIET + history_table[side][PIECE_PAWN as usize - 1][to as usize],
+                });
+            }
         }
 
         while promos != 0 {
@@ -241,65 +263,68 @@ impl StagedMoveGenerator {
             });
         }
 
-        let offset = offset * 2;
-        while double_push != 0 {
-            let to = bitscan_forward_and_reset(&mut double_push) as u8;
-            let from = to.checked_add_signed(offset).unwrap();
+        if !self.prune_quiets_non_promos {
+            let offset = offset * 2;
 
-            self.move_buf.push(ScoredMove {
-                m: Move::new(from, to, MOVE_DOUBLE_PAWN),
-                score: MOVE_SCORE_QUIET + history_table[side][PIECE_PAWN as usize - 1][to as usize],
-            });
-        }
+            while double_push != 0 {
+                let to = bitscan_forward_and_reset(&mut double_push) as u8;
+                let from = to.checked_add_signed(offset).unwrap();
 
-        // generate moves, assuming all quiet moves need to be generated
-        for pending in &mut self.pending_moves {
-            let piece_type = board.get_piece_64(pending.from as usize) & PIECE_MASK;
-
-            while pending.targets != 0 {
-                let to = bitscan_forward_and_reset(&mut pending.targets) as u8;
-
-                self.move_buf.push(ScoredMove::new(
-                    pending.from,
-                    to,
-                    0,
-                    MOVE_SCORE_QUIET + history_table[side][piece_type as usize - 1][to as usize],
-                ));
+                self.move_buf.push(ScoredMove {
+                    m: Move::new(from, to, MOVE_DOUBLE_PAWN),
+                    score: MOVE_SCORE_QUIET + history_table[side][PIECE_PAWN as usize - 1][to as usize],
+                });
             }
-        }
 
-        if board.castling_rights != 0 {
-            if board.white_to_move {
-                if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
-                    && (board.occupancy & 0x1f) == 0x11
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
+            // generate moves, assuming all quiet moves need to be generated
+            for pending in &mut self.pending_moves {
+                let piece_type = board.get_piece_64(pending.from as usize) & PIECE_MASK;
 
-                if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0
-                    && (board.occupancy & 0xf0) == 0x90
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            } else {
-                if board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
-                    && (board.occupancy & 0x1f00000000000000) == 0x1100000000000000
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
+                while pending.targets != 0 {
+                    let to = bitscan_forward_and_reset(&mut pending.targets) as u8;
 
-                if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0
-                    && (board.occupancy & 0xf000000000000000) == 0x9000000000000000
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
-                {
-                    self.move_buf
-                        .push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                    self.move_buf.push(ScoredMove::new(
+                        pending.from,
+                        to,
+                        0,
+                        MOVE_SCORE_QUIET + history_table[side][piece_type as usize - 1][to as usize],
+                    ));
+                }
+            }
+
+            if board.castling_rights != 0 {
+                if board.white_to_move {
+                    if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
+                        && (board.occupancy & 0x1f) == 0x11
+                        && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
+                    {
+                        self.move_buf
+                            .push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                    }
+
+                    if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0
+                        && (board.occupancy & 0xf0) == 0x90
+                        && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
+                    {
+                        self.move_buf
+                            .push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                    }
+                } else {
+                    if board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
+                        && (board.occupancy & 0x1f00000000000000) == 0x1100000000000000
+                        && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
+                    {
+                        self.move_buf
+                            .push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                    }
+
+                    if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0
+                        && (board.occupancy & 0xf000000000000000) == 0x9000000000000000
+                        && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
+                    {
+                        self.move_buf
+                            .push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                    }
                 }
             }
         }
@@ -307,14 +332,16 @@ impl StagedMoveGenerator {
         self.state = StagedMoveGeneratorState::AllGenerated;
         let move_buf_len = self.move_buf.len();
 
-        extra_quiet_move_scoring(
-            &mut self.move_buf[starting_move_buf_len..move_buf_len],
-            board,
-            ss,
-            continuation_histories,
-            killers,
-            ply,
-        );
+        if starting_move_buf_len != move_buf_len {
+            extra_quiet_move_scoring(
+                &mut self.move_buf[starting_move_buf_len..move_buf_len],
+                board,
+                ss,
+                continuation_histories,
+                killers,
+                ply,
+            );
+        }
     }
 
     /// set_tt_move() should be called before this method, if it is going to be called
