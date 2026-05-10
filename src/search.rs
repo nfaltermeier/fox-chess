@@ -6,9 +6,8 @@ use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
-    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN},
-    eval_values::CENTIPAWN_VALUES_MIDGAME,
-    evaluate::{ENDGAME_GAME_STAGE_FOR_QUIESCENSE, MATE_THRESHOLD},
+    board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
+    evaluate::MATE_THRESHOLD,
     move_generator::{
         MOVE_ARRAY_SIZE, MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX,
         ScoredMove,
@@ -1016,12 +1015,6 @@ impl<'a> Searcher<'a> {
             let stand_pat = board.evaluate_side_to_move_relative();
 
             if stand_pat >= beta {
-                return stand_pat;
-            }
-
-            if board.game_stage > ENDGAME_GAME_STAGE_FOR_QUIESCENSE
-                && stand_pat + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize] + 100 < alpha
-            {
                 return stand_pat;
             }
 
