@@ -65,7 +65,9 @@ pub fn pretty_print_stats(
 
     let pv_str = format_moves_san(board, pv_moves);
 
-    println!("{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string}  {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}");
+    println!(
+        "{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string}  {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}"
+    );
 }
 
 fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {

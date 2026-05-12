@@ -62,6 +62,7 @@ pub struct Board {
     pub halfmove_clock: u8,
     pub fullmove_counter: u16,
     pub hash: u64,
+    pub pawn_hash: u64,
     pub game_stage: i16,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
@@ -126,6 +127,7 @@ impl Board {
             halfmove_clock: 0,
             fullmove_counter: 1,
             hash: 0,
+            pawn_hash: 0,
             game_stage: 0,
             piece_counts: [[0; 7]; 2],
             piece_bitboards: [[0; 7]; 2],
@@ -537,7 +539,13 @@ pub fn get_hash_value(piece_code: u8, white: bool, index: usize, hash_values: &[
 // For creating a board from the default board
 fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) {
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
-    board.hash ^= get_hash_value(piece_code, white, index, hash_values);
+    let hash = get_hash_value(piece_code, white, index, hash_values);
+    board.hash ^= hash;
+
+    if piece_code == PIECE_PAWN {
+        board.pawn_hash ^= hash;
+    }
+
     board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
     board.piece_counts[if white { 0 } else { 1 }][piece_code as usize] += 1;
 }

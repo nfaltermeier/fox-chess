@@ -18,6 +18,7 @@ mod bench;
 mod bitboard;
 mod board;
 mod cli;
+mod correction_history;
 mod eval_values;
 mod evaluate;
 mod magic_bitboard;

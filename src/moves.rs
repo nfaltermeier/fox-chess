@@ -165,7 +165,8 @@ impl Board {
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
             let capture_target_piece = self.get_piece_64(to);
-            self.hash ^= get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
+            let hash = get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
+            self.hash ^= hash;
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
             self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize] -= 1;
             self.write_piece(PIECE_NONE, to);
@@ -177,6 +178,8 @@ impl Board {
                 if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & LIGHT_SQUARES == 0 {
                     self.bishop_colors[other_side] &= !BISHOP_COLORS_LIGHT;
                 }
+            } else if capture_target_piece & PIECE_MASK == PIECE_PAWN {
+                self.pawn_hash ^= hash;
             }
         }
 
@@ -213,7 +216,9 @@ impl Board {
             let side = if self.white_to_move { 0 } else { 1 };
 
             self.write_piece(PIECE_NONE, from);
-            self.hash ^= get_hash_value(PIECE_PAWN, self.white_to_move, from, hash_values);
+            let pawn_hash = get_hash_value(PIECE_PAWN, self.white_to_move, from, hash_values);
+            self.hash ^= pawn_hash;
+            self.pawn_hash ^= pawn_hash;
             self.write_piece(promo_to_piece, to);
             self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
             self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
@@ -231,22 +236,30 @@ impl Board {
         } else {
             if ep_capture {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
-                if diff == 7 || diff == -9 {
+                let hash = if diff == 7 || diff == -9 {
                     self.write_piece(PIECE_NONE, from - 1);
-                    self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from - 1, hash_values);
+                    get_hash_value(PIECE_PAWN, !self.white_to_move, from - 1, hash_values)
                 } else {
                     self.write_piece(PIECE_NONE, from + 1);
-                    self.hash ^= get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values);
-                }
+                    get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values)
+                };
+                self.hash ^= hash;
+                self.pawn_hash ^= hash;
                 self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
                 self.piece_counts[other_side][PIECE_PAWN as usize] -= 1;
             }
 
             let moved_piece_kind = moved_piece & PIECE_MASK;
             self.write_piece(PIECE_NONE, from);
-            self.hash ^= get_hash_value(moved_piece_kind, self.white_to_move, from, hash_values);
+            let from_hash = get_hash_value(moved_piece_kind, self.white_to_move, from, hash_values);
+            self.hash ^= from_hash;
             self.write_piece(moved_piece, to);
-            self.hash ^= get_hash_value(moved_piece_kind, self.white_to_move, to, hash_values);
+            let to_hash = get_hash_value(moved_piece_kind, self.white_to_move, to, hash_values);
+            self.hash ^= to_hash;
+
+            if moved_piece_kind == PIECE_PAWN {
+                self.pawn_hash ^= from_hash ^ to_hash;
+            }
         }
 
         if self.en_passant_target_square_index.is_some() {
@@ -477,49 +490,64 @@ mod moves_tests {
         }
     }
 
-    #[test]
-    pub fn board_same_for_fen_and_uci_position_moves() {
-        initialize_magic_bitboards();
+    macro_rules! board_same_for_fen_and_uci_position_moves_test {
+        ($($name:ident: $value:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let moves = $value;
 
-        let (_, stop_rx) = mpsc::channel::<()>();
-        let mut uci = UciInterface::new(10, stop_rx);
-        let mut uci_command = String::from("position startpos moves");
-        let moves = vec![
+                    initialize_magic_bitboards();
+
+                    let (_, stop_rx) = mpsc::channel::<()>();
+                    let mut uci = UciInterface::new(10, stop_rx);
+                    let mut uci_command = String::from("position startpos moves");
+                    for m in moves {
+                        uci_command.push(' ');
+                        uci_command.push_str(m);
+
+                        let messages = parse_with_unknown(&uci_command);
+                        uci.process_command((uci_command.clone(), messages));
+                        let from_uci = uci.get_board_copy().unwrap();
+
+                        let fen = from_uci.to_fen();
+                        let from_fen = Board::from_fen(&fen, None).unwrap();
+
+                        // For debugging if the test is failing
+                        // println!("Now comparing fen {fen} which came from move {m}");
+
+                        if from_fen.hash != from_uci.hash {
+                            let mut diff_found = false;
+                            for (i, v) in HASH_VALUES.iter().enumerate() {
+                                if from_fen.hash ^ v == from_uci.hash {
+                                    println!("hash differs by value {i} of HASH_VALUES");
+                                    diff_found = true;
+                                }
+                            }
+
+                            if !diff_found {
+                                println!("hash differs by more than one value from HASH_VALUES");
+                            }
+                        }
+
+                        assert_eq!(from_fen, from_uci);
+                    }
+                }
+            )*
+        }
+    }
+
+    board_same_for_fen_and_uci_position_moves_test! {
+        board_same_fen_uci_game1: vec![
             "d2d4", "d7d5", "g1f3", "c8f5", "c2c4", "e7e6", "d1b3", "b8c6", "c1d2", "d5c4", "b3b7", "g8e7", "b7b5",
             "a8b8", "b5a4", "b8b2", "b1a3", "b2b8", "a3c4", "h7h6", "h1g1", "f5e4", "d2c3", "h8g8", "a1d1", "d8d7",
             "f3d2", "e4g6", "c4a5", "c6a5", "a4d7", "e8d7", "c3a5", "e7c6", "a5c3", "f8b4", "c3a1", "d7d6", "e2e3",
             "g8d8", "f1e2", "c6e7", "a1b2", "e7d5", "e2f3", "g6c2", "d1c1", "c2d3", "c1d1", "d3c2", "d1c1",
-        ];
-        for m in moves {
-            uci_command.push(' ');
-            uci_command.push_str(m);
-
-            let messages = parse_with_unknown(&uci_command);
-            uci.process_command((uci_command.clone(), messages));
-            let from_uci = uci.get_board_copy().unwrap();
-
-            let fen = from_uci.to_fen();
-            let from_fen = Board::from_fen(&fen, None).unwrap();
-
-            // For debugging if the test is failing
-            // println!("Now comparing fen {fen} which came from move {m}");
-
-            if from_fen.hash != from_uci.hash {
-                let mut diff_found = false;
-                for (i, v) in HASH_VALUES.iter().enumerate() {
-                    if from_fen.hash ^ v == from_uci.hash {
-                        println!("hash differs by value {i} of HASH_VALUES");
-                        diff_found = true;
-                    }
-                }
-
-                if !diff_found {
-                    println!("hash differs by more than one value from HASH_VALUES");
-                }
-            }
-
-            assert_eq!(from_fen, from_uci);
-        }
+        ],
+        board_same_fen_uci_promo_en_passant_castle: vec![
+            "d2d4", "g7g5", "d4d5", "e7e5", "d5e6", "g5g4", "h2h4", "f8h6", "c1h6", "g8h6", "f2f4", "g4f3", "d1d4",
+            "e8g8", "b1c3", "f3g2", "e6d7", "g2h1b", "d7c8q", "f8e8", "e1c1",
+        ],
     }
 
     #[test]
@@ -532,6 +560,7 @@ mod moves_tests {
         .unwrap();
         let mut from_repetitions = from_fen.clone();
 
+        // TODO: Convert to use Move::from_simple_long_algebraic_notation
         // c2d3
         from_repetitions.make_move(Move { data: 1226 }, &mut repetitions);
 

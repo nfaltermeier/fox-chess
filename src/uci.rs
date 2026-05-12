@@ -1,5 +1,5 @@
 use std::{
-    alloc::{Layout, alloc_zeroed},
+    alloc::{Layout, alloc_zeroed, handle_alloc_error},
     io,
     sync::mpsc::{self, Receiver},
     thread,
@@ -16,6 +16,7 @@ use crate::{
     STARTING_FEN,
     bench::bench,
     board::Board,
+    correction_history::CorrectionHistoryTables,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
@@ -36,6 +37,7 @@ pub struct UciInterface {
     contempt: i16,
     repetitions: RepetitionTracker,
     use_uci_mode: bool,
+    correction_histories: Box<CorrectionHistoryTables>,
 }
 
 impl UciInterface {
@@ -51,6 +53,7 @@ impl UciInterface {
             contempt: 0,
             repetitions: RepetitionTracker::default(),
             use_uci_mode: false,
+            correction_histories: CorrectionHistoryTables::new(),
         }
     }
 
@@ -143,6 +146,7 @@ impl UciInterface {
                             self.contempt,
                             &mut self.repetitions,
                             self.use_uci_mode,
+                            &mut self.correction_histories,
                         );
 
                         // Search on a board copy to protect against the board state being changed by the search timing out
@@ -351,12 +355,16 @@ impl UciInterface {
     }
 
     pub fn alloc_zeroed_continuation_history_tables() -> Box<ContinuationHistoryTables> {
-        assert!(size_of::<ContinuationHistoryTables>().is_multiple_of(size_of::<i16>()));
+        let layout = Layout::new::<ContinuationHistoryTables>();
+
         unsafe {
-            // Safety: 0 is a valid value for i16 and
-            // ContinuationHistoryTables is a multidimensional array of i16, so it can be represented as a single dimensional array of i16
-            let mem =
-                alloc_zeroed(Layout::array::<i16>(size_of::<ContinuationHistoryTables>() / size_of::<i16>()).unwrap());
+            // Safety: 0 is a valid value for i16 and ContinuationHistoryTables is a struct of multidimensional arrays of i16
+            let mem = alloc_zeroed(layout);
+
+            if mem.is_null() {
+                handle_alloc_error(layout);
+            }
+
             let typed_mem = mem.cast::<ContinuationHistoryTables>();
             Box::from_raw(typed_mem)
         }

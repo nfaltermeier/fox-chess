@@ -8,7 +8,11 @@ use crate::{
         PIECE_QUEEN, PIECE_ROOK,
     },
     eval_values::{
-        BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN, KING_ATTACK_UNIT_PIECE_VALUES, MINOR_ATTACKS_MAJOR, MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME, MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME, MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME, MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS, ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES, TEMPO_BONUS
+        BISHOP_PAIR, CENTIPAWN_VALUES_ENDGAME, CENTIPAWN_VALUES_MIDGAME, CONNECTED_PAWNS, DOUBLED_PAWN, ISOLATED_PAWN,
+        KING_ATTACK_UNIT_PIECE_VALUES, MINOR_ATTACKS_MAJOR, MOBILITY_BISHOP_ENDGAME, MOBILITY_BISHOP_MIDGAME,
+        MOBILITY_KNIGHT_ENDGAME, MOBILITY_KNIGHT_MIDGAME, MOBILITY_QUEEN_ENDGAME, MOBILITY_QUEEN_MIDGAME,
+        MOBILITY_ROOK_ENDGAME, MOBILITY_ROOK_MIDGAME, PASSED_PAWNS, PAWN_SHIELD, PIECES_THREATENED_BY_PAWNS,
+        ROOF_HALF_OPEN_FILES, ROOK_OPEN_FILES, TEMPO_BONUS,
     },
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::Move,
@@ -439,8 +443,12 @@ impl Board {
             KING_ATTACK_UNIT_VALUES[(attack_units[1] / 10).min(99) as usize]
         };
 
-        let net_minor_attacks_major = (minor_piece_coverage[0] & (self.piece_bitboards[1][PIECE_ROOK as usize] | self.piece_bitboards[1][PIECE_QUEEN as usize])).count_ones() as i16
-            - (minor_piece_coverage[1] & (self.piece_bitboards[0][PIECE_ROOK as usize] | self.piece_bitboards[0][PIECE_QUEEN as usize])).count_ones() as i16;
+        let net_minor_attacks_major = (minor_piece_coverage[0]
+            & (self.piece_bitboards[1][PIECE_ROOK as usize] | self.piece_bitboards[1][PIECE_QUEEN as usize]))
+            .count_ones() as i16
+            - (minor_piece_coverage[1]
+                & (self.piece_bitboards[0][PIECE_ROOK as usize] | self.piece_bitboards[0][PIECE_QUEEN as usize]))
+                .count_ones() as i16;
 
         MobilityKingAttackUnitsResult {
             mobility_midgame: midgame,

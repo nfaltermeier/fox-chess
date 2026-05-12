@@ -4,6 +4,7 @@ use vampirc_uci::UciSearchControl;
 
 use crate::{
     board::Board,
+    correction_history::CorrectionHistoryTables,
     repetition_tracker::RepetitionTracker,
     search::{DEFAULT_HISTORY_TABLE, Searcher},
     transposition_table::TranspositionTable,
@@ -78,6 +79,7 @@ pub fn bench() {
         let mut transposition_table = TranspositionTable::new(18);
         let mut history = DEFAULT_HISTORY_TABLE;
         let mut continuation_history = UciInterface::alloc_zeroed_continuation_history_tables();
+        let mut correction_histories = CorrectionHistoryTables::new();
 
         let (_, stop_rx) = mpsc::channel::<()>();
         let searcher = Searcher::new(
@@ -90,6 +92,7 @@ pub fn bench() {
             0,
             &mut repetitions,
             true,
+            &mut correction_histories,
         );
 
         let (_, stats) = searcher.iterative_deepening_search(board, &tc, &sc);

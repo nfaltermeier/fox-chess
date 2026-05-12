@@ -7,6 +7,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
+    correction_history::CorrectionHistoryTables,
     evaluate::MATE_THRESHOLD,
     move_generator::{
         MOVE_ARRAY_SIZE, MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX,
@@ -106,6 +107,7 @@ pub struct Searcher<'a> {
     root_killers: [Move; 2],
     repetitions: &'a mut RepetitionTracker,
     use_uci_mode: bool,
+    correction_histories: &'a mut CorrectionHistoryTables,
 }
 
 impl<'a> Searcher<'a> {
@@ -119,6 +121,7 @@ impl<'a> Searcher<'a> {
         contempt: i16,
         repetitions: &'a mut RepetitionTracker,
         use_uci_mode: bool,
+        correction_histories: &'a mut CorrectionHistoryTables,
     ) -> Self {
         assert!(multi_pv >= 1);
 
@@ -146,6 +149,7 @@ impl<'a> Searcher<'a> {
             root_killers: [EMPTY_MOVE; 2],
             repetitions,
             use_uci_mode,
+            correction_histories,
         }
     }
 
@@ -506,34 +510,38 @@ impl<'a> Searcher<'a> {
             move_gen.set_tt_move(tt_data.important_move);
         }
 
+        let mut static_eval = None;
         let mut futility_prune = false;
-        if draft < 6 && !is_pv && !in_check && alpha.abs() < 2000 && beta.abs() < 2000 && excluded_move.is_none() {
-            let rfp_threshold = beta + (90 * draft as i16);
-            let mut static_eval = None;
-            let rfp_eval = if tt_entry.is_some_and(|e| {
-                e.move_type == MoveType::Best
-                    || (e.move_type == MoveType::FailHigh && e.get_score(ply) >= rfp_threshold)
-                    || (e.move_type == MoveType::FailLow && e.get_score(ply) < rfp_threshold)
-            }) {
-                tt_entry.unwrap().get_score(ply)
-            } else {
-                *static_eval.get_or_insert_with(|| board.evaluate_side_to_move_relative())
-            };
+        if !in_check && excluded_move.is_none() {
+            let eval = board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board);
+            static_eval = Some(eval);
 
-            // Reverse futility pruning
-            if rfp_eval >= rfp_threshold {
-                return Ok((rfp_eval + beta) / 2);
-            }
+            if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
+                let rfp_threshold = beta + (90 * draft as i16);
+                let rfp_eval = if tt_entry.is_some_and(|e| {
+                    e.move_type == MoveType::Best
+                        || (e.move_type == MoveType::FailHigh && e.get_score(ply) >= rfp_threshold)
+                        || (e.move_type == MoveType::FailLow && e.get_score(ply) < rfp_threshold)
+                }) {
+                    tt_entry.unwrap().get_score(ply)
+                } else {
+                    eval
+                };
 
-            if draft < 4 {
-                let eval = *static_eval.get_or_insert_with(|| board.evaluate_side_to_move_relative());
-                futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
+                // Reverse futility pruning
+                if rfp_eval >= rfp_threshold {
+                    return Ok((rfp_eval + beta) / 2);
+                }
 
-                // Razoring
-                if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
-                    let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply + 1);
-                    if score < alpha {
-                        return Ok(score);
+                if draft < 4 {
+                    futility_prune = (eval + 307 + 173 * (draft - 1) as i16) < alpha;
+
+                    // Razoring
+                    if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
+                        let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply + 1);
+                        if score < alpha {
+                            return Ok(score);
+                        }
                     }
                 }
             }
@@ -864,6 +872,15 @@ impl<'a> Searcher<'a> {
                         ply,
                         self.starting_fullmove,
                     ));
+
+                    // Currently static eval is always set when not in check
+                    if let Some(static_eval) = static_eval
+                        && score >= static_eval
+                        && mov.m.data & MOVE_FLAG_CAPTURE_FULL == 0
+                    {
+                        self.correction_histories
+                            .update_history(board, score - static_eval, draft);
+                    }
                 }
 
                 return Ok(score);
@@ -951,6 +968,8 @@ impl<'a> Searcher<'a> {
         }
 
         if excluded_move.is_none() {
+            let best_move = best_move.unwrap();
+
             let entry_type = if improved_alpha {
                 MoveType::Best
             } else {
@@ -958,13 +977,22 @@ impl<'a> Searcher<'a> {
             };
             self.transposition_table.store_entry(TTEntry::new(
                 board.hash,
-                best_move.unwrap(),
+                best_move,
                 entry_type,
                 best_score,
                 draft,
                 ply,
                 self.starting_fullmove,
             ));
+
+            // Currently static eval is always set when not in check
+            if let Some(static_eval) = static_eval
+                && (improved_alpha || best_score <= static_eval)
+                && best_move.data & MOVE_FLAG_CAPTURE_FULL == 0
+            {
+                self.correction_histories
+                    .update_history(board, best_score - static_eval, draft);
+            }
         }
 
         Ok(best_score)
@@ -1012,7 +1040,7 @@ impl<'a> Searcher<'a> {
         let mut best_score;
         let in_check = board.is_in_check(false);
         if !in_check {
-            let stand_pat = board.evaluate_side_to_move_relative();
+            let stand_pat = board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board);
 
             if stand_pat >= beta {
                 return stand_pat;
