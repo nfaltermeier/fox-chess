@@ -21,7 +21,7 @@ use crate::{
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     repetition_tracker::RepetitionTracker,
-    search::{ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
+    search::{self, ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
@@ -335,16 +335,25 @@ impl UciInterface {
             loop {
                 let mut buffer = String::new();
                 io::stdin().read_line(&mut buffer).unwrap();
-                let messages = parse_with_unknown(&buffer);
+                let mut messages = parse_with_unknown(&buffer);
 
-                for m in &messages {
+                messages.retain(|m| {
                     match m {
                         UciMessage::Stop | UciMessage::Quit => {
                             stop_tx.send(()).expect("sending stop command failed");
+                            true
                         }
-                        _ => {}
+                        UciMessage::IsReady => {
+                            if search::IS_SEARCHING.load(std::sync::atomic::Ordering::Acquire) {
+                                println!("readyok");
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        _ => { true }
                     }
-                }
+                });
 
                 message_tx
                     .send((buffer, messages))

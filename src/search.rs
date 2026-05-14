@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::mpsc::Receiver, time::Instant};
+use std::{collections::VecDeque, sync::{atomic::AtomicBool, mpsc::Receiver}, time::Instant};
 
 use arrayvec::ArrayVec;
 use log::{debug, error};
@@ -24,12 +24,13 @@ use crate::{
 };
 
 pub type HistoryTable = [[[i16; 64]; 6]; 2];
-pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
-
 pub type ContinuationHistoryTable = [[[[[i16; 64]; 6]; 64]; 6]; 2];
 pub type MutRelevantContinuationHistories<'a> = [Option<&'a mut [[i16; 64]; 6]>; 2];
 pub type RelevantContinuationHistories<'a> = [Option<&'a [[i16; 64]; 6]>; 2];
 
+pub static IS_SEARCHING: AtomicBool = AtomicBool::new(false);
+
+pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 /// Each value is in addition to the last
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
@@ -80,6 +81,8 @@ pub struct SearchStack {
     excluded_move: Option<Move>,
     killers: [Move; 2],
 }
+
+struct SearchMonitor {}
 
 pub struct Searcher<'a> {
     stats: SearchStats,
@@ -164,6 +167,10 @@ impl<'a> Searcher<'a> {
         let mut search_control: SearchControl;
         let mut max_depth = 40;
         let mut cutoff_times = None;
+
+        // Will unset IS_SEARCHING when dropped (when this method returns)
+        let _monitor = SearchMonitor { };
+        IS_SEARCHING.store(true, std::sync::atomic::Ordering::Release);
 
         if !self.use_uci_mode {
             print_header();
@@ -1297,5 +1304,11 @@ impl SearchStack {
 
     pub fn get_moved_piece_type(&self) -> u8 {
         self.moved_piece_type
+    }
+}
+
+impl Drop for SearchMonitor {
+    fn drop(&mut self) {
+        IS_SEARCHING.store(false, std::sync::atomic::Ordering::Release);
     }
 }
