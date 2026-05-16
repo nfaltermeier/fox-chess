@@ -45,12 +45,15 @@ impl RepetitionTracker {
     pub fn test_repetition(&self, board: &Board) -> bool {
         if self.repetitions[(board.hash & TABLE_MASK) as usize] >= MIN_REPETITIONS_FOR_DRAW {
             let mut check = true;
-            let mut repetitions = 0;
+            let mut repetitions = 1;
             let target_hash = board.hash;
             let mut new_board = board.clone();
 
             let mut i = self.move_history_len - 1;
             loop {
+                new_board.unmake_reversible_move_for_repetitions(i, self);
+                check = !check;
+
                 if check && new_board.hash == target_hash {
                     repetitions += 1;
                     if repetitions == MIN_REPETITIONS_FOR_DRAW {
@@ -66,10 +69,7 @@ impl RepetitionTracker {
                     break;
                 }
 
-                new_board.unmake_reversible_move_for_repetitions(i, self);
-
                 i -= 1;
-                check = !check;
             }
 
             repetitions >= MIN_REPETITIONS_FOR_DRAW
@@ -125,5 +125,32 @@ impl Debug for RepetitionTracker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // f.debug_struct("RepetitionTracker").field("repetitions", &self.repetitions).field("move_history", &self.move_history).field("move_history_len", &self.move_history_len).finish()
         write!(f, "TODO: debug formatting for RepetitionTracker")
+    }
+}
+#[cfg(test)]
+mod repetition_tracker_tests {
+    use crate::STARTING_FEN;
+
+    use super::*;
+
+    #[test]
+    pub fn repetition_from_starting_position() {
+        let mut repetitions = RepetitionTracker::default();
+        let mut board = Board::from_fen(STARTING_FEN, Some(&mut repetitions)).unwrap();
+
+        board.make_move(Move::from_simple_long_algebraic_notation("g1f3", 0), &mut repetitions);
+        assert!(!repetitions.test_repetition(&board));
+
+        board.make_move(Move::from_simple_long_algebraic_notation("g8f6", 0), &mut repetitions);
+        assert!(!repetitions.test_repetition(&board));
+
+        board.make_move(Move::from_simple_long_algebraic_notation("f3g1", 0), &mut repetitions);
+        assert!(!repetitions.test_repetition(&board));
+
+        board.make_move(Move::from_simple_long_algebraic_notation("f6g8", 0), &mut repetitions);
+        assert!(repetitions.test_repetition(&board));
+
+        board.make_move(Move::from_simple_long_algebraic_notation("g1f3", 0), &mut repetitions);
+        assert!(repetitions.test_repetition(&board));
     }
 }
