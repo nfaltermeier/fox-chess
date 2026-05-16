@@ -4,10 +4,7 @@ use log::error;
 use crate::{
     bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES},
     board::{
-        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES,
-        HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_BISHOP, PIECE_KING,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, file_8x8, get_hash_value, index_8x8_to_pos_str,
-        piece_to_colored_letter, rank_8x8,
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, MATERIAL_HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES, file_8x8, get_material_hash_value, get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8
     },
     evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
@@ -158,17 +155,20 @@ impl Board {
         let from = mov.from() as usize;
         let to = mov.to() as usize;
         let flags = mov.flags();
-        let hash_values = &*HASH_VALUES;
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
+        let material_hash_values = &*MATERIAL_HASH_VALUES;
         let other_side = if self.white_to_move { 1 } else { 0 };
 
         let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
             let capture_target_piece = self.get_piece_64(to);
-            let hash = get_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, hash_values);
+            let hash = get_zobrist_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, zobrist_hash_values);
+            self.material_hash ^= get_material_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize], material_hash_values);
             self.hash ^= hash;
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
             self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize] -= 1;
+            self.material_hash ^= get_material_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize], material_hash_values);
             self.write_piece(PIECE_NONE, to);
 
             if capture_target_piece & PIECE_MASK == PIECE_BISHOP {
@@ -181,6 +181,7 @@ impl Board {
             } else if capture_target_piece & PIECE_MASK == PIECE_PAWN {
                 self.pawn_hash ^= hash;
             }
+
         }
 
         let moved_piece = self.get_piece_64(from);
@@ -201,13 +202,13 @@ impl Board {
 
             let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
             self.write_piece(PIECE_NONE, king_from);
-            self.hash ^= get_hash_value(PIECE_KING, self.white_to_move, king_from, hash_values);
+            self.hash ^= get_zobrist_hash_value(PIECE_KING, self.white_to_move, king_from, zobrist_hash_values);
             self.write_piece(PIECE_NONE, rook_from);
-            self.hash ^= get_hash_value(PIECE_ROOK, self.white_to_move, rook_from, hash_values);
+            self.hash ^= get_zobrist_hash_value(PIECE_ROOK, self.white_to_move, rook_from, zobrist_hash_values);
             self.write_piece(PIECE_KING | color_flag, king_to);
-            self.hash ^= get_hash_value(PIECE_KING, self.white_to_move, king_to, hash_values);
+            self.hash ^= get_zobrist_hash_value(PIECE_KING, self.white_to_move, king_to, zobrist_hash_values);
             self.write_piece(PIECE_ROOK | color_flag, rook_to);
-            self.hash ^= get_hash_value(PIECE_ROOK, self.white_to_move, rook_to, hash_values);
+            self.hash ^= get_zobrist_hash_value(PIECE_ROOK, self.white_to_move, rook_to, zobrist_hash_values);
         } else if flags & MOVE_FLAG_PROMOTION != 0 {
             let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
             let promo_value = (flags as u8) & 3;
@@ -216,15 +217,19 @@ impl Board {
             let side = if self.white_to_move { 0 } else { 1 };
 
             self.write_piece(PIECE_NONE, from);
-            let pawn_hash = get_hash_value(PIECE_PAWN, self.white_to_move, from, hash_values);
+            let pawn_hash = get_zobrist_hash_value(PIECE_PAWN, self.white_to_move, from, zobrist_hash_values);
+            self.material_hash ^= get_material_hash_value(PIECE_PAWN, self.white_to_move, self.piece_counts[side][PIECE_PAWN as usize], material_hash_values);
             self.hash ^= pawn_hash;
             self.pawn_hash ^= pawn_hash;
             self.write_piece(promo_to_piece, to);
-            self.hash ^= get_hash_value(promo_value + 2, self.white_to_move, to, hash_values);
+            self.hash ^= get_zobrist_hash_value(promo_value + 2, self.white_to_move, to, zobrist_hash_values);
+            self.material_hash ^= get_material_hash_value(promo_value + 2, self.white_to_move, self.piece_counts[side][(promo_value + 2) as usize], material_hash_values);
             self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
             self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
             self.piece_counts[side][PIECE_PAWN as usize] -= 1;
             self.piece_counts[side][(promo_value + 2) as usize] += 1;
+            self.material_hash ^= get_material_hash_value(PIECE_PAWN, self.white_to_move, self.piece_counts[side][PIECE_PAWN as usize], material_hash_values);
+            self.material_hash ^= get_material_hash_value(promo_value + 2, self.white_to_move, self.piece_counts[side][(promo_value + 2) as usize], material_hash_values);
 
             if promo_value + 2 == PIECE_BISHOP {
                 self.bishop_colors[side] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
@@ -238,23 +243,25 @@ impl Board {
                 let diff = (to as isize).checked_sub_unsigned(from).unwrap();
                 let hash = if diff == 7 || diff == -9 {
                     self.write_piece(PIECE_NONE, from - 1);
-                    get_hash_value(PIECE_PAWN, !self.white_to_move, from - 1, hash_values)
+                    get_zobrist_hash_value(PIECE_PAWN, !self.white_to_move, from - 1, zobrist_hash_values)
                 } else {
                     self.write_piece(PIECE_NONE, from + 1);
-                    get_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, hash_values)
+                    get_zobrist_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, zobrist_hash_values)
                 };
                 self.hash ^= hash;
                 self.pawn_hash ^= hash;
                 self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
+                self.material_hash ^= get_material_hash_value(PIECE_PAWN, !self.white_to_move, self.piece_counts[other_side][PIECE_PAWN as usize], material_hash_values);
                 self.piece_counts[other_side][PIECE_PAWN as usize] -= 1;
+                self.material_hash ^= get_material_hash_value(PIECE_PAWN, !self.white_to_move, self.piece_counts[other_side][PIECE_PAWN as usize], material_hash_values);
             }
 
             let moved_piece_kind = moved_piece & PIECE_MASK;
             self.write_piece(PIECE_NONE, from);
-            let from_hash = get_hash_value(moved_piece_kind, self.white_to_move, from, hash_values);
+            let from_hash = get_zobrist_hash_value(moved_piece_kind, self.white_to_move, from, zobrist_hash_values);
             self.hash ^= from_hash;
             self.write_piece(moved_piece, to);
-            let to_hash = get_hash_value(moved_piece_kind, self.white_to_move, to, hash_values);
+            let to_hash = get_zobrist_hash_value(moved_piece_kind, self.white_to_move, to, zobrist_hash_values);
             self.hash ^= to_hash;
 
             if moved_piece_kind == PIECE_PAWN {
@@ -264,7 +271,7 @@ impl Board {
 
         if self.en_passant_target_square_index.is_some() {
             let file = file_8x8(self.en_passant_target_square_index.unwrap());
-            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+            self.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
             self.en_passant_target_square_index = None;
         }
 
@@ -278,28 +285,28 @@ impl Board {
             if self.can_en_passant(ep_index, to) {
                 let file = file_8x8(ep_index);
                 self.en_passant_target_square_index = Some(ep_index);
-                self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+                self.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
             }
         }
 
         if self.castling_rights != 0 {
             // potential optimization: match statement?
             if from == 0 || to == 0 {
-                check_and_disable_castling(self, CastlingValue::WhiteQueen, hash_values);
+                check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
             } else if from == 4 {
-                check_and_disable_castling(self, CastlingValue::WhiteQueen, hash_values);
-                check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
+                check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
+                check_and_disable_castling(self, CastlingValue::WhiteKing, zobrist_hash_values);
             } else if from == 7 || to == 7 {
-                check_and_disable_castling(self, CastlingValue::WhiteKing, hash_values);
+                check_and_disable_castling(self, CastlingValue::WhiteKing, zobrist_hash_values);
             }
 
             if from == 56 || to == 56 {
-                check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
+                check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
             } else if from == 60 {
-                check_and_disable_castling(self, CastlingValue::BlackQueen, hash_values);
-                check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
+                check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
+                check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
             } else if from == 63 || to == 63 {
-                check_and_disable_castling(self, CastlingValue::BlackKing, hash_values);
+                check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
             }
         }
 
@@ -313,7 +320,7 @@ impl Board {
             self.fullmove_counter += 1;
         }
         self.white_to_move = !self.white_to_move;
-        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+        self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
         repetitions.make_move(mov, self.hash);
     }
@@ -324,7 +331,7 @@ impl Board {
         let m = repetitions.get_move(move_index);
         let from = m.from() as usize;
         let to = m.to() as usize;
-        let hash_values = &*HASH_VALUES;
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
 
         debug_assert_eq!(m.flags(), 0);
 
@@ -333,9 +340,9 @@ impl Board {
 
         let moved_piece_kind = moved_piece & PIECE_MASK;
         self.write_piece(PIECE_NONE, to);
-        self.hash ^= get_hash_value(moved_piece_kind, !self.white_to_move, to, hash_values);
+        self.hash ^= get_zobrist_hash_value(moved_piece_kind, !self.white_to_move, to, zobrist_hash_values);
         self.write_piece(moved_piece, from);
-        self.hash ^= get_hash_value(moved_piece_kind, !self.white_to_move, from, hash_values);
+        self.hash ^= get_zobrist_hash_value(moved_piece_kind, !self.white_to_move, from, zobrist_hash_values);
 
         // Any move that resets this is irreversible so shouldn't need to check for underflow
         self.halfmove_clock -= 1;
@@ -344,41 +351,41 @@ impl Board {
             self.fullmove_counter -= 1;
         }
         self.white_to_move = !self.white_to_move;
-        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+        self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
 
     #[must_use]
     pub fn make_null_move(&mut self) -> Option<u8> {
-        let hash_values = &*HASH_VALUES;
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
 
         let en_passant_target_square_index = self.en_passant_target_square_index;
 
         if let Some(en_passant_target_square_index) = en_passant_target_square_index {
             let file = file_8x8(en_passant_target_square_index);
-            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+            self.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         }
 
         self.en_passant_target_square_index = None;
 
         // should I increment move clocks/counters?
         self.white_to_move = !self.white_to_move;
-        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+        self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
         en_passant_target_square_index
     }
 
     pub fn unmake_null_move(&mut self, en_passant_target_square_index: Option<u8>) {
-        let hash_values = &*HASH_VALUES;
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
 
         self.en_passant_target_square_index = en_passant_target_square_index;
         if let Some(en_passant_target_square_index) = en_passant_target_square_index {
             let file = file_8x8(en_passant_target_square_index);
-            self.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
+            self.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         }
 
         // should I decrement move clocks/counters?
         self.white_to_move = !self.white_to_move;
-        self.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+        self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
     }
 }
 
@@ -438,10 +445,10 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
 }
 
 #[inline]
-fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, hash_values: &[u64; 781]) {
+fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, zobrist_hash_values: &[u64; 781]) {
     if board.castling_rights & (1 << castling as u8) != 0 {
         board.castling_rights &= !(1 << castling as u8);
-        board.hash ^= hash_values[HASH_VALUES_CASTLE_BASE_IDX + castling as usize];
+        board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BASE_IDX + castling as usize];
     }
 }
 
@@ -451,9 +458,10 @@ mod moves_tests {
 
     use regex::Regex;
     use vampirc_uci::parse_with_unknown;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     use crate::{
-        board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, HASH_VALUES},
+        board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, ZOBRIST_HASH_VALUES},
         magic_bitboard::initialize_magic_bitboards,
         moves::{MOVE_FLAG_CAPTURE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK},
         repetition_tracker::RepetitionTracker,
@@ -513,21 +521,22 @@ mod moves_tests {
                         let fen = from_uci.to_fen();
                         let from_fen = Board::from_fen(&fen, None).unwrap();
 
-                        // For debugging if the test is failing
-                        // println!("Now comparing fen {fen} which came from move {m}");
-
                         if from_fen.hash != from_uci.hash {
                             let mut diff_found = false;
-                            for (i, v) in HASH_VALUES.iter().enumerate() {
+                            for (i, v) in ZOBRIST_HASH_VALUES.iter().enumerate() {
                                 if from_fen.hash ^ v == from_uci.hash {
-                                    println!("hash differs by value {i} of HASH_VALUES");
+                                    println!("hash differs by value {i} of ZOBRIST_HASH_VALUES");
                                     diff_found = true;
                                 }
                             }
 
                             if !diff_found {
-                                println!("hash differs by more than one value from HASH_VALUES");
+                                println!("hash differs by more than one value from ZOBRIST_HASH_VALUES");
                             }
+                        }
+
+                        if from_fen != from_uci {
+                            println!("Found mismatch after making move {m}");
                         }
 
                         assert_eq!(from_fen, from_uci);

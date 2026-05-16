@@ -478,6 +478,7 @@ dependencies = [
  "log",
  "log-panics",
  "num-format",
+ "pretty_assertions",
  "prettyplease",
  "quote",
  "rand",

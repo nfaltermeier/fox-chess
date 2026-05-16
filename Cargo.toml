@@ -27,6 +27,9 @@ prettyplease = "0.2.37"
 quote = "1.0.42"
 syn = "2.0.111"
 
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+
 [features]
 default = ["use_pext"]
 # pext is supported but slow on zen1 and zen2. If you are using one of those, it is suggested you disable this feature.

@@ -5,7 +5,7 @@ use std::{
 };
 
 use bench::bench;
-use board::HASH_VALUES;
+use board::ZOBRIST_HASH_VALUES;
 use build_info::build_info;
 use clap::Parser;
 use log::error;
@@ -50,7 +50,7 @@ fn main() {
     log_panics::init();
 
     // dereference lazy cell to cause it to initialize
-    let _ = *HASH_VALUES;
+    let _ = *ZOBRIST_HASH_VALUES;
     initialize_magic_bitboards();
 
     if let Some(command) = &args.command {

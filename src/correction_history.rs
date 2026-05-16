@@ -9,6 +9,7 @@ type CorrectionHistoryTable = [[i16; 2]; CORRECTION_HISTORY_SIZE as usize];
 
 pub struct CorrectionHistoryTables {
     pawn: CorrectionHistoryTable,
+    material: CorrectionHistoryTable,
 }
 
 impl CorrectionHistoryTables {
@@ -32,8 +33,9 @@ impl CorrectionHistoryTables {
         let side = if board.white_to_move { 0 } else { 1 };
 
         let pawn = self.pawn[(board.pawn_hash % CORRECTION_HISTORY_SIZE) as usize][side];
+        let material = self.material[(board.material_hash % CORRECTION_HISTORY_SIZE) as usize][side];
 
-        pawn / 8
+        (pawn + material) / 16
     }
 
     pub fn update_history(&mut self, board: &Board, diff: i16, draft: u8) {
@@ -43,5 +45,8 @@ impl CorrectionHistoryTables {
 
         let pawn = &mut self.pawn[(board.pawn_hash % CORRECTION_HISTORY_SIZE) as usize][side];
         *pawn += (bonus - ((*pawn as i32) * bonus.abs() / CORRECTION_HISTORY_LIMIT)) as i16;
+
+        let material = &mut self.material[(board.material_hash % CORRECTION_HISTORY_SIZE) as usize][side];
+        *material += (bonus - ((*material as i32) * bonus.abs() / CORRECTION_HISTORY_LIMIT)) as i16;
     }
 }

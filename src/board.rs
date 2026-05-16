@@ -33,15 +33,6 @@ pub const CASTLE_WHITE_QUEEN_FLAG: u8 = 1 << CastlingValue::WhiteQueen as u8;
 pub const CASTLE_BLACK_KING_FLAG: u8 = 1 << CastlingValue::BlackKing as u8;
 pub const CASTLE_BLACK_QUEEN_FLAG: u8 = 1 << CastlingValue::BlackQueen as u8;
 
-pub static HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
-    // rand crate doesn't gurantee values are reproducible...
-    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
-    let mut result = [0; 781];
-
-    u64::fill_slice(&mut result, &mut rng);
-
-    result
-});
 pub const HASH_VALUES_BLACK_TO_MOVE_IDX: usize = 12 * 64;
 pub const HASH_VALUES_CASTLE_BASE_IDX: usize = HASH_VALUES_CASTLE_WHITE_KING_IDX;
 pub const HASH_VALUES_CASTLE_WHITE_KING_IDX: usize = HASH_VALUES_BLACK_TO_MOVE_IDX + 1;
@@ -53,6 +44,26 @@ pub const HASH_VALUES_EP_FILE_IDX: usize = HASH_VALUES_CASTLE_BLACK_QUEEN_IDX + 
 pub const BISHOP_COLORS_LIGHT: u8 = 1;
 pub const BISHOP_COLORS_DARK: u8 = 2;
 
+pub static ZOBRIST_HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
+    // rand crate doesn't gurantee values are reproducible...
+    let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
+    let mut result = [0; 781];
+
+    u64::fill_slice(&mut result, &mut rng);
+
+    result
+});
+
+pub static MATERIAL_HASH_VALUES: LazyLock<[u64; 17 * 5 * 2]> = LazyLock::new(|| {
+    // rand crate doesn't gurantee values are reproducible...
+    let mut rng = StdRng::seed_from_u64(0x18a67fd4ebc16339);
+    let mut result = [0; 17 * 5 * 2];
+
+    u64::fill_slice(&mut result, &mut rng);
+
+    result
+});
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [u8; 64],
@@ -63,6 +74,7 @@ pub struct Board {
     pub fullmove_counter: u16,
     pub hash: u64,
     pub pawn_hash: u64,
+    pub material_hash: u64,
     pub game_stage: i16,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
@@ -128,6 +140,7 @@ impl Board {
             fullmove_counter: 1,
             hash: 0,
             pawn_hash: 0,
+            material_hash: 0,
             game_stage: 0,
             piece_counts: [[0; 7]; 2],
             piece_bitboards: [[0; 7]; 2],
@@ -138,7 +151,8 @@ impl Board {
             bishop_colors: [0; 2],
         };
         let mut board_index: usize = 56;
-        let hash_values = &*HASH_VALUES;
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
+        let material_hash_values = &*MATERIAL_HASH_VALUES;
 
         for c in fen_pieces[0].chars() {
             match c {
@@ -153,15 +167,15 @@ impl Board {
                     board_index += char::to_digit(c, 10).unwrap() as usize;
                 }
                 'P' => {
-                    place_piece_init(&mut board, PIECE_PAWN, true, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_PAWN, true, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'N' => {
-                    place_piece_init(&mut board, PIECE_KNIGHT, true, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_KNIGHT, true, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'B' => {
-                    place_piece_init(&mut board, PIECE_BISHOP, true, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_BISHOP, true, board_index, zobrist_hash_values);
                     board.bishop_colors[0] |= if BIT_SQUARES[board_index] & DARK_SQUARES != 0 {
                         BISHOP_COLORS_DARK
                     } else {
@@ -170,27 +184,27 @@ impl Board {
                     board_index += 1;
                 }
                 'R' => {
-                    place_piece_init(&mut board, PIECE_ROOK, true, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_ROOK, true, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'Q' => {
-                    place_piece_init(&mut board, PIECE_QUEEN, true, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_QUEEN, true, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'K' => {
-                    place_piece_init(&mut board, PIECE_KING, true, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_KING, true, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'p' => {
-                    place_piece_init(&mut board, PIECE_PAWN, false, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_PAWN, false, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'n' => {
-                    place_piece_init(&mut board, PIECE_KNIGHT, false, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_KNIGHT, false, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'b' => {
-                    place_piece_init(&mut board, PIECE_BISHOP, false, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_BISHOP, false, board_index, zobrist_hash_values);
                     board.bishop_colors[1] |= if BIT_SQUARES[board_index] & DARK_SQUARES != 0 {
                         BISHOP_COLORS_DARK
                     } else {
@@ -199,15 +213,15 @@ impl Board {
                     board_index += 1;
                 }
                 'r' => {
-                    place_piece_init(&mut board, PIECE_ROOK, false, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_ROOK, false, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'q' => {
-                    place_piece_init(&mut board, PIECE_QUEEN, false, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_QUEEN, false, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 'k' => {
-                    place_piece_init(&mut board, PIECE_KING, false, board_index, hash_values);
+                    place_piece_init(&mut board, PIECE_KING, false, board_index, zobrist_hash_values);
                     board_index += 1;
                 }
                 _ => {
@@ -219,11 +233,17 @@ impl Board {
             }
         }
 
+        for side in [0, 1] {
+            for piece_code in PIECE_PAWN..=PIECE_QUEEN {
+                board.material_hash ^= get_material_hash_value(piece_code, side == 0, board.piece_counts[side][piece_code as usize], material_hash_values);
+            }
+        }
+
         if fen_pieces[1] == "w" {
             board.white_to_move = true;
         } else if fen_pieces[1] == "b" {
             board.white_to_move = false;
-            board.hash ^= hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+            board.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
         } else {
             return Err(format!("Encountered unexpected Side to move value '{}'", fen_pieces[1]));
         }
@@ -233,19 +253,19 @@ impl Board {
                 match c {
                     'K' => {
                         board.castling_rights |= CASTLE_WHITE_KING_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_WHITE_KING_IDX];
+                        board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_WHITE_KING_IDX];
                     }
                     'Q' => {
                         board.castling_rights |= CASTLE_WHITE_QUEEN_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_WHITE_QUEEN_IDX];
+                        board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_WHITE_QUEEN_IDX];
                     }
                     'k' => {
                         board.castling_rights |= CASTLE_BLACK_KING_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_BLACK_KING_IDX];
+                        board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_KING_IDX];
                     }
                     'q' => {
                         board.castling_rights |= CASTLE_BLACK_QUEEN_FLAG;
-                        board.hash ^= hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
+                        board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
                     }
                     _ => {
                         return Err(format!(
@@ -271,7 +291,7 @@ impl Board {
             match chars[0] {
                 'a'..='h' => {
                     ep_square_index = chars[0] as u8 - b'a';
-                    board.hash ^= hash_values[HASH_VALUES_EP_FILE_IDX + ep_square_index as usize];
+                    board.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + ep_square_index as usize];
                 }
                 _ => {
                     return Err(format!(
@@ -445,6 +465,8 @@ impl Debug for Board {
             .field("halfmove_clock", &self.halfmove_clock)
             .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
+            .field("pawn_hash", &format!("{:#018x}", self.pawn_hash))
+            .field("material_hash", &format!("{:#018x}", self.material_hash))
             .field("game_stage", &self.game_stage)
             .field("piece_counts", &self.piece_counts)
             .field("piece_bitboards", &"See end value")
@@ -532,14 +554,18 @@ pub fn index_8x8_to_pos_str(i: u8) -> String {
     format!("{}{}", (b'a' + file) as char, rank)
 }
 
-pub fn get_hash_value(piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) -> u64 {
-    hash_values[if white { 0 } else { 6 * 64 } + ((piece_code - 1) as usize * 64) + index]
+pub fn get_zobrist_hash_value(piece_code: u8, white: bool, index: usize, zobrist_hash_values: &[u64; 781]) -> u64 {
+    zobrist_hash_values[if white { 0 } else { 6 * 64 } + ((piece_code - 1) as usize * 64) + index]
+}
+
+pub fn get_material_hash_value(piece_code: u8, white: bool, count: u8, material_hash_values: &[u64; 170]) -> u64 {
+    material_hash_values[if white { 0 } else { 5 * 17 } + ((piece_code - 1) as usize * 17) + count.min(16) as usize]
 }
 
 // For creating a board from the default board
-fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize, hash_values: &[u64; 781]) {
+fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize, zobrist_hash_values: &[u64; 781]) {
     board.write_piece(piece_code | if white { 0 } else { COLOR_BLACK }, index);
-    let hash = get_hash_value(piece_code, white, index, hash_values);
+    let hash = get_zobrist_hash_value(piece_code, white, index, zobrist_hash_values);
     board.hash ^= hash;
 
     if piece_code == PIECE_PAWN {
