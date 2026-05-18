@@ -561,7 +561,7 @@ mod moves_tests {
 
     #[test]
     pub fn repeated_position_has_same_hash() {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let from_fen = Board::from_fen(
             "1r1r4/p1p2pp1/3kp2p/3n4/1b1P4/4PB2/PBbN1PPP/2R1K1R1 b - - 8 24",
             Some(&mut repetitions),
@@ -592,7 +592,7 @@ mod moves_tests {
 
     #[test]
     pub fn proper_bishop_colors_are_set_when_taking() {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen(
             "1n1qk1nr/pppppppp/8/r2bb3/3BB3/8/PPPPPPPP/RN1QK1NR w KQk -",
             Some(&mut repetitions),
@@ -637,7 +637,7 @@ mod moves_tests {
 
     #[test]
     pub fn taking_a_doubled_bishop_does_not_affect_board_bishop_colors() {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen("8/8/8/8/2rB4/2B4k/8/7K b - -", Some(&mut repetitions)).unwrap();
 
         assert_eq!(board.bishop_colors[0], BISHOP_COLORS_DARK);
@@ -654,7 +654,7 @@ mod moves_tests {
 
     #[test]
     pub fn proper_bishop_colors_are_set_when_promoting() {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen("K3n3/3P1P2/8/8/8/8/4pp2/7k w - -", Some(&mut repetitions)).unwrap();
 
         assert_eq!(board.bishop_colors[0], 0);
@@ -686,7 +686,7 @@ mod moves_tests {
 
     #[test]
     pub fn castle_disable_test() {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen("4k2r/8/8/8/8/8/8/4K3 w k - 0 1", Some(&mut repetitions)).unwrap();
 
         let moves = ["e1d1", "h8h1", "d1c2", "h1h8"];

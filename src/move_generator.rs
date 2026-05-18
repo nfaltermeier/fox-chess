@@ -677,7 +677,7 @@ mod check_evasion_tests {
         }
 
         fn filter_to_legal_moves(&self, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-            let mut repetitions = RepetitionTracker::default();
+            let mut repetitions = RepetitionTracker::new();
 
             moves.retain(|mov| {
                 let mut new_board = self.clone();

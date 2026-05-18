@@ -108,7 +108,7 @@ pub struct Searcher<'a> {
     white_started_search: bool,
     ss: Vec<SearchStack>,
     root_killers: [Move; 2],
-    repetitions: &'a mut RepetitionTracker,
+    repetitions: Box<RepetitionTracker>,
     use_uci_mode: bool,
     correction_histories: &'a mut CorrectionHistoryTables,
 }
@@ -122,7 +122,7 @@ impl<'a> Searcher<'a> {
         multi_pv: u8,
         extra_uci_options: RequiredUciOptions,
         contempt: i16,
-        repetitions: &'a mut RepetitionTracker,
+        repetitions: Box<RepetitionTracker>,
         use_uci_mode: bool,
         correction_histories: &'a mut CorrectionHistoryTables,
     ) -> Self {
@@ -684,7 +684,7 @@ impl<'a> Searcher<'a> {
             }
 
             let mut new_board = board.clone();
-            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, self.repetitions);
+            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
             if !legal {
                 if move_made {
                     self.repetitions.unmake_move(new_board.hash);
@@ -1080,7 +1080,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 let mut new_board = board.clone();
-                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, self.repetitions);
+                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
                 if !legal {
                     if move_made {
                         self.repetitions.unmake_move(new_board.hash);

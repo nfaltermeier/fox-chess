@@ -72,7 +72,7 @@ pub fn pretty_print_stats(
 
 fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
     let mut board = board.clone();
-    let mut repetitions = RepetitionTracker::default();
+    let mut repetitions = RepetitionTracker::new();
     let mut result = String::new();
 
     for (move_index, mov) in moves.iter().rev().enumerate() {

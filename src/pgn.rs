@@ -312,7 +312,7 @@ impl<'a> Pgn {
         if idx == 0 {
             self.get_starting_fen()
         } else {
-            let mut repetitions = RepetitionTracker::default();
+            let mut repetitions = RepetitionTracker::new();
 
             while idx > self.fens.len() {
                 let move_index = self.fens.len();

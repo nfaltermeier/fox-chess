@@ -73,7 +73,7 @@ pub fn bench() {
     let start_time = Instant::now();
 
     for fen in bench_fens {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let board = Board::from_fen(fen, Some(&mut repetitions)).unwrap();
 
         let mut transposition_table = TranspositionTable::new(18);
@@ -90,7 +90,7 @@ pub fn bench() {
             1,
             RequiredUciOptions::default(),
             0,
-            &mut repetitions,
+            repetitions,
             true,
             &mut correction_histories,
         );

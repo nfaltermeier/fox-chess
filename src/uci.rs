@@ -35,7 +35,7 @@ pub struct UciInterface {
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
     contempt: i16,
-    repetitions: RepetitionTracker,
+    repetitions: Box<RepetitionTracker>,
     use_uci_mode: bool,
     correction_histories: Box<CorrectionHistoryTables>,
 }
@@ -51,7 +51,7 @@ impl UciInterface {
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
-            repetitions: RepetitionTracker::default(),
+            repetitions: RepetitionTracker::new(),
             use_uci_mode: false,
             correction_histories: CorrectionHistoryTables::new(),
         }
@@ -145,7 +145,7 @@ impl UciInterface {
                             self.multi_pv,
                             self.extra_uci_options.convert(),
                             self.contempt,
-                            &mut self.repetitions,
+                            self.repetitions.clone(),
                             self.use_uci_mode,
                             &mut self.correction_histories,
                         );

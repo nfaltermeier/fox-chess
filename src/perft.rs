@@ -13,7 +13,7 @@ use crate::{
 impl Board {
     pub fn start_perft(&mut self, depth: u8, divide: bool) -> u64 {
         let mut stats = PerftStats::default();
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
 
         let start_time = Instant::now();
         do_perft(depth, 1, self, &mut stats, &mut repetitions, divide);

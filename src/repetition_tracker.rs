@@ -1,8 +1,6 @@
-use std::fmt::Debug;
-
 use crate::{
     board::{Board, PIECE_MASK, PIECE_PAWN},
-    moves::Move,
+    moves::Move, search::EMPTY_MOVE,
 };
 
 const TABLE_LOG_2_SIZE: usize = 14;
@@ -10,7 +8,7 @@ const MAX_MOVE_HISTORY: usize = 201;
 const TABLE_MASK: u64 = (1 << TABLE_LOG_2_SIZE) - 1;
 const MIN_REPETITIONS_FOR_DRAW: u8 = 2;
 
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct RepetitionTracker {
     repetitions: [u8; 1 << TABLE_LOG_2_SIZE],
     move_history: [Move; MAX_MOVE_HISTORY],
@@ -18,6 +16,14 @@ pub struct RepetitionTracker {
 }
 
 impl RepetitionTracker {
+    pub fn new() -> Box<Self> {
+        Box::new(Self {
+            repetitions: [0; 1 << TABLE_LOG_2_SIZE],
+            move_history: [EMPTY_MOVE; MAX_MOVE_HISTORY],
+            move_history_len: Default::default(),
+        })
+    }
+
     pub fn make_move(&mut self, m: Move, hash: u64) {
         if self.move_history_len >= MAX_MOVE_HISTORY {
             panic!(
@@ -111,22 +117,6 @@ impl PartialEq for RepetitionTracker {
     }
 }
 
-impl Default for RepetitionTracker {
-    fn default() -> Self {
-        Self {
-            repetitions: [0; 1 << TABLE_LOG_2_SIZE],
-            move_history: [Move::new(0, 0, 0); MAX_MOVE_HISTORY],
-            move_history_len: Default::default(),
-        }
-    }
-}
-
-impl Debug for RepetitionTracker {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // f.debug_struct("RepetitionTracker").field("repetitions", &self.repetitions).field("move_history", &self.move_history).field("move_history_len", &self.move_history_len).finish()
-        write!(f, "TODO: debug formatting for RepetitionTracker")
-    }
-}
 #[cfg(test)]
 mod repetition_tracker_tests {
     use crate::STARTING_FEN;
@@ -135,7 +125,7 @@ mod repetition_tracker_tests {
 
     #[test]
     pub fn repetition_from_starting_position() {
-        let mut repetitions = RepetitionTracker::default();
+        let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen(STARTING_FEN, Some(&mut repetitions)).unwrap();
 
         board.make_move(Move::from_simple_long_algebraic_notation("g1f3", 0), &mut repetitions);
