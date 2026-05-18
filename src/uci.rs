@@ -80,6 +80,7 @@ impl UciInterface {
                     self.transposition_table.clear();
                     self.history_table = [[[0; 64]; 6]; 2];
                     self.continuation_histories = Self::alloc_zeroed_continuation_history_tables();
+                    self.correction_histories = CorrectionHistoryTables::new();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     let start = Instant::now();
