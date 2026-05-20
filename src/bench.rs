@@ -95,6 +95,7 @@ pub fn bench() {
             &mut correction_histories,
         );
 
+        println!("Fen: {}", board.to_fen());
         let (_, stats) = searcher.iterative_deepening_search(board, &tc, &sc);
 
         nodes += stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;

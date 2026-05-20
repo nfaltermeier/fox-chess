@@ -57,6 +57,12 @@ impl RepetitionTracker {
 
             let mut i = self.move_history_len - 1;
             loop {
+                // if irreversible move
+                if self.move_history[i].flags() != 0
+                    || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN {
+                    break;
+                }
+
                 new_board.unmake_reversible_move_for_repetitions(i, self);
                 check = !check;
 
@@ -67,11 +73,8 @@ impl RepetitionTracker {
                     }
                 }
 
-                // If irreversible move or out of moves
-                if i == 0
-                    || self.move_history[i].flags() != 0
-                    || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN
-                {
+                // If out of moves
+                if i == 0 {
                     break;
                 }
 
@@ -119,7 +122,7 @@ impl PartialEq for RepetitionTracker {
 
 #[cfg(test)]
 mod repetition_tracker_tests {
-    use crate::STARTING_FEN;
+    use crate::{STARTING_FEN, moves::MOVE_FLAG_CAPTURE};
 
     use super::*;
 
@@ -142,5 +145,24 @@ mod repetition_tracker_tests {
 
         board.make_move(Move::from_simple_long_algebraic_notation("g1f3", 0), &mut repetitions);
         assert!(repetitions.test_repetition(&board));
+    }
+
+    #[test]
+    pub fn no_false_positive_from_undoing_captures() {
+        let mut repetitions = RepetitionTracker::new();
+        let mut board = Board::from_fen("8/3B1p2/3n1k1p/8/2P4P/4K3/8/8 b - - 3 61", Some(&mut repetitions)).unwrap();
+
+        board.make_move(Move::from_simple_long_algebraic_notation("d6c4", MOVE_FLAG_CAPTURE), &mut repetitions);
+        board.make_move(Move::from_simple_long_algebraic_notation("e3d4", 0), &mut repetitions);
+        board.make_move(Move::from_simple_long_algebraic_notation("c4d6", 0), &mut repetitions);
+        board.make_move(Move::from_simple_long_algebraic_notation("d4e3", 0), &mut repetitions);
+
+        // Simulate a hash collision to force unmaking moves to test for repetition
+        repetitions.repetitions[(board.hash & TABLE_MASK) as usize] += 1;
+        // Prevent a panic due to underflow because more moves are being unmade than should be (release builds don't check for underflow so they wouldn't catch this)
+        board.halfmove_clock += 1;
+
+        // Bugged builds will actually fail at the flags != 0 debug assertion in unmake_reversible_move_for_repetitions, before testing this assertion
+        assert!(!repetitions.test_repetition(&board));
     }
 }
