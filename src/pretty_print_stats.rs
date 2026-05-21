@@ -7,7 +7,7 @@ use crate::{
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     moves::{MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
     repetition_tracker::RepetitionTracker,
-    search::SearchStats,
+    search::stats::SearchStats,
     staged_move_generator::StagedMoveGenerator,
     transposition_table::TranspositionTable,
 };
@@ -55,7 +55,7 @@ pub fn pretty_print_stats(
 
     let depth = stats.depth;
 
-    let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+    let total_nodes = stats.global_total_nodes();
     let nodes_str = format_nodes(total_nodes);
 
     let nps = (total_nodes as f32 / elapsed.as_secs_f32()).round() as u64;

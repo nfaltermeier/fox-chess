@@ -6,9 +6,8 @@ use crate::{
     board::Board,
     correction_history::CorrectionHistoryTables,
     repetition_tracker::RepetitionTracker,
-    search::{DEFAULT_HISTORY_TABLE, Searcher},
+    search::{ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, search_multithreaded},
     transposition_table::TranspositionTable,
-    uci::UciInterface,
     uci_required_options_helper::RequiredUciOptions,
 };
 
@@ -76,13 +75,16 @@ pub fn bench() {
         let mut repetitions = RepetitionTracker::new();
         let board = Board::from_fen(fen, Some(&mut repetitions)).unwrap();
 
+        println!("Fen: {}", board.to_fen());
+
         let mut transposition_table = TranspositionTable::new(18);
         let mut history = DEFAULT_HISTORY_TABLE;
-        let mut continuation_history = UciInterface::alloc_zeroed_continuation_history_tables();
+        let mut continuation_history = ContinuationHistoryTables::new();
         let mut correction_histories = CorrectionHistoryTables::new();
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let searcher = Searcher::new(
+        let (_, stats) = search_multithreaded(
+            1,
             &mut transposition_table,
             &mut history,
             &stop_rx,
@@ -93,12 +95,13 @@ pub fn bench() {
             repetitions,
             true,
             &mut correction_histories,
+            board,
+            &tc,
+            &sc,
+            |_| {},
         );
 
-        println!("Fen: {}", board.to_fen());
-        let (_, stats) = searcher.iterative_deepening_search(board, &tc, &sc);
-
-        nodes += stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+        nodes += stats.thread_total_nodes();
     }
 
     let elapsed = start_time.elapsed();

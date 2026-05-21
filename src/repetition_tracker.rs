@@ -1,6 +1,7 @@
 use crate::{
     board::{Board, PIECE_MASK, PIECE_PAWN},
-    moves::Move, search::EMPTY_MOVE,
+    moves::Move,
+    search::EMPTY_MOVE,
 };
 
 const TABLE_LOG_2_SIZE: usize = 14;
@@ -59,7 +60,8 @@ impl RepetitionTracker {
             loop {
                 // if irreversible move
                 if self.move_history[i].flags() != 0
-                    || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN {
+                    || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN
+                {
                     break;
                 }
 
@@ -152,7 +154,10 @@ mod repetition_tracker_tests {
         let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen("8/3B1p2/3n1k1p/8/2P4P/4K3/8/8 b - - 3 61", Some(&mut repetitions)).unwrap();
 
-        board.make_move(Move::from_simple_long_algebraic_notation("d6c4", MOVE_FLAG_CAPTURE), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("d6c4", MOVE_FLAG_CAPTURE),
+            &mut repetitions,
+        );
         board.make_move(Move::from_simple_long_algebraic_notation("e3d4", 0), &mut repetitions);
         board.make_move(Move::from_simple_long_algebraic_notation("c4d6", 0), &mut repetitions);
         board.make_move(Move::from_simple_long_algebraic_notation("d4e3", 0), &mut repetitions);

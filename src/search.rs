@@ -1,4 +1,10 @@
-use std::{collections::VecDeque, sync::{atomic::AtomicBool, mpsc::Receiver}, time::Instant};
+use std::{
+    alloc::{Layout, alloc_zeroed, handle_alloc_error},
+    collections::VecDeque,
+    sync::{atomic::AtomicBool, mpsc::Receiver},
+    thread,
+    time::Instant,
+};
 
 use arrayvec::ArrayVec;
 use log::{debug, error};
@@ -16,6 +22,7 @@ use crate::{
     moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move},
     pretty_print_stats::{pretty_print_stats, print_header},
     repetition_tracker::RepetitionTracker,
+    search::stats::SearchStats,
     staged_move_generator::{GetMoveResult, StagedMoveGenerator},
     time_management::{get_cutoff_times, modify_cutoff_time},
     transposition_table::{self, MoveType, TTEntry, TranspositionTable},
@@ -41,16 +48,6 @@ include!(concat!(env!("OUT_DIR"), "/ln_fixedpoint_128_values.rs"));
 pub struct ContinuationHistoryTables {
     pub ply1: ContinuationHistoryTable,
     pub ply2: ContinuationHistoryTable,
-}
-
-#[derive(Default)]
-pub struct SearchStats {
-    pub depth: u8,
-    pub current_iteration_total_nodes: u64,
-    pub previous_iterations_total_nodes: u64,
-    pub total_search_leaves: u64,
-    pub aspiration_researches: u8,
-    pub selective_depth: u8,
 }
 
 #[derive(PartialEq, Eq)]
@@ -86,16 +83,15 @@ struct SearchMonitor {}
 
 pub struct Searcher<'a> {
     stats: SearchStats,
-    transposition_table: &'a mut TranspositionTable,
+    transposition_table: &'a TranspositionTable,
     history_table: &'a mut HistoryTable,
     starting_fullmove: u8,
     hard_cutoff_time: Option<Instant>,
     single_root_move: bool,
     starting_in_check: bool,
-    stop_rx: &'a Receiver<()>,
+    stop_rx: Option<&'a Receiver<()>>,
     stop_received: bool,
-    total_max_nodes: u64,
-    max_nodes_for_current_iteration: u64,
+    max_nodes: u64,
     continuation_histories: &'a mut ContinuationHistoryTables,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
@@ -111,13 +107,130 @@ pub struct Searcher<'a> {
     repetitions: Box<RepetitionTracker>,
     use_uci_mode: bool,
     correction_histories: &'a mut CorrectionHistoryTables,
+    thread_num: u16,
+    stop_search: &'a AtomicBool,
+}
+
+/// Returns the stats and result from the main thread
+pub fn search_multithreaded<'a, F>(
+    threads: u16,
+    transposition_table: &'a TranspositionTable,
+    history_table: &'a mut HistoryTable,
+    stop_rx: &'a Receiver<()>,
+    continuation_histories: &'a mut ContinuationHistoryTables,
+    multi_pv: u8,
+    extra_uci_options: RequiredUciOptions,
+    contempt: i16,
+    repetitions: Box<RepetitionTracker>,
+    use_uci_mode: bool,
+    correction_histories: &'a mut CorrectionHistoryTables,
+    board: Board,
+    time_options: &Option<UciTimeControl>,
+    search_options: &Option<UciSearchControl>,
+    on_search_finished: F,
+) -> (SearchResult, SearchStats)
+where
+    F: Fn(&SearchResult) -> (),
+{
+    assert_ne!(threads, 0);
+
+    // Will unset IS_SEARCHING when dropped (when this method returns).
+    // I am assuming for now that this method will only be called once at a time in this process.
+    let _monitor = SearchMonitor {};
+    IS_SEARCHING.store(true, std::sync::atomic::Ordering::Release);
+
+    let stats = SearchStats::default();
+    let stop_search = AtomicBool::new(false);
+    thread::scope(|s| {
+        for thread_num in 1..threads {
+            let mut board = board.clone();
+            let repetitions = repetitions.clone();
+            let extra_uci_options = extra_uci_options.clone();
+            // This is some trickery from https://stackoverflow.com/a/58459786.
+            // Without this it would move stop_received into the thread and then I can't use it for the main thread.
+            // It wouldn't be needed if the closure didn't use the move keyword,
+            // but then I can't reference thread_num because it wants to borrow it.
+            let stop_search = &stop_search;
+            let stats = stats.clone();
+
+            s.spawn(move || {
+                // TODO: Reusing the per-thread histories sounds a lot better than starting from scratch every time
+                let mut history_table = new_boxed_history_table();
+                let mut continuation_histories = ContinuationHistoryTables::new();
+                let mut correction_histories = CorrectionHistoryTables::new();
+
+                let mut searcher = Searcher::new(
+                    transposition_table,
+                    &mut history_table,
+                    None,
+                    &mut continuation_histories,
+                    multi_pv,
+                    extra_uci_options,
+                    contempt,
+                    repetitions,
+                    use_uci_mode,
+                    &mut correction_histories,
+                    thread_num,
+                    &stop_search,
+                    stats,
+                );
+
+                searcher.initialize_with_board(&board);
+
+                // This is a shortened version of iterative_deepening_search that just searches until the main thread says to stop
+                let mut last_result = None;
+                for draft in 1..=255 {
+                    let single_move = searcher.alpha_beta_init(&mut board, draft, last_result);
+
+                    if single_move {
+                        break;
+                    }
+
+                    if let Some(best_pv) = searcher.root_pvs.front() {
+                        if stop_search.load(std::sync::atomic::Ordering::Relaxed) {
+                            break;
+                        }
+
+                        last_result = Some(best_pv.search_result.clone());
+                    } else {
+                        // Search must have been stopped
+                        break;
+                    }
+                }
+            });
+        }
+
+        let searcher = Searcher::new(
+            transposition_table,
+            history_table,
+            Some(stop_rx),
+            continuation_histories,
+            multi_pv,
+            extra_uci_options,
+            contempt,
+            repetitions,
+            use_uci_mode,
+            correction_histories,
+            0,
+            &stop_search,
+            stats,
+        );
+        let result = searcher.iterative_deepening_search(board, time_options, search_options);
+
+        // Ensure the other threads know to stop whenever the main thread stops
+        stop_search.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        on_search_finished(&result.0);
+
+        result
+    })
 }
 
 impl<'a> Searcher<'a> {
-    pub fn new(
-        transposition_table: &'a mut TranspositionTable,
+    fn new(
+        transposition_table: &'a TranspositionTable,
         history_table: &'a mut HistoryTable,
-        stop_rx: &'a Receiver<()>,
+        stop_rx: Option<&'a Receiver<()>>,
         continuation_histories: &'a mut ContinuationHistoryTables,
         multi_pv: u8,
         extra_uci_options: RequiredUciOptions,
@@ -125,11 +238,14 @@ impl<'a> Searcher<'a> {
         repetitions: Box<RepetitionTracker>,
         use_uci_mode: bool,
         correction_histories: &'a mut CorrectionHistoryTables,
+        thread_num: u16,
+        stop_search: &'a AtomicBool,
+        stats: SearchStats,
     ) -> Self {
         assert!(multi_pv >= 1);
 
         Self {
-            stats: SearchStats::default(),
+            stats,
             transposition_table,
             history_table,
             starting_fullmove: 0xFF,
@@ -138,8 +254,7 @@ impl<'a> Searcher<'a> {
             starting_in_check: true,
             stop_rx,
             stop_received: false,
-            total_max_nodes: u64::MAX,
-            max_nodes_for_current_iteration: u64::MAX,
+            max_nodes: u64::MAX,
             continuation_histories,
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
@@ -153,10 +268,19 @@ impl<'a> Searcher<'a> {
             repetitions,
             use_uci_mode,
             correction_histories,
+            thread_num,
+            stop_search,
         }
     }
 
-    pub fn iterative_deepening_search(
+    /// These values need to be set no matter how the search is started
+    fn initialize_with_board(&mut self, board: &Board) {
+        self.starting_fullmove = board.fullmove_counter as u8;
+        self.starting_in_check = board.is_in_check(false);
+        self.white_started_search = board.white_to_move;
+    }
+
+    fn iterative_deepening_search(
         mut self,
         mut board: Board,
         time_options: &Option<UciTimeControl>,
@@ -168,18 +292,11 @@ impl<'a> Searcher<'a> {
         let mut max_depth = 40;
         let mut cutoff_times = None;
 
-        // Will unset IS_SEARCHING when dropped (when this method returns)
-        let _monitor = SearchMonitor { };
-        IS_SEARCHING.store(true, std::sync::atomic::Ordering::Release);
-
         if !self.use_uci_mode {
             print_header();
         }
 
-        // Don't forget to set these if search is started some other way
-        self.starting_fullmove = board.fullmove_counter as u8;
-        self.starting_in_check = board.is_in_check(false);
-        self.white_started_search = board.white_to_move;
+        self.initialize_with_board(&board);
 
         self.hard_cutoff_time = None;
         if let Some(t) = time_options {
@@ -236,7 +353,7 @@ impl<'a> Searcher<'a> {
                 if search_control == SearchControl::Unknown {
                     search_control = SearchControl::Nodes;
                 }
-                self.total_max_nodes = nodes;
+                self.max_nodes = nodes;
             }
         }
 
@@ -245,15 +362,14 @@ impl<'a> Searcher<'a> {
             panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
         }
 
-        let mut depth = 1;
         let mut latest_result = None;
-        loop {
+        for depth in 1..=255 {
             let end_search = self.alpha_beta_init(&mut board, depth, latest_result.clone());
             if let Some(best_pv) = self.root_pvs.front()
                 && let Some(worst_pv) = self.root_pvs.back()
             {
                 // Max nodes are infrequently checked in the search so do an additional check here
-                if self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration {
+                if self.stats.global_total_nodes() >= self.max_nodes {
                     return (
                         latest_result
                             .expect("iterative_deepening_search exceeded max nodes before completing any searches"),
@@ -301,8 +417,8 @@ impl<'a> Searcher<'a> {
 
                 if matches!(search_control, SearchControl::Time) {
                     if let Some(cutoff_times) = &cutoff_times {
-                        let pv_nodes_fraction =
-                            self.root_pv_branch_nodes as f32 / self.stats.current_iteration_total_nodes as f32;
+                        let pv_nodes_fraction = self.root_pv_branch_nodes as f32
+                            / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes) as f32;
 
                         if self.pv_nodes_fractions.len() >= 3 {
                             self.pv_nodes_fractions.pop_back();
@@ -327,9 +443,9 @@ impl<'a> Searcher<'a> {
                 return (latest_result
                     .expect("iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches"), self.stats);
             }
-
-            depth += 1;
         }
+
+        return (latest_result.unwrap(), self.stats);
     }
 
     fn alpha_beta_init(&mut self, board: &mut Board, draft: u8, last_result: Option<SearchResult>) -> bool {
@@ -359,9 +475,7 @@ impl<'a> Searcher<'a> {
         loop {
             self.ss.clear();
             self.root_pvs.clear();
-            self.stats.previous_iterations_total_nodes += self.stats.current_iteration_total_nodes;
-            self.stats.current_iteration_total_nodes = 0;
-            self.max_nodes_for_current_iteration = self.total_max_nodes - self.stats.previous_iterations_total_nodes;
+            self.stats.start_of_iteration_nodes = self.stats.thread_total_nodes();
 
             let result = self.alpha_beta_recurse(board, alpha, beta, draft, 0, self.starting_in_check, true, &mut pv);
 
@@ -427,7 +541,7 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         debug_assert!(alpha <= beta);
 
-        self.stats.current_iteration_total_nodes += 1;
+        self.stats.inc_nodes();
 
         if ply != 0
             && (board.halfmove_clock >= 100
@@ -441,22 +555,27 @@ impl<'a> Searcher<'a> {
         self.stats.selective_depth = self.stats.selective_depth.max(ply);
 
         if in_check {
-            draft += 1;
+            draft = draft.saturating_add(1);
         }
 
         if draft == 0 {
             self.stats.total_search_leaves += 1;
 
             if self.stats.total_search_leaves % 16384 == 16383 {
-                let stop_received = matches!(self.stop_rx.try_recv(), Ok(()));
-                if stop_received
-                    || self.hard_cutoff_time.is_some_and(|t| Instant::now() >= t)
-                    || self.stats.current_iteration_total_nodes >= self.max_nodes_for_current_iteration
-                {
-                    if stop_received {
-                        self.stop_received = stop_received;
-                    }
+                if self.thread_num == 0 {
+                    let stop_received = self.stop_rx.is_some_and(|stop_rx| matches!(stop_rx.try_recv(), Ok(())));
+                    if stop_received
+                        || self.hard_cutoff_time.is_some_and(|t| Instant::now() >= t)
+                        || self.stats.global_total_nodes() >= self.max_nodes
+                    {
+                        self.stop_search.store(true, std::sync::atomic::Ordering::Release);
+                        if stop_received {
+                            self.stop_received = stop_received;
+                        }
 
+                        return Err(());
+                    }
+                } else if self.stop_search.load(std::sync::atomic::Ordering::Relaxed) {
                     return Err(());
                 }
             }
@@ -485,7 +604,7 @@ impl<'a> Searcher<'a> {
             if !is_pv && tt_data.draft >= draft {
                 let tt_score = tt_data.get_score(ply);
 
-                match tt_data.move_type {
+                match MoveType::from(tt_data.get_move_type()) {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
                             // should history be updated here?
@@ -526,9 +645,9 @@ impl<'a> Searcher<'a> {
             if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
                 let rfp_threshold = beta + (90 * draft as i16);
                 let rfp_eval = if tt_entry.is_some_and(|e| {
-                    e.move_type == MoveType::Best
-                        || (e.move_type == MoveType::FailHigh && e.get_score(ply) >= rfp_threshold)
-                        || (e.move_type == MoveType::FailLow && e.get_score(ply) < rfp_threshold)
+                    e.get_move_type() == MoveType::Best as u8
+                        || (e.get_move_type() == MoveType::FailHigh as u8 && e.get_score(ply) >= rfp_threshold)
+                        || (e.get_move_type() == MoveType::FailLow as u8 && e.get_score(ply) < rfp_threshold)
                 }) {
                     tt_entry.unwrap().get_score(ply)
                 } else {
@@ -564,7 +683,7 @@ impl<'a> Searcher<'a> {
             && draft > 4
             && !in_check
             && excluded_move.is_none()
-            && tt_entry.is_none_or(|e| e.move_type != MoveType::FailLow && e.get_score(ply) >= beta)
+            && tt_entry.is_none_or(|e| e.get_move_type() != MoveType::FailLow as u8 && e.get_score(ply) >= beta)
             && board.piece_bitboards[our_side][PIECE_PAWN as usize]
                 | board.piece_bitboards[our_side][PIECE_KING as usize]
                 != board.side_occupancy[our_side]
@@ -637,7 +756,7 @@ impl<'a> Searcher<'a> {
         let mut improved_alpha = false;
 
         let mut searched_quiet_moves: TinyVec<[Move; 64]> = tiny_vec!();
-        let see_margin = (draft as i16).pow(2) * -16;
+        let see_margin = (draft.min(181) as i16).pow(2).saturating_mul(-16);
         loop {
             let mov = match move_gen.get_next_move() {
                 GetMoveResult::Move(scored_move) => scored_move,
@@ -701,7 +820,7 @@ impl<'a> Searcher<'a> {
                 && tt_entry.is_some_and(|tt_entry| {
                     tt_entry.important_move == mov.m
                         && tt_entry.draft >= draft - 3
-                        && tt_entry.move_type != MoveType::FailLow
+                        && tt_entry.get_move_type() != MoveType::FailLow as u8
                         && tt_entry.get_score(ply).abs() < MATE_THRESHOLD - 2600
                 })
             {
@@ -710,7 +829,7 @@ impl<'a> Searcher<'a> {
 
                 let verification_draft = draft / 2;
                 let verification_beta = tt_entry.unwrap().get_score(ply) - draft as i16 * 2;
-                let beginning_nodes = self.stats.current_iteration_total_nodes;
+                let beginning_nodes = self.stats.thread_total_nodes();
 
                 let verification_score = self.alpha_beta_recurse(
                     board,
@@ -726,7 +845,7 @@ impl<'a> Searcher<'a> {
                 self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
 
                 // If there is only one move
-                if self.stats.current_iteration_total_nodes == beginning_nodes + 1 {
+                if self.stats.thread_total_nodes() == beginning_nodes + 1 {
                     extension = 1;
                 } else if verification_score < verification_beta {
                     extension = 1;
@@ -771,7 +890,7 @@ impl<'a> Searcher<'a> {
             };
 
             let gives_check = new_board.is_in_check(false);
-            let start_of_search_nodes = self.stats.current_iteration_total_nodes;
+            let start_of_search_nodes = self.stats.thread_total_nodes();
             if ply == 0 {
                 self.stats.selective_depth = 0;
             }
@@ -916,7 +1035,7 @@ impl<'a> Searcher<'a> {
 
                     // If there is a new best PV
                     if index == 0 {
-                        self.root_pv_branch_nodes = self.stats.current_iteration_total_nodes - start_of_search_nodes;
+                        self.root_pv_branch_nodes = self.stats.thread_total_nodes() - start_of_search_nodes;
                     }
 
                     score = self.root_pvs.back().unwrap().search_result.score;
@@ -1006,7 +1125,7 @@ impl<'a> Searcher<'a> {
     }
 
     pub fn quiescense_side_to_move_relative(&mut self, board: &mut Board, mut alpha: i16, beta: i16, ply: u8) -> i16 {
-        self.stats.current_iteration_total_nodes += 1;
+        self.stats.inc_nodes();
 
         if board.is_insufficient_material() {
             return 0;
@@ -1019,7 +1138,7 @@ impl<'a> Searcher<'a> {
             let tt_eval = tt_data.get_score(ply);
 
             if !is_pv {
-                match tt_data.move_type {
+                match MoveType::from(tt_data.get_move_type()) {
                     transposition_table::MoveType::FailHigh => {
                         if tt_eval >= beta {
                             return tt_eval;
@@ -1310,5 +1429,71 @@ impl SearchStack {
 impl Drop for SearchMonitor {
     fn drop(&mut self) {
         IS_SEARCHING.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+impl ContinuationHistoryTables {
+    pub fn new() -> Box<Self> {
+        let layout = Layout::new::<ContinuationHistoryTables>();
+
+        unsafe {
+            // Safety: 0 is a valid value for i16 and ContinuationHistoryTables is a struct of multidimensional arrays of i16
+            let mem = alloc_zeroed(layout);
+
+            if mem.is_null() {
+                handle_alloc_error(layout);
+            }
+
+            let typed_mem = mem.cast::<ContinuationHistoryTables>();
+            Box::from_raw(typed_mem)
+        }
+    }
+}
+
+fn new_boxed_history_table() -> Box<HistoryTable> {
+    let layout = Layout::new::<HistoryTable>();
+
+    unsafe {
+        // Safety: 0 is a valid value for i16 and HistoryTable is a struct of multidimensional arrays of i16
+        let mem = alloc_zeroed(layout);
+
+        if mem.is_null() {
+            handle_alloc_error(layout);
+        }
+
+        let typed_mem = mem.cast::<HistoryTable>();
+        Box::from_raw(typed_mem)
+    }
+}
+
+pub mod stats {
+    use std::sync::{Arc, atomic::AtomicU64};
+
+    #[derive(Default, Clone)]
+    pub struct SearchStats {
+        pub depth: u8,
+        thread_total_nodes: u64,
+        global_total_nodes: Arc<AtomicU64>,
+        pub start_of_iteration_nodes: u64,
+        pub total_search_leaves: u64,
+        pub aspiration_researches: u8,
+        pub selective_depth: u8,
+    }
+
+    impl SearchStats {
+        pub fn thread_total_nodes(&self) -> u64 {
+            self.thread_total_nodes
+        }
+
+        /// Warning: atomic load
+        pub fn global_total_nodes(&self) -> u64 {
+            self.global_total_nodes.load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        pub fn inc_nodes(&mut self) {
+            self.thread_total_nodes += 1;
+            self.global_total_nodes
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 }

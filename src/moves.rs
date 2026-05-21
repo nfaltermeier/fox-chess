@@ -1,10 +1,14 @@
 use arrayvec::ArrayVec;
+use bytemuck::{Pod, Zeroable};
 use log::error;
 
 use crate::{
     bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES},
     board::{
-        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, MATERIAL_HASH_VALUES, PIECE_BISHOP, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES, file_8x8, get_material_hash_value, get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8
+        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX,
+        HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, MATERIAL_HASH_VALUES, PIECE_BISHOP, PIECE_KING,
+        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES, file_8x8, get_material_hash_value,
+        get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
     },
     evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
@@ -31,7 +35,8 @@ pub const FLAGS_MASK_PROMO: u16 = 3;
 pub const MOVE_FLAG_CAPTURE_FULL: u16 = MOVE_FLAG_CAPTURE << 12;
 pub const MOVE_FLAG_PROMOTION_FULL: u16 = MOVE_FLAG_PROMOTION << 12;
 
-#[derive(PartialEq, Eq, Copy, Clone, Default)]
+#[repr(transparent)]
+#[derive(PartialEq, Eq, Copy, Clone, Default, Pod, Zeroable)]
 pub struct Move {
     // from: 6 bits, to: 6 bits: flags: 4 bits. Using flags format from https://www.chessprogramming.org/Encoding_Moves
     pub data: u16,
@@ -163,12 +168,27 @@ impl Board {
         let ep_capture = flags == MOVE_EP_CAPTURE;
         if capture && !ep_capture {
             let capture_target_piece = self.get_piece_64(to);
-            let hash = get_zobrist_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, to, zobrist_hash_values);
-            self.material_hash ^= get_material_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize], material_hash_values);
+            let hash = get_zobrist_hash_value(
+                capture_target_piece & PIECE_MASK,
+                !self.white_to_move,
+                to,
+                zobrist_hash_values,
+            );
+            self.material_hash ^= get_material_hash_value(
+                capture_target_piece & PIECE_MASK,
+                !self.white_to_move,
+                self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize],
+                material_hash_values,
+            );
             self.hash ^= hash;
             self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
             self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize] -= 1;
-            self.material_hash ^= get_material_hash_value(capture_target_piece & PIECE_MASK, !self.white_to_move, self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize], material_hash_values);
+            self.material_hash ^= get_material_hash_value(
+                capture_target_piece & PIECE_MASK,
+                !self.white_to_move,
+                self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize],
+                material_hash_values,
+            );
             self.write_piece(PIECE_NONE, to);
 
             if capture_target_piece & PIECE_MASK == PIECE_BISHOP {
@@ -181,7 +201,6 @@ impl Board {
             } else if capture_target_piece & PIECE_MASK == PIECE_PAWN {
                 self.pawn_hash ^= hash;
             }
-
         }
 
         let moved_piece = self.get_piece_64(from);
@@ -218,18 +237,38 @@ impl Board {
 
             self.write_piece(PIECE_NONE, from);
             let pawn_hash = get_zobrist_hash_value(PIECE_PAWN, self.white_to_move, from, zobrist_hash_values);
-            self.material_hash ^= get_material_hash_value(PIECE_PAWN, self.white_to_move, self.piece_counts[side][PIECE_PAWN as usize], material_hash_values);
+            self.material_hash ^= get_material_hash_value(
+                PIECE_PAWN,
+                self.white_to_move,
+                self.piece_counts[side][PIECE_PAWN as usize],
+                material_hash_values,
+            );
             self.hash ^= pawn_hash;
             self.pawn_hash ^= pawn_hash;
             self.write_piece(promo_to_piece, to);
             self.hash ^= get_zobrist_hash_value(promo_value + 2, self.white_to_move, to, zobrist_hash_values);
-            self.material_hash ^= get_material_hash_value(promo_value + 2, self.white_to_move, self.piece_counts[side][(promo_value + 2) as usize], material_hash_values);
+            self.material_hash ^= get_material_hash_value(
+                promo_value + 2,
+                self.white_to_move,
+                self.piece_counts[side][(promo_value + 2) as usize],
+                material_hash_values,
+            );
             self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
             self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
             self.piece_counts[side][PIECE_PAWN as usize] -= 1;
             self.piece_counts[side][(promo_value + 2) as usize] += 1;
-            self.material_hash ^= get_material_hash_value(PIECE_PAWN, self.white_to_move, self.piece_counts[side][PIECE_PAWN as usize], material_hash_values);
-            self.material_hash ^= get_material_hash_value(promo_value + 2, self.white_to_move, self.piece_counts[side][(promo_value + 2) as usize], material_hash_values);
+            self.material_hash ^= get_material_hash_value(
+                PIECE_PAWN,
+                self.white_to_move,
+                self.piece_counts[side][PIECE_PAWN as usize],
+                material_hash_values,
+            );
+            self.material_hash ^= get_material_hash_value(
+                promo_value + 2,
+                self.white_to_move,
+                self.piece_counts[side][(promo_value + 2) as usize],
+                material_hash_values,
+            );
 
             if promo_value + 2 == PIECE_BISHOP {
                 self.bishop_colors[side] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
@@ -251,9 +290,19 @@ impl Board {
                 self.hash ^= hash;
                 self.pawn_hash ^= hash;
                 self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
-                self.material_hash ^= get_material_hash_value(PIECE_PAWN, !self.white_to_move, self.piece_counts[other_side][PIECE_PAWN as usize], material_hash_values);
+                self.material_hash ^= get_material_hash_value(
+                    PIECE_PAWN,
+                    !self.white_to_move,
+                    self.piece_counts[other_side][PIECE_PAWN as usize],
+                    material_hash_values,
+                );
                 self.piece_counts[other_side][PIECE_PAWN as usize] -= 1;
-                self.material_hash ^= get_material_hash_value(PIECE_PAWN, !self.white_to_move, self.piece_counts[other_side][PIECE_PAWN as usize], material_hash_values);
+                self.material_hash ^= get_material_hash_value(
+                    PIECE_PAWN,
+                    !self.white_to_move,
+                    self.piece_counts[other_side][PIECE_PAWN as usize],
+                    material_hash_values,
+                );
             }
 
             let moved_piece_kind = moved_piece & PIECE_MASK;
@@ -456,9 +505,9 @@ fn check_and_disable_castling(board: &mut Board, castling: CastlingValue, zobris
 mod moves_tests {
     use std::sync::mpsc;
 
+    use pretty_assertions::{assert_eq, assert_ne};
     use regex::Regex;
     use vampirc_uci::parse_with_unknown;
-    use pretty_assertions::{assert_eq, assert_ne};
 
     use crate::{
         board::{BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, ZOBRIST_HASH_VALUES},

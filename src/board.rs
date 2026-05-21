@@ -235,7 +235,12 @@ impl Board {
 
         for side in [0, 1] {
             for piece_code in PIECE_PAWN..=PIECE_QUEEN {
-                board.material_hash ^= get_material_hash_value(piece_code, side == 0, board.piece_counts[side][piece_code as usize], material_hash_values);
+                board.material_hash ^= get_material_hash_value(
+                    piece_code,
+                    side == 0,
+                    board.piece_counts[side][piece_code as usize],
+                    material_hash_values,
+                );
             }
         }
 

@@ -9,7 +9,7 @@ pub fn uci_fields_struct_impl(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let ItemStruct {
-        attrs: _,
+        attrs,
         vis,
         struct_token: _,
         ident,
@@ -29,6 +29,7 @@ pub fn uci_fields_struct_impl(
     quote! {
         /// Fields will be added to this struct according to the fields listed in fox-chess-proc/src/lib.rs.
         /// See the macro attached to this struct for more details.
+        #(#attrs)*
         #vis struct #ident #generics {
             #(#new_fields),*
         }

@@ -1,4 +1,8 @@
+use std::sync::atomic::Ordering;
+
+use bytemuck::{Pod, Zeroable, cast};
 use log::error;
+use portable_atomic::AtomicU128;
 
 use crate::{evaluate::MATE_THRESHOLD, moves::Move};
 
@@ -15,21 +19,22 @@ pub struct TranspositionTable {
     key_mask: usize,
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Default)]
 struct TwoTierEntry {
-    pub always_replace: TTEntry,
-    pub depth_first: TTEntry,
+    pub always_replace: AtomicU128,
+    pub depth_first: AtomicU128,
 }
 
-#[derive(Copy, Clone)]
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 pub struct TTEntry {
     pub hash: u64,
     pub important_move: Move,
-    age: u8,
-    pub move_type: MoveType,
     score: i16,
+    age: u8,
+    move_type: u8,
     pub draft: u8,
-    pub empty: bool,
+    occupied: u8,
 }
 
 impl TTEntry {
@@ -43,6 +48,10 @@ impl TTEntry {
         ply: u8,
         search_starting_fullmove: u8,
     ) -> Self {
+        const {
+            assert!(size_of::<TTEntry>() == 16);
+        }
+
         let mut tt_score = score;
         if tt_score >= MATE_THRESHOLD {
             tt_score += 10 * ply as i16;
@@ -54,10 +63,10 @@ impl TTEntry {
             hash,
             important_move,
             age: search_starting_fullmove % 4,
-            move_type,
+            move_type: move_type as u8,
             score: tt_score,
             draft,
-            empty: false,
+            occupied: 1,
         }
     }
 
@@ -73,6 +82,10 @@ impl TTEntry {
 
         score
     }
+
+    pub fn get_move_type(&self) -> u8 {
+        self.move_type
+    }
 }
 
 impl Default for TTEntry {
@@ -81,10 +94,10 @@ impl Default for TTEntry {
             hash: 0,
             important_move: Move { data: 0 },
             age: 0,
-            move_type: MoveType::FailHigh,
+            move_type: MoveType::FailHigh as u8,
             score: 0,
             draft: 0,
-            empty: true,
+            occupied: 0,
         }
     }
 }
@@ -97,55 +110,77 @@ impl TranspositionTable {
             panic!("TranspositionTable size_log_2 must be at least 10");
         }
 
+        let capacity = 1 << (size_log_2 - 1);
+        let mut vec = Vec::with_capacity(capacity);
+        for _ in 0..capacity {
+            vec.push(TwoTierEntry::default());
+        }
+
         TranspositionTable {
-            table: vec![TwoTierEntry::default(); 1 << (size_log_2 - 1)],
+            table: vec,
             key_mask: (1 << (size_log_2 - 1)) - 1,
         }
     }
 
-    pub fn get_entry(&mut self, key: u64, search_starting_fullmove: u8) -> Option<TTEntry> {
+    pub fn get_entry(&self, key: u64, search_starting_fullmove: u8) -> Option<TTEntry> {
         let index = key as usize & self.key_mask;
 
-        if let Some(entry) = self.table.get_mut(index) {
+        if let Some(entry) = self.table.get(index) {
+            let mut depth_first: TTEntry = cast(entry.depth_first.load(Ordering::Relaxed));
             // Avoiding wasting an extra 8 bytes per entry by making the struct an Option
-            if !entry.depth_first.empty && entry.depth_first.hash == key {
-                entry.depth_first.age = search_starting_fullmove % 4;
-                return Some(entry.depth_first);
+            if depth_first.occupied != 0 && depth_first.hash == key {
+                if depth_first.age != search_starting_fullmove % 4 {
+                    depth_first.age = search_starting_fullmove % 4;
+                    entry.depth_first.store(cast(depth_first), Ordering::Relaxed);
+                }
+
+                return Some(depth_first);
             }
 
-            if !entry.always_replace.empty && entry.always_replace.hash == key {
-                entry.always_replace.age = search_starting_fullmove % 4;
-                return Some(entry.always_replace);
+            let mut always_replace: TTEntry = cast(entry.always_replace.load(Ordering::Relaxed));
+            if always_replace.occupied != 0 && always_replace.hash == key {
+                if always_replace.age != search_starting_fullmove % 4 {
+                    always_replace.age = search_starting_fullmove % 4;
+                    entry.always_replace.store(cast(always_replace), Ordering::Relaxed);
+                }
+
+                return Some(always_replace);
             }
         }
 
         None
     }
 
-    pub fn store_entry(&mut self, val: TTEntry) {
+    pub fn store_entry(&self, val: TTEntry) {
         let index = val.hash as usize & self.key_mask;
 
-        if let Some(entry) = self.table.get_mut(index) {
-            if entry.depth_first.empty || entry.depth_first.age != val.age || entry.depth_first.draft <= val.draft {
-                TranspositionTable::replace_entry(&mut entry.depth_first, val);
+        if let Some(entry) = self.table.get(index) {
+            let depth_first: TTEntry = cast(entry.depth_first.load(Ordering::Relaxed));
+            if depth_first.occupied == 0 || depth_first.age != val.age || depth_first.draft <= val.draft {
+                TranspositionTable::replace_entry(&entry.depth_first, depth_first, val);
             } else {
-                TranspositionTable::replace_entry(&mut entry.always_replace, val);
+                TranspositionTable::replace_entry(
+                    &entry.always_replace,
+                    cast(entry.always_replace.load(Ordering::Relaxed)),
+                    val,
+                );
             }
         }
     }
 
-    fn replace_entry(old_entry: &mut TTEntry, mut val: TTEntry) {
-        if val.move_type == MoveType::FailLow && old_entry.move_type != MoveType::FailLow && old_entry.hash == val.hash
+    fn replace_entry(entry: &AtomicU128, old_val: TTEntry, mut val: TTEntry) {
+        if val.move_type == MoveType::FailLow as u8
+            && old_val.move_type != MoveType::FailLow as u8
+            && old_val.hash == val.hash
         {
-            val.important_move = old_entry.important_move;
+            val.important_move = old_val.important_move;
         }
 
-        *old_entry = val;
+        entry.store(cast(val), Ordering::Relaxed);
     }
 
     pub fn clear(&mut self) {
-        let default_entry = TwoTierEntry::default();
-        self.table.iter_mut().for_each(|e| *e = default_entry);
+        self.table.iter_mut().for_each(|e| *e = TwoTierEntry::default());
     }
 
     pub fn hashfull(&self, search_starting_fullmove: u8) -> u16 {
@@ -153,11 +188,13 @@ impl TranspositionTable {
         let mut count = 0;
 
         for entry in &self.table[0..500] {
-            if !entry.depth_first.empty && entry.depth_first.age == target_age {
+            let depth_first: TTEntry = cast(entry.depth_first.load(Ordering::Relaxed));
+            if depth_first.occupied != 0 && depth_first.age == target_age {
                 count += 1;
             }
 
-            if !entry.always_replace.empty && entry.always_replace.age == target_age {
+            let always_replace: TTEntry = cast(entry.always_replace.load(Ordering::Relaxed));
+            if always_replace.occupied != 0 && always_replace.age == target_age {
                 count += 1;
             }
         }
@@ -172,7 +209,7 @@ impl From<u8> for MoveType {
             0 => Self::FailHigh,
             1 => Self::Best,
             2 => Self::FailLow,
-            _ => Self::FailLow,
+            _ => panic!("Invalid value in from(u8) -> MoveType"),
         }
     }
 }

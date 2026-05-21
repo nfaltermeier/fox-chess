@@ -1,5 +1,4 @@
 use std::{
-    alloc::{Layout, alloc_zeroed, handle_alloc_error},
     io,
     sync::mpsc::{self, Receiver},
     thread,
@@ -21,39 +20,43 @@ use crate::{
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     repetition_tracker::RepetitionTracker,
-    search::{self, ContinuationHistoryTables, HistoryTable, SearchStats, Searcher},
+    search::{self, ContinuationHistoryTables, HistoryTable, search_multithreaded, stats::SearchStats},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
 
 pub struct UciInterface {
     board: Option<Board>,
+    repetitions: Box<RepetitionTracker>,
+    stop_rx: Receiver<()>,
+    // histories remembered between searches
     transposition_table: TranspositionTable,
     history_table: HistoryTable,
-    stop_rx: Receiver<()>,
     continuation_histories: Box<ContinuationHistoryTables>,
+    correction_histories: Box<CorrectionHistoryTables>,
+    // uci options
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
     contempt: i16,
-    repetitions: Box<RepetitionTracker>,
     use_uci_mode: bool,
-    correction_histories: Box<CorrectionHistoryTables>,
+    threads: u16,
 }
 
 impl UciInterface {
     pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
         UciInterface {
             board: None,
+            repetitions: RepetitionTracker::new(),
+            stop_rx,
             transposition_table: TranspositionTable::new(tt_size_log_2),
             history_table: [[[0; 64]; 6]; 2],
-            stop_rx,
-            continuation_histories: Self::alloc_zeroed_continuation_history_tables(),
+            continuation_histories: ContinuationHistoryTables::new(),
+            correction_histories: CorrectionHistoryTables::new(),
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
-            repetitions: RepetitionTracker::new(),
             use_uci_mode: false,
-            correction_histories: CorrectionHistoryTables::new(),
+            threads: 1,
         }
     }
 
@@ -66,6 +69,7 @@ impl UciInterface {
                     self.use_uci_mode = true;
                     println!("id name FoxChess {}", UciInterface::get_version());
                     println!("id author nfaltermeier");
+                    println!("option name Threads type spin default 1 min 1 max 65535");
                     println!("option name Hash type spin default 128 min 1 max 1048576");
                     println!("option name MultiPV type spin default 1 min 1 max 255");
                     println!("option name Contempt type spin default 0 min -100 max 100");
@@ -79,7 +83,7 @@ impl UciInterface {
                     self.board = None;
                     self.transposition_table.clear();
                     self.history_table = [[[0; 64]; 6]; 2];
-                    self.continuation_histories = Self::alloc_zeroed_continuation_history_tables();
+                    self.continuation_histories = ContinuationHistoryTables::new();
                     self.correction_histories = CorrectionHistoryTables::new();
                 }
                 UciMessage::Position { startpos, fen, moves } => {
@@ -137,7 +141,8 @@ impl UciInterface {
                 } => {
                     trace!("At start of go. {:#?}", self.board);
                     if let Some(b) = &self.board {
-                        let searcher = Searcher::new(
+                        search_multithreaded(
+                            self.threads,
                             &mut self.transposition_table,
                             &mut self.history_table,
                             &self.stop_rx,
@@ -148,14 +153,13 @@ impl UciInterface {
                             self.repetitions.clone(),
                             self.use_uci_mode,
                             &mut self.correction_histories,
+                            b.clone(),
+                            &time_control,
+                            &search_control,
+                            |search_result| {
+                                println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
+                            },
                         );
-
-                        // Search on a board copy to protect against the board state being changed by the search timing out
-                        let board_copy = b.clone();
-                        let (search_result, _) =
-                            searcher.iterative_deepening_search(board_copy, &time_control, &search_control);
-
-                        println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
                     } else {
                         error!("Board must be set with position first");
                     }
@@ -236,6 +240,25 @@ impl UciInterface {
                                 error!("Expected a value for option Contempt");
                             }
                         }
+                        "threads" => {
+                            if let Some(value) = value {
+                                let threads = value.parse::<u16>();
+                                if let Ok(threads) = threads {
+                                    if threads == 0 {
+                                        error!("Threads value must be at least 1");
+                                    } else {
+                                        self.threads = threads;
+                                    }
+                                } else {
+                                    error!(
+                                        "Failed to parse Threads value as a natural number: {}",
+                                        threads.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option Threads");
+                            }
+                        }
                         _ => {
                             error!("Unknown UCI setoption name '{name}'");
                         }
@@ -307,7 +330,7 @@ impl UciInterface {
             format!("score cp {score}")
         };
 
-        let total_nodes = stats.current_iteration_total_nodes + stats.previous_iterations_total_nodes;
+        let total_nodes = stats.global_total_nodes();
         let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
             "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {}",
@@ -338,22 +361,20 @@ impl UciInterface {
                 io::stdin().read_line(&mut buffer).unwrap();
                 let mut messages = parse_with_unknown(&buffer);
 
-                messages.retain(|m| {
-                    match m {
-                        UciMessage::Stop | UciMessage::Quit => {
-                            stop_tx.send(()).expect("sending stop command failed");
+                messages.retain(|m| match m {
+                    UciMessage::Stop | UciMessage::Quit => {
+                        stop_tx.send(()).expect("sending stop command failed");
+                        true
+                    }
+                    UciMessage::IsReady => {
+                        if search::IS_SEARCHING.load(std::sync::atomic::Ordering::Acquire) {
+                            println!("readyok");
+                            false
+                        } else {
                             true
                         }
-                        UciMessage::IsReady => {
-                            if search::IS_SEARCHING.load(std::sync::atomic::Ordering::Acquire) {
-                                println!("readyok");
-                                false
-                            } else {
-                                true
-                            }
-                        }
-                        _ => { true }
                     }
+                    _ => true,
                 });
 
                 message_tx
@@ -362,22 +383,6 @@ impl UciInterface {
             }
         });
         (message_rx, stop_rx)
-    }
-
-    pub fn alloc_zeroed_continuation_history_tables() -> Box<ContinuationHistoryTables> {
-        let layout = Layout::new::<ContinuationHistoryTables>();
-
-        unsafe {
-            // Safety: 0 is a valid value for i16 and ContinuationHistoryTables is a struct of multidimensional arrays of i16
-            let mem = alloc_zeroed(layout);
-
-            if mem.is_null() {
-                handle_alloc_error(layout);
-            }
-
-            let typed_mem = mem.cast::<ContinuationHistoryTables>();
-            Box::from_raw(typed_mem)
-        }
     }
 
     pub fn get_version() -> String {
