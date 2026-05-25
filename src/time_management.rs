@@ -41,7 +41,7 @@ pub fn get_cutoff_times(
         let inc = inc.to_std().unwrap();
 
         if time_left > inc.saturating_mul(2) {
-            target_dur = target_dur.saturating_add(inc.mul_f32(0.7));
+            target_dur = target_dur.saturating_add(inc.mul_f32(0.9));
 
             stricter_time_cutoff = time_left < Duration::from_secs(1);
             flexible_cutoff = time_left > inc.saturating_mul(4);
