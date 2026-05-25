@@ -15,12 +15,11 @@ use crate::{
     STARTING_FEN,
     bench::bench,
     board::Board,
-    correction_history::CorrectionHistoryTables,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     get_build_info,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
     repetition_tracker::RepetitionTracker,
-    search::{self, ContinuationHistoryTables, HistoryTable, search_multithreaded, stats::SearchStats},
+    search::{self, ThreadHistoryTables, search_multithreaded, stats::SearchStats},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
@@ -31,9 +30,7 @@ pub struct UciInterface {
     stop_rx: Receiver<()>,
     // histories remembered between searches
     transposition_table: TranspositionTable,
-    history_table: HistoryTable,
-    continuation_histories: Box<ContinuationHistoryTables>,
-    correction_histories: Box<CorrectionHistoryTables>,
+    thread_histories: Vec<ThreadHistoryTables>,
     // uci options
     multi_pv: u8,
     extra_uci_options: RequiredUciOptionsAsOptions,
@@ -49,9 +46,7 @@ impl UciInterface {
             repetitions: RepetitionTracker::new(),
             stop_rx,
             transposition_table: TranspositionTable::new(tt_size_log_2),
-            history_table: [[[0; 64]; 6]; 2],
-            continuation_histories: ContinuationHistoryTables::new(),
-            correction_histories: CorrectionHistoryTables::new(),
+            thread_histories: vec![ThreadHistoryTables::new()],
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
             contempt: 0,
@@ -82,9 +77,10 @@ impl UciInterface {
                 UciMessage::UciNewGame => {
                     self.board = None;
                     self.transposition_table.clear();
-                    self.history_table = [[[0; 64]; 6]; 2];
-                    self.continuation_histories = ContinuationHistoryTables::new();
-                    self.correction_histories = CorrectionHistoryTables::new();
+                    self.thread_histories.clear();
+                    for _ in 0..self.threads {
+                        self.thread_histories.push(ThreadHistoryTables::new());
+                    }
                 }
                 UciMessage::Position { startpos, fen, moves } => {
                     let start = Instant::now();
@@ -143,16 +139,14 @@ impl UciInterface {
                     if let Some(b) = &self.board {
                         search_multithreaded(
                             self.threads,
-                            &mut self.transposition_table,
-                            &mut self.history_table,
+                            &self.transposition_table,
+                            &mut self.thread_histories,
                             &self.stop_rx,
-                            &mut self.continuation_histories,
                             self.multi_pv,
                             self.extra_uci_options.convert(),
                             self.contempt,
                             self.repetitions.clone(),
                             self.use_uci_mode,
-                            &mut self.correction_histories,
                             b.clone(),
                             &time_control,
                             &search_control,
@@ -248,6 +242,8 @@ impl UciInterface {
                                         error!("Threads value must be at least 1");
                                     } else {
                                         self.threads = threads;
+                                        self.thread_histories
+                                            .resize_with(threads as usize, ThreadHistoryTables::new);
                                     }
                                 } else {
                                     error!(
@@ -366,13 +362,9 @@ impl UciInterface {
                         stop_tx.send(()).expect("sending stop command failed");
                         true
                     }
-                    UciMessage::IsReady => {
-                        if search::IS_SEARCHING.load(std::sync::atomic::Ordering::Acquire) {
-                            println!("readyok");
-                            false
-                        } else {
-                            true
-                        }
+                    UciMessage::IsReady if search::IS_SEARCHING.load(std::sync::atomic::Ordering::Acquire) => {
+                        println!("readyok");
+                        false
                     }
                     _ => true,
                 });

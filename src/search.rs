@@ -81,6 +81,12 @@ pub struct SearchStack {
 
 struct SearchMonitor {}
 
+pub struct ThreadHistoryTables {
+    history_table: Box<HistoryTable>,
+    continuation_histories: Box<ContinuationHistoryTables>,
+    correction_histories: Box<CorrectionHistoryTables>,
+}
+
 pub struct Searcher<'a> {
     stats: SearchStats,
     transposition_table: &'a TranspositionTable,
@@ -115,30 +121,31 @@ pub struct Searcher<'a> {
 pub fn search_multithreaded<'a, F>(
     threads: u16,
     transposition_table: &'a TranspositionTable,
-    history_table: &'a mut HistoryTable,
+    thread_histories: &'a mut [ThreadHistoryTables],
     stop_rx: &'a Receiver<()>,
-    continuation_histories: &'a mut ContinuationHistoryTables,
     multi_pv: u8,
     extra_uci_options: RequiredUciOptions,
     contempt: i16,
     repetitions: Box<RepetitionTracker>,
     use_uci_mode: bool,
-    correction_histories: &'a mut CorrectionHistoryTables,
     board: Board,
     time_options: &Option<UciTimeControl>,
     search_options: &Option<UciSearchControl>,
     on_search_finished: F,
 ) -> (SearchResult, SearchStats)
 where
-    F: Fn(&SearchResult) -> (),
+    F: Fn(&SearchResult),
 {
     assert_ne!(threads, 0);
+    assert_eq!(threads as usize, thread_histories.len());
 
     // Will unset IS_SEARCHING when dropped (when this method returns).
     // I am assuming for now that this method will only be called once at a time in this process.
     let _monitor = SearchMonitor {};
     IS_SEARCHING.store(true, std::sync::atomic::Ordering::Release);
 
+    let (main_history, mut thread_histories) = thread_histories.split_at_mut(1);
+    let main_history = &mut main_history[0];
     let stats = SearchStats::default();
     let stop_search = AtomicBool::new(false);
     thread::scope(|s| {
@@ -152,26 +159,22 @@ where
             // but then I can't reference thread_num because it wants to borrow it.
             let stop_search = &stop_search;
             let stats = stats.clone();
+            let (thread_history, remaining_history) = thread_histories.split_at_mut(1);
+            thread_histories = remaining_history;
+            let thread_history = &mut thread_history[0];
 
             s.spawn(move || {
-                // TODO: Reusing the per-thread histories sounds a lot better than starting from scratch every time
-                let mut history_table = new_boxed_history_table();
-                let mut continuation_histories = ContinuationHistoryTables::new();
-                let mut correction_histories = CorrectionHistoryTables::new();
-
                 let mut searcher = Searcher::new(
                     transposition_table,
-                    &mut history_table,
+                    thread_history,
                     None,
-                    &mut continuation_histories,
                     multi_pv,
                     extra_uci_options,
                     contempt,
                     repetitions,
                     use_uci_mode,
-                    &mut correction_histories,
                     thread_num,
-                    &stop_search,
+                    stop_search,
                     stats,
                 );
 
@@ -202,15 +205,13 @@ where
 
         let searcher = Searcher::new(
             transposition_table,
-            history_table,
+            main_history,
             Some(stop_rx),
-            continuation_histories,
             multi_pv,
             extra_uci_options,
             contempt,
             repetitions,
             use_uci_mode,
-            correction_histories,
             0,
             &stop_search,
             stats,
@@ -229,15 +230,13 @@ where
 impl<'a> Searcher<'a> {
     fn new(
         transposition_table: &'a TranspositionTable,
-        history_table: &'a mut HistoryTable,
+        thread_histories: &'a mut ThreadHistoryTables,
         stop_rx: Option<&'a Receiver<()>>,
-        continuation_histories: &'a mut ContinuationHistoryTables,
         multi_pv: u8,
         extra_uci_options: RequiredUciOptions,
         contempt: i16,
         repetitions: Box<RepetitionTracker>,
         use_uci_mode: bool,
-        correction_histories: &'a mut CorrectionHistoryTables,
         thread_num: u16,
         stop_search: &'a AtomicBool,
         stats: SearchStats,
@@ -247,7 +246,7 @@ impl<'a> Searcher<'a> {
         Self {
             stats,
             transposition_table,
-            history_table,
+            history_table: &mut thread_histories.history_table,
             starting_fullmove: 0xFF,
             hard_cutoff_time: None,
             single_root_move: false,
@@ -255,7 +254,7 @@ impl<'a> Searcher<'a> {
             stop_rx,
             stop_received: false,
             max_nodes: u64::MAX,
-            continuation_histories,
+            continuation_histories: &mut thread_histories.continuation_histories,
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
             extra_uci_options,
@@ -267,7 +266,7 @@ impl<'a> Searcher<'a> {
             root_killers: [EMPTY_MOVE; 2],
             repetitions,
             use_uci_mode,
-            correction_histories,
+            correction_histories: &mut thread_histories.correction_histories,
             thread_num,
             stop_search,
         }
@@ -445,7 +444,7 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        return (latest_result.unwrap(), self.stats);
+        (latest_result.unwrap(), self.stats)
     }
 
     fn alpha_beta_init(&mut self, board: &mut Board, draft: u8, last_result: Option<SearchResult>) -> bool {
@@ -1463,6 +1462,16 @@ fn new_boxed_history_table() -> Box<HistoryTable> {
 
         let typed_mem = mem.cast::<HistoryTable>();
         Box::from_raw(typed_mem)
+    }
+}
+
+impl ThreadHistoryTables {
+    pub fn new() -> Self {
+        Self {
+            history_table: new_boxed_history_table(),
+            continuation_histories: ContinuationHistoryTables::new(),
+            correction_histories: CorrectionHistoryTables::new(),
+        }
     }
 }
 

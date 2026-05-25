@@ -1,12 +1,12 @@
+use core::slice;
 use std::{sync::mpsc, time::Instant};
 
 use vampirc_uci::UciSearchControl;
 
 use crate::{
     board::Board,
-    correction_history::CorrectionHistoryTables,
     repetition_tracker::RepetitionTracker,
-    search::{ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, search_multithreaded},
+    search::{ThreadHistoryTables, search_multithreaded},
     transposition_table::TranspositionTable,
     uci_required_options_helper::RequiredUciOptions,
 };
@@ -77,24 +77,20 @@ pub fn bench() {
 
         println!("Fen: {}", board.to_fen());
 
-        let mut transposition_table = TranspositionTable::new(18);
-        let mut history = DEFAULT_HISTORY_TABLE;
-        let mut continuation_history = ContinuationHistoryTables::new();
-        let mut correction_histories = CorrectionHistoryTables::new();
+        let transposition_table = TranspositionTable::new(18);
+        let mut thread_history = ThreadHistoryTables::new();
 
         let (_, stop_rx) = mpsc::channel::<()>();
         let (_, stats) = search_multithreaded(
             1,
-            &mut transposition_table,
-            &mut history,
+            &transposition_table,
+            slice::from_mut(&mut thread_history),
             &stop_rx,
-            &mut continuation_history,
             1,
             RequiredUciOptions::default(),
             0,
             repetitions,
             true,
-            &mut correction_histories,
             board,
             &tc,
             &sc,
