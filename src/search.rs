@@ -77,6 +77,7 @@ pub struct SearchStack {
     moved_piece_type: u8,
     excluded_move: Option<Move>,
     killers: [Move; 2],
+    static_eval: Option<i16>,
 }
 
 struct SearchMonitor {}
@@ -588,6 +589,7 @@ impl<'a> Searcher<'a> {
             self.ss.push(SearchStack::new());
         } else {
             self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
+            self.ss[ply as usize].static_eval = None;
         }
 
         let is_pv = alpha + 1 != beta;
@@ -640,9 +642,18 @@ impl<'a> Searcher<'a> {
         if !in_check && excluded_move.is_none() {
             let eval = board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board);
             static_eval = Some(eval);
+            self.ss[ply as usize].static_eval = Some(eval);
 
             if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
-                let rfp_threshold = beta + (90 * draft as i16);
+                let improving = if ply > 1 && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval {
+                    eval > old_eval
+                } else if ply > 3 && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval {
+                    eval > old_eval
+                } else {
+                    false
+                };
+
+                let rfp_threshold = beta + 90 * (draft as i16 - if improving { 1 } else { 0 });
                 let rfp_eval = if tt_entry.is_some_and(|e| {
                     e.get_move_type() == MoveType::Best as u8
                         || (e.get_move_type() == MoveType::FailHigh as u8 && e.get_score(ply) >= rfp_threshold)
@@ -1413,6 +1424,7 @@ impl SearchStack {
             moved_piece_type: 0xFF,
             excluded_move: None,
             killers: [EMPTY_MOVE; 2],
+            static_eval: None,
         }
     }
 
