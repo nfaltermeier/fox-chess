@@ -868,37 +868,6 @@ impl<'a> Searcher<'a> {
             self.ss[ply as usize].mov = mov.m;
             self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
 
-            // Late move reduction
-            let reduction_ply = if draft > 2 && searched_moves > 3 {
-                let flags = mov.m.flags();
-
-                // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
-                let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0
-                {
-                    (100 + LN_FIXEDPOINT_128_VALUES[draft.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
-                        as i32
-                        * LN_FIXEDPOINT_128_VALUES
-                            [searched_moves.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
-                            as i32
-                        / 316) as i16
-                } else {
-                    3 * 128
-                };
-
-                if is_pv {
-                    reduction_fixedpoint_128 -= 128;
-                }
-
-                if in_check {
-                    reduction_fixedpoint_128 -= 128;
-                }
-
-                let rounding = (reduction_fixedpoint_128 % 128 >= 64) as i16;
-                ((reduction_fixedpoint_128 / 128) + rounding).clamp(0, draft as i16 - 1) as u8
-            } else {
-                0
-            };
-
             let gives_check = new_board.is_in_check(false);
             let start_of_search_nodes = self.stats.thread_total_nodes();
             if ply == 0 {
@@ -906,33 +875,50 @@ impl<'a> Searcher<'a> {
             }
 
             let mut score;
-            if searched_moves == 0 || ply == 0 {
-                // Use reduction
+            if searched_moves == 0 {
+                // Full search
                 score = -self.alpha_beta_recurse(
                     &mut new_board,
                     -beta,
                     -alpha,
-                    draft - reduction_ply - 1 + extension,
+                    draft - 1 + extension,
                     ply + 1,
                     gives_check,
                     can_null_move,
                     &mut pv,
                 )?;
-
-                if score > alpha && reduction_ply > 0 {
-                    // Do a full search
-                    score = -self.alpha_beta_recurse(
-                        &mut new_board,
-                        -beta,
-                        -alpha,
-                        draft - 1 + extension,
-                        ply + 1,
-                        gives_check,
-                        can_null_move,
-                        &mut pv,
-                    )?;
-                }
             } else {
+                // Late move reduction
+                let reduction_ply = if draft > 2 && searched_moves > 3 {
+                    let flags = mov.m.flags();
+
+                    // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
+                    let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0
+                    {
+                        (100 + LN_FIXEDPOINT_128_VALUES[draft.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
+                            as i32
+                            * LN_FIXEDPOINT_128_VALUES
+                                [searched_moves.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
+                                as i32
+                            / 316) as i16
+                    } else {
+                        3 * 128
+                    };
+
+                    if is_pv {
+                        reduction_fixedpoint_128 -= 128;
+                    }
+
+                    if in_check {
+                        reduction_fixedpoint_128 -= 128;
+                    }
+
+                    let rounding = (reduction_fixedpoint_128 % 128 >= 64) as i16;
+                    ((reduction_fixedpoint_128 / 128) + rounding).clamp(0, draft as i16 - 1) as u8
+                } else {
+                    0
+                };
+
                 // Use null window and reduction
                 score = -self.alpha_beta_recurse(
                     &mut new_board,
