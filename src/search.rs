@@ -919,7 +919,7 @@ impl<'a> Searcher<'a> {
                     0
                 };
 
-                // Use null window and reduction
+                // Use zero window and reduction
                 score = -self.alpha_beta_recurse(
                     &mut new_board,
                     -alpha - 1,
@@ -931,8 +931,22 @@ impl<'a> Searcher<'a> {
                     &mut pv,
                 )?;
 
-                if score > alpha {
-                    // Do a full search
+                if score > alpha && reduction_ply > 0 {
+                    // Do a full depth zero window search
+                    score = -self.alpha_beta_recurse(
+                        &mut new_board,
+                        -alpha - 1,
+                        -alpha,
+                        draft - 1 + extension,
+                        ply + 1,
+                        gives_check,
+                        can_null_move,
+                        &mut pv,
+                    )?;
+                }
+
+                if score > alpha && score < beta {
+                    // Do a full search, this is a pv candidate
                     score = -self.alpha_beta_recurse(
                         &mut new_board,
                         -beta,
