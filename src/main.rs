@@ -1,14 +1,11 @@
 use std::{
-    sync::mpsc::TryRecvError,
-    thread::sleep,
-    time::{Duration, SystemTime},
+    time::{SystemTime},
 };
 
 use bench::bench;
 use board::ZOBRIST_HASH_VALUES;
 use build_info::build_info;
 use clap::Parser;
-use log::error;
 use magic_bitboard::initialize_magic_bitboards;
 use uci::UciInterface;
 
@@ -95,18 +92,15 @@ fn run_uci() {
     let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
     let mut uci = UciInterface::new(23, stop_rx);
     loop {
-        match message_rx.try_recv() {
+        match message_rx.recv() {
             Ok(val) => {
                 if uci.process_command(val) {
                     return;
                 }
             }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                error!("stdin channel disconnected");
-                panic!("stdin channel disconnected")
+            Err(_) => {
+                return;
             }
         }
-        sleep(Duration::from_millis(10));
     }
 }
