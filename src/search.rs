@@ -645,9 +645,13 @@ impl<'a> Searcher<'a> {
             self.ss[ply as usize].static_eval = Some(eval);
 
             if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
-                let improving = if ply > 1 && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval {
+                let improving = if ply > 1
+                    && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval
+                {
                     eval > old_eval
-                } else if ply > 3 && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval {
+                } else if ply > 3
+                    && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval
+                {
                     eval > old_eval
                 } else {
                     false

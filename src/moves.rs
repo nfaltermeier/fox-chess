@@ -191,15 +191,19 @@ impl Board {
             );
             self.write_piece(PIECE_NONE, to);
 
-            if capture_target_piece & PIECE_MASK == PIECE_BISHOP {
-                if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & DARK_SQUARES == 0 {
-                    self.bishop_colors[other_side] &= !BISHOP_COLORS_DARK;
-                }
-                if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & LIGHT_SQUARES == 0 {
-                    self.bishop_colors[other_side] &= !BISHOP_COLORS_LIGHT;
-                }
-            } else if capture_target_piece & PIECE_MASK == PIECE_PAWN {
+            if capture_target_piece & PIECE_MASK == PIECE_PAWN {
                 self.pawn_hash ^= hash;
+            } else {
+                self.nonpawn_hashes[other_side] ^= hash;
+
+                if capture_target_piece & PIECE_MASK == PIECE_BISHOP {
+                    if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & DARK_SQUARES == 0 {
+                        self.bishop_colors[other_side] &= !BISHOP_COLORS_DARK;
+                    }
+                    if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & LIGHT_SQUARES == 0 {
+                        self.bishop_colors[other_side] &= !BISHOP_COLORS_LIGHT;
+                    }
+                }
             }
         }
 
@@ -220,6 +224,7 @@ impl Board {
             }
 
             let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
+            self.nonpawn_hashes[if self.white_to_move { 0 } else { 1 }] ^= self.hash;
             self.write_piece(PIECE_NONE, king_from);
             self.hash ^= get_zobrist_hash_value(PIECE_KING, self.white_to_move, king_from, zobrist_hash_values);
             self.write_piece(PIECE_NONE, rook_from);
@@ -228,6 +233,7 @@ impl Board {
             self.hash ^= get_zobrist_hash_value(PIECE_KING, self.white_to_move, king_to, zobrist_hash_values);
             self.write_piece(PIECE_ROOK | color_flag, rook_to);
             self.hash ^= get_zobrist_hash_value(PIECE_ROOK, self.white_to_move, rook_to, zobrist_hash_values);
+            self.nonpawn_hashes[if self.white_to_move { 0 } else { 1 }] ^= self.hash;
         } else if flags & MOVE_FLAG_PROMOTION != 0 {
             let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
             let promo_value = (flags as u8) & 3;
@@ -246,7 +252,10 @@ impl Board {
             self.hash ^= pawn_hash;
             self.pawn_hash ^= pawn_hash;
             self.write_piece(promo_to_piece, to);
-            self.hash ^= get_zobrist_hash_value(promo_value + 2, self.white_to_move, to, zobrist_hash_values);
+            let promoed_piece_hash =
+                get_zobrist_hash_value(promo_value + 2, self.white_to_move, to, zobrist_hash_values);
+            self.hash ^= promoed_piece_hash;
+            self.nonpawn_hashes[side] ^= promoed_piece_hash;
             self.material_hash ^= get_material_hash_value(
                 promo_value + 2,
                 self.white_to_move,
@@ -315,6 +324,8 @@ impl Board {
 
             if moved_piece_kind == PIECE_PAWN {
                 self.pawn_hash ^= from_hash ^ to_hash;
+            } else {
+                self.nonpawn_hashes[if self.white_to_move { 0 } else { 1 }] ^= from_hash ^ to_hash;
             }
         }
 
@@ -605,6 +616,11 @@ mod moves_tests {
         board_same_fen_uci_promo_en_passant_castle: vec![
             "d2d4", "g7g5", "d4d5", "e7e5", "d5e6", "g5g4", "h2h4", "f8h6", "c1h6", "g8h6", "f2f4", "g4f3", "d1d4",
             "e8g8", "b1c3", "f3g2", "e6d7", "g2h1b", "d7c8q", "f8e8", "e1c1",
+        ],
+        board_same_fen_uci_underpromotion: vec![
+            "h2h4", "a7a5", "h4h5", "a5a4", "h5h6", "a4a3", "h6g7", "a3b2", "g7h84", "b2a14", "g2g4", "b7b5", "g4g5",
+            "b5b4", "g5g6", "b4b3", "g6h7", "b3a2", "h7g8b", "a2b1b", "h8h2", "a1a7", "f2f4", "c7c5", "f4f5", "c5c4",
+            "c1b2", "f8g7", "f5f6", "c4c3", "f6g7", "c3b2", "g8h7", "b1a2", "g7g8n", "b2b1n"
         ],
     }
 

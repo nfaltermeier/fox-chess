@@ -10,6 +10,8 @@ type CorrectionHistoryTable = [[i16; 2]; CORRECTION_HISTORY_SIZE as usize];
 pub struct CorrectionHistoryTables {
     pawn: CorrectionHistoryTable,
     material: CorrectionHistoryTable,
+    nonpawn_white: CorrectionHistoryTable,
+    nonpawn_black: CorrectionHistoryTable,
 }
 
 impl CorrectionHistoryTables {
@@ -34,8 +36,10 @@ impl CorrectionHistoryTables {
 
         let pawn = self.pawn[(board.pawn_hash % CORRECTION_HISTORY_SIZE) as usize][side];
         let material = self.material[(board.material_hash % CORRECTION_HISTORY_SIZE) as usize][side];
+        let nonpawn_white = self.nonpawn_white[(board.nonpawn_hashes[0] % CORRECTION_HISTORY_SIZE) as usize][side];
+        let nonpawn_black = self.nonpawn_black[(board.nonpawn_hashes[1] % CORRECTION_HISTORY_SIZE) as usize][side];
 
-        (pawn + material) / 16
+        (pawn + material + nonpawn_white + nonpawn_black) / 24
     }
 
     pub fn update_history(&mut self, board: &Board, diff: i16, draft: u8) {
@@ -48,5 +52,11 @@ impl CorrectionHistoryTables {
 
         let material = &mut self.material[(board.material_hash % CORRECTION_HISTORY_SIZE) as usize][side];
         *material += (bonus - ((*material as i32) * bonus.abs() / CORRECTION_HISTORY_LIMIT)) as i16;
+
+        let nonpawn_white = &mut self.nonpawn_white[(board.nonpawn_hashes[0] % CORRECTION_HISTORY_SIZE) as usize][side];
+        *nonpawn_white += (bonus - ((*nonpawn_white as i32) * bonus.abs() / CORRECTION_HISTORY_LIMIT)) as i16;
+
+        let nonpawn_black = &mut self.nonpawn_black[(board.nonpawn_hashes[1] % CORRECTION_HISTORY_SIZE) as usize][side];
+        *nonpawn_black += (bonus - ((*nonpawn_black as i32) * bonus.abs() / CORRECTION_HISTORY_LIMIT)) as i16;
     }
 }

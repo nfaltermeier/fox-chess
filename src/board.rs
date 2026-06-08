@@ -75,6 +75,7 @@ pub struct Board {
     pub hash: u64,
     pub pawn_hash: u64,
     pub material_hash: u64,
+    pub nonpawn_hashes: [u64; 2],
     pub game_stage: i16,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
@@ -141,6 +142,7 @@ impl Board {
             hash: 0,
             pawn_hash: 0,
             material_hash: 0,
+            nonpawn_hashes: [0; 2],
             game_stage: 0,
             piece_counts: [[0; 7]; 2],
             piece_bitboards: [[0; 7]; 2],
@@ -472,6 +474,10 @@ impl Debug for Board {
             .field("hash", &format!("{:#018x}", self.hash))
             .field("pawn_hash", &format!("{:#018x}", self.pawn_hash))
             .field("material_hash", &format!("{:#018x}", self.material_hash))
+            .field(
+                "nonpawn_hashes",
+                &format!("[{:#018x}, {:#018x}]", self.nonpawn_hashes[0], self.nonpawn_hashes[1]),
+            )
             .field("game_stage", &self.game_stage)
             .field("piece_counts", &self.piece_counts)
             .field("piece_bitboards", &"See end value")
@@ -573,12 +579,15 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
     let hash = get_zobrist_hash_value(piece_code, white, index, zobrist_hash_values);
     board.hash ^= hash;
 
+    let side = if white { 0 } else { 1 };
     if piece_code == PIECE_PAWN {
         board.pawn_hash ^= hash;
+    } else {
+        board.nonpawn_hashes[side] ^= hash;
     }
 
     board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
-    board.piece_counts[if white { 0 } else { 1 }][piece_code as usize] += 1;
+    board.piece_counts[side][piece_code as usize] += 1;
 }
 
 #[cfg(test)]
