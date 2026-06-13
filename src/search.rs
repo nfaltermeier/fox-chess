@@ -582,7 +582,7 @@ impl<'a> Searcher<'a> {
 
             parent_pv.clear();
 
-            return Ok(self.quiescense_side_to_move_relative(board, alpha, beta, ply + 1));
+            return Ok(self.quiescense_side_to_move_relative(board, alpha, beta, ply));
         }
 
         if self.ss.get(ply as usize).is_none() {
@@ -640,7 +640,8 @@ impl<'a> Searcher<'a> {
         let mut static_eval = None;
         let mut futility_prune = false;
         if !in_check && excluded_move.is_none() {
-            let eval = board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board);
+            let eval =
+                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
             static_eval = Some(eval);
             self.ss[ply as usize].static_eval = Some(eval);
 
@@ -897,7 +898,8 @@ impl<'a> Searcher<'a> {
                     let flags = mov.m.flags();
 
                     // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
-                    let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0 && flags & MOVE_FLAG_PROMOTION == 0
+                    let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0
+                        && flags & MOVE_FLAG_PROMOTION == 0
                     {
                         (100 + LN_FIXEDPOINT_128_VALUES[draft.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
                             as i32
@@ -1019,7 +1021,7 @@ impl<'a> Searcher<'a> {
                         && mov.m.data & MOVE_FLAG_CAPTURE_FULL == 0
                     {
                         self.correction_histories
-                            .update_history(board, score - static_eval, draft);
+                            .update_history(board, score - static_eval, draft, &self.ss, ply);
                     }
                 }
 
@@ -1131,7 +1133,7 @@ impl<'a> Searcher<'a> {
                 && best_move.data & MOVE_FLAG_CAPTURE_FULL == 0
             {
                 self.correction_histories
-                    .update_history(board, best_score - static_eval, draft);
+                    .update_history(board, best_score - static_eval, draft, &self.ss, ply);
             }
         }
 
@@ -1177,10 +1179,16 @@ impl<'a> Searcher<'a> {
             }
         }
 
+        // static eval is not currently tracked in search stack in qsearch
+        if self.ss.get(ply as usize).is_none() {
+            self.ss.push(SearchStack::new());
+        }
+
         let mut best_score;
         let in_check = board.is_in_check(false);
         if !in_check {
-            let stand_pat = board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board);
+            let stand_pat =
+                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
 
             if stand_pat >= beta {
                 return stand_pat;
@@ -1220,6 +1228,9 @@ impl<'a> Searcher<'a> {
                     }
                     continue;
                 }
+
+                self.ss[ply as usize].mov = mov.m;
+                self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1);

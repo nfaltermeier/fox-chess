@@ -1,6 +1,4 @@
-use std::{
-    time::{SystemTime},
-};
+use std::time::SystemTime;
 
 use bench::bench;
 use board::ZOBRIST_HASH_VALUES;
