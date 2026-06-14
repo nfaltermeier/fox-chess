@@ -686,7 +686,7 @@ impl<'a> Searcher<'a> {
 
                     // Razoring
                     if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
-                        let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply + 1);
+                        let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply);
                         if score < alpha {
                             return Ok(score);
                         }
