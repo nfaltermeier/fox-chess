@@ -417,8 +417,9 @@ impl<'a> Searcher<'a> {
 
                 if matches!(search_control, SearchControl::Time) {
                     if let Some(cutoff_times) = &cutoff_times {
+                        // Recreate behavior from when dropping into qsearch counted as 2 nodes. total_search_leaves is added into root_pv_branch_nodes in search.
                         let pv_nodes_fraction = self.root_pv_branch_nodes as f32
-                            / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes) as f32;
+                            / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes + self.stats.total_search_leaves - self.stats.start_of_iteration_search_leaves) as f32;
 
                         if self.pv_nodes_fractions.len() >= 3 {
                             self.pv_nodes_fractions.pop_back();
@@ -476,6 +477,7 @@ impl<'a> Searcher<'a> {
             self.ss.clear();
             self.root_pvs.clear();
             self.stats.start_of_iteration_nodes = self.stats.thread_total_nodes();
+            self.stats.start_of_iteration_search_leaves = self.stats.total_search_leaves;
 
             let result = self.alpha_beta_recurse(board, alpha, beta, draft, 0, self.starting_in_check, true, &mut pv);
 
@@ -541,13 +543,13 @@ impl<'a> Searcher<'a> {
     ) -> Result<i16, ()> {
         debug_assert!(alpha <= beta);
 
-        self.stats.inc_nodes();
-
         if ply != 0
             && (board.halfmove_clock >= 100
                 || self.repetitions.test_repetition(board)
                 || board.is_insufficient_material())
         {
+            self.stats.inc_nodes();
+
             parent_pv.clear();
             return Ok(self.eval_draw(board));
         }
@@ -573,6 +575,9 @@ impl<'a> Searcher<'a> {
                             self.stop_received = stop_received;
                         }
 
+                        // Nodes hasn't been incremented yet. Not incrementing would indicate the last node to not be searched, which it has been.
+                        self.stats.inc_nodes();
+
                         return Err(());
                     }
                 } else if self.stop_search.load(std::sync::atomic::Ordering::Relaxed) {
@@ -584,6 +589,8 @@ impl<'a> Searcher<'a> {
 
             return Ok(self.quiescense_side_to_move_relative(board, alpha, beta, ply));
         }
+
+        self.stats.inc_nodes();
 
         if self.ss.get(ply as usize).is_none() {
             self.ss.push(SearchStack::new());
@@ -874,7 +881,7 @@ impl<'a> Searcher<'a> {
             self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
 
             let gives_check = new_board.is_in_check(false);
-            let start_of_search_nodes = self.stats.thread_total_nodes();
+            let start_of_search_nodes = if ply == 0 { self.stats.thread_total_nodes() + self.stats.total_search_leaves } else { 0 };
             if ply == 0 {
                 self.stats.selective_depth = 0;
             }
@@ -1051,7 +1058,7 @@ impl<'a> Searcher<'a> {
 
                     // If there is a new best PV
                     if index == 0 {
-                        self.root_pv_branch_nodes = self.stats.thread_total_nodes() - start_of_search_nodes;
+                        self.root_pv_branch_nodes = self.stats.thread_total_nodes() + self.stats.total_search_leaves - start_of_search_nodes;
                     }
 
                     score = self.root_pvs.back().unwrap().search_result.score;
@@ -1511,6 +1518,7 @@ pub mod stats {
         thread_total_nodes: u64,
         global_total_nodes: Arc<AtomicU64>,
         pub start_of_iteration_nodes: u64,
+        pub start_of_iteration_search_leaves: u64,
         pub total_search_leaves: u64,
         pub aspiration_researches: u8,
         pub selective_depth: u8,
