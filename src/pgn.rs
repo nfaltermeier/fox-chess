@@ -319,8 +319,7 @@ impl<'a> Pgn {
 
                 if let Some(move_parts) = NORMAL_MOVE_REGEX.with(|mr| mr.captures(&self.moves[move_index].mov)) {
                     let dest_chars: Vec<char> = move_parts["dest"].chars().collect();
-                    let dest_sq =
-                        ((dest_chars[0] as u8 - b'a') + (8 * (dest_chars[1].to_digit(10).unwrap() as u8 - 1))) as u16;
+                    let dest_sq = (dest_chars[0] as u8 - b'a') + (8 * (dest_chars[1].to_digit(10).unwrap() as u8 - 1));
 
                     let moving_piece = move_parts
                         .name("movPiece")
@@ -348,8 +347,8 @@ impl<'a> Pgn {
                             continue;
                         }
 
-                        if src_file.is_some_and(|sf| sf != file_8x8(mov.from() as u8))
-                            || src_rank.is_some_and(|sr| sr != rank_8x8(mov.from() as u8))
+                        if src_file.is_some_and(|sf| sf != file_8x8(mov.from()))
+                            || src_rank.is_some_and(|sr| sr != rank_8x8(mov.from()))
                             || promo_piece.is_some_and(|promo_piece| {
                                 promo_piece != piece_to_letter(((mov.flags() as u8) & 3) + 2)
                             })
@@ -645,7 +644,7 @@ pub fn print_tuning_positions(args: &TuningArgs) {
                                     win_scores_run = side_sign;
                                 }
 
-                                if win_scores_run.abs() as u16 >= win_adj_moves {
+                                if win_scores_run.unsigned_abs() >= win_adj_moves {
                                     upper_valid_positions_bound = upper_valid_positions_bound.min(i);
                                     break 'adj_loop;
                                 }

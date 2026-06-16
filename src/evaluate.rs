@@ -238,21 +238,21 @@ impl Board {
     // Based on the code from https://www.chessprogramming.org/SEE_-_The_Swap_Algorithm
     /// Move is expected to be a capture but probably will work if it isn't. En passant, castling, and promotions are not supported.
     pub fn is_static_exchange_eval_at_least(&self, m: Move, threshold: i16) -> bool {
-        let from = m.from();
+        let from = m.from() as usize;
         let to = m.to();
 
         let mut values = [0; 32];
         values[0] = CENTIPAWN_VALUES_MIDGAME[(self.get_piece_64(to as usize) & PIECE_MASK) as usize];
-        let mut last_attacker = (self.get_piece_64(from as usize) & PIECE_MASK) as usize;
+        let mut last_attacker = (self.get_piece_64(from) & PIECE_MASK) as usize;
 
         // If losing the attacker with no followup is greater than the threshold, then no need to investigate further
         if values[0] - CENTIPAWN_VALUES_MIDGAME[last_attacker] >= threshold {
             return true;
         }
 
-        let mut occupancy = self.occupancy & !BIT_SQUARES[from as usize];
-        let mut attacks_data = self.get_attacks_to(to as u8, occupancy);
-        attacks_data.attackers &= !BIT_SQUARES[from as usize];
+        let mut occupancy = self.occupancy & !BIT_SQUARES[from];
+        let mut attacks_data = self.get_attacks_to(to, occupancy);
+        attacks_data.attackers &= !BIT_SQUARES[from];
 
         let mut depth = 1;
         let mut color = if self.white_to_move { 1 } else { 0 };
@@ -262,7 +262,7 @@ impl Board {
             if attacks_data.possible_rook_like_x_rays != 0
                 && (last_attacker == PIECE_ROOK as usize || last_attacker == PIECE_QUEEN as usize)
             {
-                let new_attacks = lookup_rook_attack(to as u8, occupancy) & attacks_data.possible_rook_like_x_rays;
+                let new_attacks = lookup_rook_attack(to, occupancy) & attacks_data.possible_rook_like_x_rays;
                 attacks_data.attackers |= new_attacks;
                 attacks_data.possible_rook_like_x_rays ^= new_attacks;
             }
@@ -272,7 +272,7 @@ impl Board {
                     || last_attacker == PIECE_QUEEN as usize
                     || last_attacker == PIECE_PAWN as usize)
             {
-                let new_attacks = lookup_bishop_attack(to as u8, occupancy) & attacks_data.possible_bishop_like_x_rays;
+                let new_attacks = lookup_bishop_attack(to, occupancy) & attacks_data.possible_bishop_like_x_rays;
                 attacks_data.attackers |= new_attacks;
                 attacks_data.possible_bishop_like_x_rays ^= new_attacks;
             }

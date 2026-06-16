@@ -3,14 +3,11 @@ use bytemuck::{Pod, Zeroable};
 use log::error;
 
 use crate::{
-    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES},
     board::{
-        BISHOP_COLORS_DARK, BISHOP_COLORS_LIGHT, Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX,
-        HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, MATERIAL_HASH_VALUES, PIECE_BISHOP, PIECE_KING,
-        PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES, file_8x8, get_material_hash_value,
+        Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
+        HASH_VALUES_EP_FILE_IDX, PIECE_MASK, PIECE_NONE, PIECE_PAWN, ZOBRIST_HASH_VALUES, file_8x8,
         get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
     },
-    evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
 };
 
@@ -32,8 +29,8 @@ pub const MOVE_PROMO_ROOK: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_ROOK;
 pub const MOVE_PROMO_QUEEN: u16 = MOVE_FLAG_PROMOTION | FLAGS_PROMO_QUEEN;
 pub const FLAGS_MASK_PROMO: u16 = 3;
 
-pub const MOVE_FLAG_CAPTURE_FULL: u16 = MOVE_FLAG_CAPTURE << 12;
-pub const MOVE_FLAG_PROMOTION_FULL: u16 = MOVE_FLAG_PROMOTION << 12;
+const MOVE_FLAG_CAPTURE_FULL: u16 = MOVE_FLAG_CAPTURE << 12;
+const MOVE_FLAG_PROMOTION_FULL: u16 = MOVE_FLAG_PROMOTION << 12;
 
 #[repr(transparent)]
 #[derive(PartialEq, Eq, Copy, Clone, Default, Pod, Zeroable)]
@@ -49,16 +46,28 @@ impl Move {
         }
     }
 
-    pub fn from(&self) -> u16 {
-        self.data & 0x003F
+    pub fn from(&self) -> u8 {
+        (self.data & 0x003F) as u8
     }
 
-    pub fn to(&self) -> u16 {
-        (self.data >> 6) & 0x003F
+    pub fn to(&self) -> u8 {
+        ((self.data >> 6) & 0x003F) as u8
     }
 
     pub fn flags(&self) -> u16 {
         self.data >> 12
+    }
+
+    pub fn is_capture(&self) -> bool {
+        self.data & MOVE_FLAG_CAPTURE_FULL != 0
+    }
+
+    pub fn is_capture_or_promo(&self) -> bool {
+        self.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) != 0
+    }
+
+    pub fn is_promo(&self) -> bool {
+        self.data & MOVE_FLAG_PROMOTION_FULL != 0
     }
 
     pub fn pretty_print(&self, board: Option<&Board>) -> String {
@@ -70,11 +79,10 @@ impl Move {
             return String::from("0-0-0");
         }
 
-        let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
-        let capture_char = if capture { 'x' } else { '-' };
+        let capture_char = if self.is_capture() { 'x' } else { '-' };
 
         let mut promoted_to = ' ';
-        if flags & MOVE_FLAG_PROMOTION != 0 {
+        if self.is_promo() {
             let color_flag = match board {
                 Some(b) => {
                     if b.white_to_move {
@@ -92,8 +100,8 @@ impl Move {
             promoted_to = piece_to_colored_letter(promo_to_piece);
         }
 
-        let from = self.from() as u8;
-        let to = self.to() as u8;
+        let from = self.from();
+        let to = self.to();
         let piece_name = match board {
             Some(b) => {
                 let piece = b.get_piece_64(from as usize);
@@ -120,9 +128,8 @@ impl Move {
     }
 
     pub fn simple_long_algebraic_notation(&self) -> String {
-        let from = self.from() as u8;
-        let to = self.to() as u8;
-        let flags = self.flags();
+        let from = self.from();
+        let to = self.to();
 
         let from_rank = rank_8x8(from);
         let from_file = file_8x8(from);
@@ -137,10 +144,10 @@ impl Move {
             to_rank,
         );
 
-        if flags & MOVE_FLAG_PROMOTION == 0 {
+        if !self.is_promo() {
             result
         } else {
-            let promo_value = (flags as u8) & 3;
+            let promo_value = (self.flags() as u8) & 3;
             // +2 converts promo code to piece code
             let promo_to_piece = COLOR_BLACK | (promo_value + 2);
 
@@ -157,57 +164,29 @@ impl std::fmt::Debug for Move {
 
 impl Board {
     pub fn make_move(&mut self, mov: Move, repetitions: &mut RepetitionTracker) {
-        let from = mov.from() as usize;
-        let to = mov.to() as usize;
+        let from = mov.from();
+        let to = mov.to();
         let flags = mov.flags();
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
-        let material_hash_values = &*MATERIAL_HASH_VALUES;
-        let other_side = if self.white_to_move { 1 } else { 0 };
 
-        let capture = (flags & MOVE_FLAG_CAPTURE) != 0;
-        let ep_capture = flags == MOVE_EP_CAPTURE;
-        if capture && !ep_capture {
-            let capture_target_piece = self.get_piece_64(to);
-            let hash = get_zobrist_hash_value(
-                capture_target_piece & PIECE_MASK,
-                !self.white_to_move,
-                to,
-                zobrist_hash_values,
-            );
-            self.material_hash ^= get_material_hash_value(
-                capture_target_piece & PIECE_MASK,
-                !self.white_to_move,
-                self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize],
-                material_hash_values,
-            );
-            self.hash ^= hash;
-            self.game_stage -= GAME_STAGE_VALUES[(capture_target_piece & PIECE_MASK) as usize];
-            self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize] -= 1;
-            self.material_hash ^= get_material_hash_value(
-                capture_target_piece & PIECE_MASK,
-                !self.white_to_move,
-                self.piece_counts[other_side][(capture_target_piece & PIECE_MASK) as usize],
-                material_hash_values,
-            );
-            self.write_piece(PIECE_NONE, to);
-
-            if capture_target_piece & PIECE_MASK == PIECE_PAWN {
-                self.pawn_hash ^= hash;
+        let capture = mov.is_capture();
+        if capture {
+            let capture_target_square = if flags == MOVE_EP_CAPTURE {
+                let diff = (to as i8).checked_sub_unsigned(from).unwrap();
+                if diff == 7 || diff == -9 { from - 1 } else { from + 1 }
             } else {
-                self.nonpawn_hashes[other_side] ^= hash;
-
-                if capture_target_piece & PIECE_MASK == PIECE_BISHOP {
-                    if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & DARK_SQUARES == 0 {
-                        self.bishop_colors[other_side] &= !BISHOP_COLORS_DARK;
-                    }
-                    if self.piece_bitboards[other_side][PIECE_BISHOP as usize] & LIGHT_SQUARES == 0 {
-                        self.bishop_colors[other_side] &= !BISHOP_COLORS_LIGHT;
-                    }
-                }
-            }
+                to
+            };
+            self.remove_piece(capture_target_square);
         }
 
-        let moved_piece = self.get_piece_64(from);
+        let moved_piece = self.get_piece_64(from as usize);
+        if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
+            self.halfmove_clock = 0;
+        } else {
+            self.halfmove_clock += 1;
+        }
+
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             let king_from = if self.white_to_move { 4 } else { 60 };
             let rook_to;
@@ -223,110 +202,15 @@ impl Board {
                 king_to = king_from - 2;
             }
 
-            let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
-            self.nonpawn_hashes[if self.white_to_move { 0 } else { 1 }] ^= self.hash;
-            self.write_piece(PIECE_NONE, king_from);
-            self.hash ^= get_zobrist_hash_value(PIECE_KING, self.white_to_move, king_from, zobrist_hash_values);
-            self.write_piece(PIECE_NONE, rook_from);
-            self.hash ^= get_zobrist_hash_value(PIECE_ROOK, self.white_to_move, rook_from, zobrist_hash_values);
-            self.write_piece(PIECE_KING | color_flag, king_to);
-            self.hash ^= get_zobrist_hash_value(PIECE_KING, self.white_to_move, king_to, zobrist_hash_values);
-            self.write_piece(PIECE_ROOK | color_flag, rook_to);
-            self.hash ^= get_zobrist_hash_value(PIECE_ROOK, self.white_to_move, rook_to, zobrist_hash_values);
-            self.nonpawn_hashes[if self.white_to_move { 0 } else { 1 }] ^= self.hash;
+            self.move_piece(king_from, king_to);
+            self.move_piece(rook_from, rook_to);
         } else if flags & MOVE_FLAG_PROMOTION != 0 {
-            let color_flag = if self.white_to_move { 0 } else { COLOR_BLACK };
-            let promo_value = (flags as u8) & 3;
-            // +2 converts promo code to piece code
-            let promo_to_piece = color_flag | (promo_value + 2);
-            let side = if self.white_to_move { 0 } else { 1 };
+            let piece_type = ((flags as u8) & 3) + 2;
 
-            self.write_piece(PIECE_NONE, from);
-            let pawn_hash = get_zobrist_hash_value(PIECE_PAWN, self.white_to_move, from, zobrist_hash_values);
-            self.material_hash ^= get_material_hash_value(
-                PIECE_PAWN,
-                self.white_to_move,
-                self.piece_counts[side][PIECE_PAWN as usize],
-                material_hash_values,
-            );
-            self.hash ^= pawn_hash;
-            self.pawn_hash ^= pawn_hash;
-            self.write_piece(promo_to_piece, to);
-            let promoed_piece_hash =
-                get_zobrist_hash_value(promo_value + 2, self.white_to_move, to, zobrist_hash_values);
-            self.hash ^= promoed_piece_hash;
-            self.nonpawn_hashes[side] ^= promoed_piece_hash;
-            self.material_hash ^= get_material_hash_value(
-                promo_value + 2,
-                self.white_to_move,
-                self.piece_counts[side][(promo_value + 2) as usize],
-                material_hash_values,
-            );
-            self.game_stage += GAME_STAGE_VALUES[(promo_value + 2) as usize];
-            self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
-            self.piece_counts[side][PIECE_PAWN as usize] -= 1;
-            self.piece_counts[side][(promo_value + 2) as usize] += 1;
-            self.material_hash ^= get_material_hash_value(
-                PIECE_PAWN,
-                self.white_to_move,
-                self.piece_counts[side][PIECE_PAWN as usize],
-                material_hash_values,
-            );
-            self.material_hash ^= get_material_hash_value(
-                promo_value + 2,
-                self.white_to_move,
-                self.piece_counts[side][(promo_value + 2) as usize],
-                material_hash_values,
-            );
-
-            if promo_value + 2 == PIECE_BISHOP {
-                self.bishop_colors[side] |= if BIT_SQUARES[to] & DARK_SQUARES != 0 {
-                    BISHOP_COLORS_DARK
-                } else {
-                    BISHOP_COLORS_LIGHT
-                };
-            }
+            self.remove_piece(from);
+            self.add_piece(piece_type, self.white_to_move, to);
         } else {
-            if ep_capture {
-                let diff = (to as isize).checked_sub_unsigned(from).unwrap();
-                let hash = if diff == 7 || diff == -9 {
-                    self.write_piece(PIECE_NONE, from - 1);
-                    get_zobrist_hash_value(PIECE_PAWN, !self.white_to_move, from - 1, zobrist_hash_values)
-                } else {
-                    self.write_piece(PIECE_NONE, from + 1);
-                    get_zobrist_hash_value(PIECE_PAWN, !self.white_to_move, from + 1, zobrist_hash_values)
-                };
-                self.hash ^= hash;
-                self.pawn_hash ^= hash;
-                self.game_stage -= GAME_STAGE_VALUES[PIECE_PAWN as usize];
-                self.material_hash ^= get_material_hash_value(
-                    PIECE_PAWN,
-                    !self.white_to_move,
-                    self.piece_counts[other_side][PIECE_PAWN as usize],
-                    material_hash_values,
-                );
-                self.piece_counts[other_side][PIECE_PAWN as usize] -= 1;
-                self.material_hash ^= get_material_hash_value(
-                    PIECE_PAWN,
-                    !self.white_to_move,
-                    self.piece_counts[other_side][PIECE_PAWN as usize],
-                    material_hash_values,
-                );
-            }
-
-            let moved_piece_kind = moved_piece & PIECE_MASK;
-            self.write_piece(PIECE_NONE, from);
-            let from_hash = get_zobrist_hash_value(moved_piece_kind, self.white_to_move, from, zobrist_hash_values);
-            self.hash ^= from_hash;
-            self.write_piece(moved_piece, to);
-            let to_hash = get_zobrist_hash_value(moved_piece_kind, self.white_to_move, to, zobrist_hash_values);
-            self.hash ^= to_hash;
-
-            if moved_piece_kind == PIECE_PAWN {
-                self.pawn_hash ^= from_hash ^ to_hash;
-            } else {
-                self.nonpawn_hashes[if self.white_to_move { 0 } else { 1 }] ^= from_hash ^ to_hash;
-            }
+            self.move_piece(from, to);
         }
 
         if self.en_passant_target_square_index.is_some() {
@@ -339,10 +223,10 @@ impl Board {
         if double_pawn_push {
             let ep_index = from
                 .checked_add_signed(if self.white_to_move { 8 } else { -8 })
-                .unwrap() as u8;
+                .unwrap();
 
             // Check if en passant will be a pseudolegal move before setting the ep square and changing the zobrist hash
-            if self.can_en_passant(ep_index, to) {
+            if self.can_en_passant(ep_index, to as usize) {
                 let file = file_8x8(ep_index);
                 self.en_passant_target_square_index = Some(ep_index);
                 self.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
@@ -368,12 +252,6 @@ impl Board {
             } else if from == 63 || to == 63 {
                 check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
             }
-        }
-
-        if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
-            self.halfmove_clock = 0;
-        } else {
-            self.halfmove_clock += 1;
         }
 
         if !self.white_to_move {
@@ -455,7 +333,7 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
         let mut moves = ArrayVec::new();
         board.generate_pseudo_legal_moves_without_history(&mut moves);
         let Some(gen_move_pos) = moves.iter().position(|m| {
-            if m.m.from() != mov.0 as u16 || m.m.to() != mov.1 as u16 {
+            if m.m.from() != mov.0 || m.m.to() != mov.1 {
                 return false;
             }
 

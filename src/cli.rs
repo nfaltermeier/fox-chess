@@ -11,7 +11,7 @@ use vampirc_uci::parse_with_unknown;
 
 #[cfg(feature = "pgn")]
 use crate::pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
-use crate::{STARTING_FEN, bench, board::Board, uci::UciInterface};
+use crate::{STARTING_FEN, bench, board::Board, perft::run_full_perft_suite, uci::UciInterface};
 
 #[derive(Parser)]
 pub struct CliArgs {
@@ -27,12 +27,15 @@ pub struct CliArgs {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Runs all perft tests if no arguments are provided. Arguments are intended for use with perftree https://github.com/agausmann/perftree
+    /// Runs a small set of perft tests if no arguments are provided.
+    /// Arguments are intended for use with perftree https://github.com/agausmann/perftree
     Perft {
         depth: Option<u8>,
         fen: Option<String>,
         moves: Option<String>,
     },
+    /// Runs a perft suite defined at assets/perft.epd
+    PerftSuite,
     /// Runs a benchmark test for the user to verify node count and nodes per second on a new device/build
     Bench,
     /// Prints the version of the program
@@ -141,6 +144,9 @@ pub fn handle_startup_command(command: &Command) {
                 error!("If the depth perft argument is provided, fen must also be provided");
             }
         }
+        Command::PerftSuite => {
+            run_full_perft_suite();
+        }
         Command::Bench => {
             bench();
         }
@@ -188,7 +194,7 @@ pub fn handle_startup_command(command: &Command) {
 }
 
 fn perft_test_position(fen: &str, expected_results: Vec<(u8, u64)>) {
-    let mut board = Board::from_fen(fen, None).unwrap();
+    let board = Board::from_fen(fen, None).unwrap();
 
     for (depth, nodes) in expected_results {
         assert_eq!(nodes, board.start_perft(depth, false))

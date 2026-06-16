@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 resolver = "2"
 rust-version = "1.88"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 array-macro = "2.1.8"

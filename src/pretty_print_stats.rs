@@ -5,7 +5,7 @@ use tinyvec::TinyVec;
 use crate::{
     board::{Board, PIECE_MASK, PIECE_PAWN, file_8x8, piece_to_letter, rank_8x8},
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    moves::{MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
+    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
     repetition_tracker::RepetitionTracker,
     search::stats::SearchStats,
     staged_move_generator::StagedMoveGenerator,
@@ -77,7 +77,7 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
 
     for (move_index, mov) in moves.iter().rev().enumerate() {
         let to = mov.to();
-        let from = mov.from() as u8;
+        let from = mov.from();
         let moving_piece_type = board.get_piece_64(mov.from() as usize) & PIECE_MASK;
 
         let mut alternate_moves = Vec::new();
@@ -92,7 +92,7 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
             while let Some(generated_move) = move_generator.get_next_move_unordered(&board) {
                 // Exclude when the PV move and the generated move has the same from so alternate promotions don't trigger disambiguation
                 if generated_move != *mov
-                    && generated_move.from() as u8 != from
+                    && generated_move.from() != from
                     && generated_move.to() == to
                     && board.get_piece_64(generated_move.from() as usize) & PIECE_MASK == moving_piece_type
                 {
@@ -112,8 +112,8 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
                 let mut rank_match = false;
 
                 for alt_mov in alternate_moves {
-                    let alt_from_file = file_8x8(alt_mov.from() as u8);
-                    let alt_from_rank = rank_8x8(alt_mov.from() as u8);
+                    let alt_from_file = file_8x8(alt_mov.from());
+                    let alt_from_rank = rank_8x8(alt_mov.from());
 
                     file_match |= alt_from_file == from_file;
                     rank_match |= alt_from_rank == from_rank;
@@ -127,24 +127,23 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
                     result.push((b'a' + from_file) as char);
                     result.push((b'0' + from_rank) as char);
                 }
-            } else if moving_piece_type == PIECE_PAWN && mov.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+            } else if moving_piece_type == PIECE_PAWN && mov.is_capture() {
                 let from_file = file_8x8(from);
                 result.push((b'a' + from_file) as char);
             }
 
-            if mov.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+            if mov.is_capture() {
                 result.push('x');
             }
 
-            let to_rank = rank_8x8(to as u8);
-            let to_file = file_8x8(to as u8);
+            let to_rank = rank_8x8(to);
+            let to_file = file_8x8(to);
 
             result.push((b'a' + to_file) as char);
             result.push((b'0' + to_rank) as char);
 
-            let flags = mov.flags();
-            if flags & MOVE_FLAG_PROMOTION != 0 {
-                let promo_value = (flags as u8) & 3;
+            if mov.is_promo() {
+                let promo_value = (mov.flags() as u8) & 3;
                 let promo_to_piece = promo_value + 2;
 
                 result.push('=');

@@ -3,7 +3,7 @@ use std::{fmt::Debug, sync::LazyLock};
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{BIT_SQUARES, DARK_SQUARES, pretty_print_bitboard},
+    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES, pretty_print_bitboard},
     eval_values::PIECE_SQUARE_TABLES,
     evaluate::GAME_STAGE_VALUES,
     repetition_tracker::RepetitionTracker,
@@ -458,6 +458,116 @@ impl Board {
         result += self.fullmove_counter.to_string().as_str();
 
         result
+    }
+
+    pub fn add_piece(&mut self, piece_type: u8, white: bool, board_index: u8) {
+        debug_assert_eq!(PIECE_NONE, self.get_piece_64(board_index as usize));
+
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
+        let material_hash_values = &*MATERIAL_HASH_VALUES;
+
+        place_piece_init(self, piece_type, white, board_index as usize, zobrist_hash_values);
+        let side = if white { 0 } else { 1 };
+
+        self.material_hash ^= get_material_hash_value(
+            piece_type,
+            white,
+            self.piece_counts[side][piece_type as usize] - 1,
+            material_hash_values,
+        );
+        self.material_hash ^= get_material_hash_value(
+            piece_type,
+            white,
+            self.piece_counts[side][piece_type as usize],
+            material_hash_values,
+        );
+
+        if piece_type == PIECE_BISHOP {
+            self.bishop_colors[side] |= if BIT_SQUARES[board_index as usize] & DARK_SQUARES != 0 {
+                BISHOP_COLORS_DARK
+            } else {
+                BISHOP_COLORS_LIGHT
+            };
+        }
+    }
+
+    /// Does not handle castling rights
+    pub fn remove_piece(&mut self, board_index: u8) {
+        let old_piece = self.get_piece_64(board_index as usize);
+        debug_assert_ne!(PIECE_NONE, old_piece);
+
+        self.write_piece(PIECE_NONE, board_index as usize);
+        let piece_type = old_piece & PIECE_MASK;
+        let white = old_piece & COLOR_BLACK == 0;
+        let side = if white { 0 } else { 1 };
+
+        self.game_stage -= GAME_STAGE_VALUES[piece_type as usize];
+        self.piece_counts[side][piece_type as usize] -= 1;
+
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
+        let material_hash_values = &*MATERIAL_HASH_VALUES;
+
+        let hash = get_zobrist_hash_value(piece_type, white, board_index as usize, zobrist_hash_values);
+        self.hash ^= hash;
+        if piece_type == PIECE_PAWN {
+            self.pawn_hash ^= hash;
+        } else {
+            self.nonpawn_hashes[side] ^= hash;
+        }
+
+        self.material_hash ^= get_material_hash_value(
+            piece_type,
+            white,
+            self.piece_counts[side][piece_type as usize] + 1,
+            material_hash_values,
+        );
+        self.material_hash ^= get_material_hash_value(
+            piece_type,
+            white,
+            self.piece_counts[side][piece_type as usize],
+            material_hash_values,
+        );
+
+        if piece_type == PIECE_BISHOP {
+            if self.piece_bitboards[side][PIECE_BISHOP as usize] & DARK_SQUARES == 0 {
+                self.bishop_colors[side] &= !BISHOP_COLORS_DARK;
+            }
+            if self.piece_bitboards[side][PIECE_BISHOP as usize] & LIGHT_SQUARES == 0 {
+                self.bishop_colors[side] &= !BISHOP_COLORS_LIGHT;
+            }
+        }
+    }
+
+    /// Does not handle castling rights
+    pub fn move_piece(&mut self, from: u8, to: u8) {
+        let piece = self.get_piece_64(from as usize);
+        let piece_type = piece & PIECE_MASK;
+        let white = piece & COLOR_BLACK == 0;
+        let side = if white { 0 } else { 1 };
+
+        debug_assert_ne!(PIECE_NONE, piece);
+        debug_assert_eq!(PIECE_NONE, self.get_piece_64(to as usize));
+
+        self.write_piece(PIECE_NONE, from as usize);
+        self.write_piece(piece, to as usize);
+
+        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
+
+        let hash = get_zobrist_hash_value(piece_type, white, from as usize, zobrist_hash_values);
+        self.hash ^= hash;
+        if piece_type == PIECE_PAWN {
+            self.pawn_hash ^= hash;
+        } else {
+            self.nonpawn_hashes[side] ^= hash;
+        }
+
+        let hash = get_zobrist_hash_value(piece_type, white, to as usize, zobrist_hash_values);
+        self.hash ^= hash;
+        if piece_type == PIECE_PAWN {
+            self.pawn_hash ^= hash;
+        } else {
+            self.nonpawn_hashes[side] ^= hash;
+        }
     }
 }
 

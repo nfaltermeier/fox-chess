@@ -4,11 +4,8 @@ use std::{sync::mpsc, time::Instant};
 use vampirc_uci::UciSearchControl;
 
 use crate::{
-    board::Board,
-    repetition_tracker::RepetitionTracker,
-    search::{ThreadHistoryTables, search_multithreaded},
-    transposition_table::TranspositionTable,
-    uci_required_options_helper::RequiredUciOptions,
+    board::Board, history::ThreadHistoryTables, repetition_tracker::RepetitionTracker, search::search_multithreaded,
+    transposition_table::TranspositionTable, uci_required_options_helper::RequiredUciOptions,
 };
 
 pub fn bench() {
@@ -95,6 +92,8 @@ pub fn bench() {
             &tc,
             &sc,
             |_| {},
+            false,
+            0,
         );
 
         nodes += stats.thread_total_nodes();

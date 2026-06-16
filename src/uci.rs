@@ -17,9 +17,11 @@ use crate::{
     board::Board,
     evaluate::{MATE_THRESHOLD, MATE_VALUE},
     get_build_info,
+    history::ThreadHistoryTables,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
+    perft::run_full_perft_suite,
     repetition_tracker::RepetitionTracker,
-    search::{self, ThreadHistoryTables, search_multithreaded, stats::SearchStats},
+    search::{self, search_multithreaded, stats::SearchStats},
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
@@ -37,6 +39,8 @@ pub struct UciInterface {
     contempt: i16,
     use_uci_mode: bool,
     threads: u16,
+    hard_max_nodes: bool,
+    move_overhead: u16,
 }
 
 impl UciInterface {
@@ -52,6 +56,8 @@ impl UciInterface {
             contempt: 0,
             use_uci_mode: false,
             threads: 1,
+            hard_max_nodes: true,
+            move_overhead: 0,
         }
     }
 
@@ -68,6 +74,8 @@ impl UciInterface {
                     println!("option name Hash type spin default 128 min 1 max 1048576");
                     println!("option name MultiPV type spin default 1 min 1 max 255");
                     println!("option name Contempt type spin default 0 min -100 max 100");
+                    println!("option name Soft Max Nodes type check default false");
+                    println!("option name Move Overhead type spin default 0 min 0 max 5000");
                     RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
@@ -153,6 +161,8 @@ impl UciInterface {
                             |search_result| {
                                 println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
                             },
+                            self.hard_max_nodes,
+                            self.move_overhead,
                         );
                     } else {
                         error!("Board must be set with position first");
@@ -255,6 +265,36 @@ impl UciInterface {
                                 error!("Expected a value for option Threads");
                             }
                         }
+                        "soft max nodes" => {
+                            if let Some(value) = value {
+                                let soft_max_nodes = value.parse::<bool>();
+                                if let Ok(soft_max_nodes) = soft_max_nodes {
+                                    self.hard_max_nodes = !soft_max_nodes;
+                                } else {
+                                    error!(
+                                        "Failed to parse Soft Max Nodes value as a boolean: {}",
+                                        soft_max_nodes.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option Soft Max Nodes");
+                            }
+                        }
+                        "move overhead" => {
+                            if let Some(value) = value {
+                                let move_overhead = value.parse::<u16>();
+                                if let Ok(move_overhead) = move_overhead {
+                                    self.move_overhead = move_overhead;
+                                } else {
+                                    error!(
+                                        "Failed to parse Move Overhead value as a natural number: {}",
+                                        move_overhead.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option Move Overhead");
+                            }
+                        }
                         _ => {
                             error!("Unknown UCI setoption name '{name}'");
                         }
@@ -294,6 +334,8 @@ impl UciInterface {
                         } else {
                             error!("Board must be set with position first");
                         }
+                    } else if message.eq_ignore_ascii_case("perftsuite") {
+                        run_full_perft_suite();
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
@@ -369,9 +411,8 @@ impl UciInterface {
                     _ => true,
                 });
 
-                message_tx
-                    .send((buffer, messages))
-                    .expect("sending uci commands failed");
+                // It must mean that the program is exiting if sending fails, so doing nothing for Err should be okay
+                let _ = message_tx.send((buffer, messages));
             }
         });
         (message_rx, stop_rx)

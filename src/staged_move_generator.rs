@@ -7,24 +7,21 @@ use crate::{
     },
     board::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
-        PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, rank_8x8,
     },
     eval_values::CENTIPAWN_VALUES_MIDGAME,
+    history::{ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, HistoryTable, extra_quiet_move_scoring},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     move_generator::{
         MOVE_ARRAY_SIZE, MOVE_SCORE_CAPTURE, MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR, MOVE_SCORE_CONT_HISTORY_PLY1_MAX,
-        MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KILLER_1, MOVE_SCORE_KILLER_2,
-        MOVE_SCORE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE, MOVE_SCORE_QUIET, ScoredMove,
+        MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE,
+        MOVE_SCORE_QUIET, ScoredMove,
     },
     moves::{
-        MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION_FULL,
-        MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT, MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE,
-        Move,
+        MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
+        MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
-    search::{
-        ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, EMPTY_MOVE, HistoryTable, RelevantContinuationHistories,
-        SearchStack,
-    },
+    search::{EMPTY_MOVE, SearchStack},
 };
 
 pub struct StagedMoveGenerator {
@@ -137,7 +134,7 @@ impl StagedMoveGenerator {
         if self.state == StagedMoveGeneratorState::AllGenerated {
             // Remove generated quiets to speed up selection sort, betting that we aren't going to fail high
             for i in self.moves_selected..self.move_buf.len() {
-                if self.move_buf[i].m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0 {
+                if !self.move_buf[i].is_capture_or_promo() {
                     self.move_buf.swap(i, self.moves_selected);
                     self.moves_selected += 1;
                 }
@@ -460,71 +457,17 @@ impl StagedMoveGenerator {
             }
         }
     }
-}
 
-fn apply_continuation_history_to_move_scores(
-    ss: &[SearchStack],
-    board: &Board,
-    continuation_histories: &ContinuationHistoryTables,
-    moves: &mut [ScoredMove],
-    ply: u8,
-) {
-    let relevant_cont_histories = get_relevant_cont_histories(ss, board, continuation_histories, ply as usize);
-
-    if relevant_cont_histories[0].is_none() && relevant_cont_histories[1].is_none() {
-        return;
+    /// Sorts all generated moves by from square file and rank and then to square file and rank in ascending order
+    pub fn sort_from_to_file_rank(&mut self) {
+        self.move_buf[self.moves_selected..].sort_unstable_by(|a, b| {
+            file_8x8(a.m.from())
+                .cmp(&file_8x8(b.m.from()))
+                .then_with(|| rank_8x8(a.m.from()).cmp(&rank_8x8(b.m.from())))
+                .then_with(|| file_8x8(a.m.to()).cmp(&file_8x8(b.m.to())))
+                .then_with(|| rank_8x8(a.m.to()).cmp(&rank_8x8(b.m.to())))
+        });
     }
-
-    for m in moves {
-        if m.m.data & MOVE_FLAG_CAPTURE_FULL != 0 {
-            continue;
-        }
-
-        let piece_to_move = board.get_piece_64(m.m.from() as usize);
-        let piece_index = ((piece_to_move & PIECE_MASK) - 1) as usize;
-        let to = m.m.to() as usize;
-
-        if let Some(relevant_cont_hist) = &relevant_cont_histories[0] {
-            m.score += relevant_cont_hist[piece_index][to];
-        }
-        if let Some(relevant_cont_hist) = &relevant_cont_histories[1] {
-            m.score += relevant_cont_hist[piece_index][to];
-        }
-    }
-}
-
-#[inline]
-fn get_relevant_cont_histories<'a>(
-    ss: &[SearchStack],
-    board: &Board,
-    continuation_histories: &'a ContinuationHistoryTables,
-    ply: usize,
-) -> RelevantContinuationHistories<'a> {
-    let mut result = [None, None];
-    let side = if board.white_to_move { 0 } else { 1 };
-
-    let table_for_ply = &continuation_histories.ply1;
-    let ply_offset = 1;
-    if ply >= ply_offset {
-        let entry = &ss[ply - ply_offset];
-        if entry.get_mov() != EMPTY_MOVE {
-            result[0] =
-                Some(&table_for_ply[side][entry.get_moved_piece_type() as usize - 1][entry.get_mov().to() as usize]);
-        }
-    }
-
-    // I think I have to manually repeat this code or run afoul of the rules against mutably borrowing something multiple times
-    let table_for_ply = &continuation_histories.ply2;
-    let ply_offset = 2;
-    if ply >= ply_offset {
-        let entry = &ss[ply - ply_offset];
-        if entry.get_mov() != EMPTY_MOVE {
-            result[1] =
-                Some(&table_for_ply[side][entry.get_moved_piece_type() as usize - 1][entry.get_mov().to() as usize]);
-        }
-    }
-
-    result
 }
 
 #[inline]
@@ -541,46 +484,4 @@ fn select_next_move(moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>, index_to_
     }
 
     moves.swap(index_to_skip, best_move_index);
-}
-
-fn extra_quiet_move_scoring(
-    moves: &mut [ScoredMove],
-    board: &Board,
-    ss: Option<&[SearchStack]>,
-    continuation_histories: Option<&ContinuationHistoryTables>,
-    killers: Option<&[Move; 2]>,
-    ply: Option<u8>,
-) {
-    if let Some(ss) = ss
-        && let Some(continuation_histories) = continuation_histories
-        && let Some(ply) = ply
-    {
-        apply_continuation_history_to_move_scores(ss, board, continuation_histories, moves, ply);
-    }
-
-    if let Some(killers) = killers
-        && killers[0] != EMPTY_MOVE
-    {
-        let mut unmatched_killers = if killers[1] != EMPTY_MOVE { 2 } else { 1 };
-
-        for m in moves {
-            if m.m == killers[0] {
-                m.score = MOVE_SCORE_KILLER_1;
-
-                if unmatched_killers == 1 {
-                    break;
-                } else {
-                    unmatched_killers -= 1;
-                }
-            } else if m.m == killers[1] {
-                m.score = MOVE_SCORE_KILLER_2;
-
-                if unmatched_killers == 1 {
-                    break;
-                } else {
-                    unmatched_killers -= 1;
-                }
-            }
-        }
-    }
 }

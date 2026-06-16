@@ -1,9 +1,8 @@
 use std::{
-    alloc::{Layout, alloc_zeroed, handle_alloc_error},
     collections::VecDeque,
     sync::{atomic::AtomicBool, mpsc::Receiver},
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use arrayvec::ArrayVec;
@@ -13,13 +12,13 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
-    correction_history::CorrectionHistoryTables,
     evaluate::MATE_THRESHOLD,
-    move_generator::{
-        MOVE_ARRAY_SIZE, MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX,
-        ScoredMove,
+    history::{
+        ContinuationHistoryTables, CorrectionHistoryTables, HistoryTable, ThreadHistoryTables, update_histories,
+        update_killers_and_histories,
     },
-    moves::{MOVE_FLAG_CAPTURE, MOVE_FLAG_CAPTURE_FULL, MOVE_FLAG_PROMOTION, MOVE_FLAG_PROMOTION_FULL, Move},
+    move_generator::{MOVE_ARRAY_SIZE, ScoredMove},
+    moves::Move,
     pretty_print_stats::{pretty_print_stats, print_header},
     repetition_tracker::RepetitionTracker,
     search::stats::SearchStats,
@@ -30,14 +29,8 @@ use crate::{
     uci_required_options_helper::RequiredUciOptions,
 };
 
-pub type HistoryTable = [[[i16; 64]; 6]; 2];
-pub type ContinuationHistoryTable = [[[[[i16; 64]; 6]; 64]; 6]; 2];
-pub type MutRelevantContinuationHistories<'a> = [Option<&'a mut [[i16; 64]; 6]>; 2];
-pub type RelevantContinuationHistories<'a> = [Option<&'a [[i16; 64]; 6]>; 2];
-
 pub static IS_SEARCHING: AtomicBool = AtomicBool::new(false);
 
-pub static DEFAULT_HISTORY_TABLE: HistoryTable = [[[0; 64]; 6]; 2];
 /// Each value is in addition to the last
 static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
 
@@ -45,15 +38,11 @@ pub const EMPTY_MOVE: Move = Move { data: 0 };
 
 include!(concat!(env!("OUT_DIR"), "/ln_fixedpoint_128_values.rs"));
 
-pub struct ContinuationHistoryTables {
-    pub ply1: ContinuationHistoryTable,
-    pub ply2: ContinuationHistoryTable,
-}
-
 #[derive(PartialEq, Eq)]
 enum SearchControl {
     Unknown,
-    Time,
+    TimeLeft,
+    MoveTime,
     Depth,
     Infinite,
     Nodes,
@@ -76,17 +65,11 @@ pub struct SearchStack {
     mov: Move,
     moved_piece_type: u8,
     excluded_move: Option<Move>,
-    killers: [Move; 2],
+    pub killers: [Move; 2],
     static_eval: Option<i16>,
 }
 
 struct SearchMonitor {}
-
-pub struct ThreadHistoryTables {
-    history_table: Box<HistoryTable>,
-    continuation_histories: Box<ContinuationHistoryTables>,
-    correction_histories: Box<CorrectionHistoryTables>,
-}
 
 pub struct Searcher<'a> {
     stats: SearchStats,
@@ -99,6 +82,7 @@ pub struct Searcher<'a> {
     stop_rx: Option<&'a Receiver<()>>,
     stop_received: bool,
     max_nodes: u64,
+    hard_max_nodes: bool,
     continuation_histories: &'a mut ContinuationHistoryTables,
     multi_pv: u8,
     root_pvs: VecDeque<PvData>,
@@ -133,6 +117,8 @@ pub fn search_multithreaded<'a, F>(
     time_options: &Option<UciTimeControl>,
     search_options: &Option<UciSearchControl>,
     on_search_finished: F,
+    hard_max_nodes: bool,
+    move_overhead: u16,
 ) -> (SearchResult, SearchStats)
 where
     F: Fn(&SearchResult),
@@ -177,6 +163,7 @@ where
                     thread_num,
                     stop_search,
                     stats,
+                    hard_max_nodes,
                 );
 
                 searcher.initialize_with_board(&board);
@@ -216,8 +203,9 @@ where
             0,
             &stop_search,
             stats,
+            hard_max_nodes,
         );
-        let result = searcher.iterative_deepening_search(board, time_options, search_options);
+        let result = searcher.iterative_deepening_search(board, time_options, search_options, move_overhead);
 
         // Ensure the other threads know to stop whenever the main thread stops
         stop_search.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -241,6 +229,7 @@ impl<'a> Searcher<'a> {
         thread_num: u16,
         stop_search: &'a AtomicBool,
         stats: SearchStats,
+        hard_max_nodes: bool,
     ) -> Self {
         assert!(multi_pv >= 1);
 
@@ -255,6 +244,7 @@ impl<'a> Searcher<'a> {
             stop_rx,
             stop_received: false,
             max_nodes: u64::MAX,
+            hard_max_nodes,
             continuation_histories: &mut thread_histories.continuation_histories,
             multi_pv,
             root_pvs: VecDeque::with_capacity(multi_pv as usize),
@@ -285,6 +275,7 @@ impl<'a> Searcher<'a> {
         mut board: Board,
         time_options: &Option<UciTimeControl>,
         search_options: &Option<UciSearchControl>,
+        move_overhead: u16,
     ) -> (SearchResult, SearchStats) {
         let start_time = Instant::now();
         let mut soft_cutoff_time = None;
@@ -322,15 +313,22 @@ impl<'a> Searcher<'a> {
                         board.fullmove_counter,
                     ));
                     soft_cutoff_time = Some(cutoff_times.as_ref().unwrap().soft_cutoff);
-                    self.hard_cutoff_time = Some(cutoff_times.as_ref().unwrap().hard_cutoff);
+                    self.hard_cutoff_time = Some(
+                        cutoff_times
+                            .as_ref()
+                            .unwrap()
+                            .hard_cutoff
+                            .checked_sub(Duration::from_millis(move_overhead as u64))
+                            .unwrap(),
+                    );
 
-                    search_control = SearchControl::Time;
+                    search_control = SearchControl::TimeLeft;
                 }
                 UciTimeControl::MoveTime(time_delta) => {
                     let target_dur = time_delta.to_std().unwrap();
                     soft_cutoff_time = Some(target_dur);
                     self.hard_cutoff_time = Some(start_time.checked_add(target_dur).unwrap());
-                    search_control = SearchControl::Time;
+                    search_control = SearchControl::MoveTime;
                 }
                 UciTimeControl::Ponder => {
                     unimplemented!("uci go ponder");
@@ -368,15 +366,6 @@ impl<'a> Searcher<'a> {
             if let Some(best_pv) = self.root_pvs.front()
                 && let Some(worst_pv) = self.root_pvs.back()
             {
-                // Max nodes are infrequently checked in the search so do an additional check here
-                if self.stats.global_total_nodes() >= self.max_nodes {
-                    return (
-                        latest_result
-                            .expect("iterative_deepening_search exceeded max nodes before completing any searches"),
-                        self.stats,
-                    );
-                }
-
                 let elapsed = start_time.elapsed();
 
                 for (i, pv) in self.root_pvs.iter().enumerate() {
@@ -410,16 +399,23 @@ impl<'a> Searcher<'a> {
 
                 if self.stop_received
                     || (search_control != SearchControl::Infinite
-                        && (end_search || worst_pv.search_result.score.abs() >= MATE_THRESHOLD || depth >= max_depth))
+                        && (end_search
+                            || worst_pv.search_result.score.abs() >= MATE_THRESHOLD
+                            || depth >= max_depth
+                            || self.stats.global_total_nodes() >= self.max_nodes))
                 {
                     return (best_pv.search_result.clone(), self.stats);
                 }
 
-                if matches!(search_control, SearchControl::Time) {
-                    if let Some(cutoff_times) = &cutoff_times {
+                if search_control == SearchControl::TimeLeft || search_control == SearchControl::MoveTime {
+                    if search_control == SearchControl::TimeLeft
+                        && let Some(cutoff_times) = &cutoff_times
+                    {
                         // Recreate behavior from when dropping into qsearch counted as 2 nodes. total_search_leaves is added into root_pv_branch_nodes in search.
                         let pv_nodes_fraction = self.root_pv_branch_nodes as f32
-                            / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes + self.stats.total_search_leaves - self.stats.start_of_iteration_search_leaves) as f32;
+                            / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes
+                                + self.stats.total_search_leaves
+                                - self.stats.start_of_iteration_search_leaves) as f32;
 
                         if self.pv_nodes_fractions.len() >= 3 {
                             self.pv_nodes_fractions.pop_back();
@@ -430,13 +426,22 @@ impl<'a> Searcher<'a> {
                         soft_cutoff_time = Some(modify_cutoff_time(cutoff_times, &self.pv_nodes_fractions));
                     }
 
-                    if elapsed >= soft_cutoff_time.unwrap() {
+                    if elapsed
+                        >= soft_cutoff_time
+                            .unwrap()
+                            .saturating_sub(Duration::from_millis(move_overhead as u64))
+                    {
                         return (best_pv.search_result.clone(), self.stats);
                     }
                 }
 
                 latest_result = Some(best_pv.search_result.clone());
             } else {
+                println!(
+                    "info string search interrupted with nodes {}",
+                    self.stats.global_total_nodes()
+                );
+
                 if !self.stop_received {
                     debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
                 }
@@ -548,13 +553,27 @@ impl<'a> Searcher<'a> {
                 || self.repetitions.test_repetition(board)
                 || board.is_insufficient_material())
         {
-            self.stats.inc_nodes();
+            if self.inc_and_check_thread_nodes() {
+                return Err(());
+            }
 
             parent_pv.clear();
             return Ok(self.eval_draw(board));
         }
 
         self.stats.selective_depth = self.stats.selective_depth.max(ply);
+
+        if ply == 255 {
+            if self.inc_and_check_thread_nodes() {
+                return Err(());
+            }
+
+            return Ok(if in_check {
+                self.eval_draw(board)
+            } else {
+                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply)
+            });
+        }
 
         if in_check {
             draft = draft.saturating_add(1);
@@ -566,9 +585,11 @@ impl<'a> Searcher<'a> {
             if self.stats.total_search_leaves % 16384 == 16383 {
                 if self.thread_num == 0 {
                     let stop_received = self.stop_rx.is_some_and(|stop_rx| matches!(stop_rx.try_recv(), Ok(())));
+                    let global_total_nodes = self.stats.global_total_nodes();
                     if stop_received
                         || self.hard_cutoff_time.is_some_and(|t| Instant::now() >= t)
-                        || self.stats.global_total_nodes() >= self.max_nodes
+                        || (self.hard_max_nodes && global_total_nodes >= self.max_nodes)
+                        || global_total_nodes >= self.max_nodes.saturating_mul(20)
                     {
                         self.stop_search.store(true, std::sync::atomic::Ordering::Release);
                         if stop_received {
@@ -587,10 +608,12 @@ impl<'a> Searcher<'a> {
 
             parent_pv.clear();
 
-            return Ok(self.quiescense_side_to_move_relative(board, alpha, beta, ply));
+            return self.quiescense_side_to_move_relative(board, alpha, beta, ply);
         }
 
-        self.stats.inc_nodes();
+        if self.inc_and_check_thread_nodes() {
+            return Err(());
+        }
 
         if self.ss.get(ply as usize).is_none() {
             self.ss.push(SearchStack::new());
@@ -616,7 +639,7 @@ impl<'a> Searcher<'a> {
                     transposition_table::MoveType::FailHigh => {
                         if tt_score >= beta {
                             // should history be updated here?
-                            update_killers_and_history(
+                            update_killers_and_histories(
                                 board,
                                 tt_data.important_move,
                                 draft,
@@ -686,7 +709,7 @@ impl<'a> Searcher<'a> {
 
                     // Razoring
                     if (eval + 332 + 279 * (draft - 1) as i16) < alpha {
-                        let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply);
+                        let score = self.quiescense_side_to_move_relative(board, alpha, beta, ply)?;
                         if score < alpha {
                             return Ok(score);
                         }
@@ -812,15 +835,12 @@ impl<'a> Searcher<'a> {
             {
                 move_gen.prune_quiet_non_promos();
 
-                if mov.m.data & (MOVE_FLAG_CAPTURE_FULL | MOVE_FLAG_PROMOTION_FULL) == 0 {
+                if !mov.is_capture_or_promo() {
                     continue;
                 }
             }
 
-            if !is_pv
-                && mov.m.data & MOVE_FLAG_CAPTURE_FULL != 0
-                && !board.is_static_exchange_eval_at_least(mov.m, see_margin)
-            {
+            if !is_pv && mov.is_capture() && !board.is_static_exchange_eval_at_least(mov.m, see_margin) {
                 continue;
             }
 
@@ -881,8 +901,12 @@ impl<'a> Searcher<'a> {
             self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
 
             let gives_check = new_board.is_in_check(false);
-            let start_of_search_nodes = if ply == 0 { self.stats.thread_total_nodes() + self.stats.total_search_leaves } else { 0 };
-            if ply == 0 {
+            let start_of_search_nodes = if ply == 0 {
+                self.stats.thread_total_nodes() + self.stats.total_search_leaves
+            } else {
+                0
+            };
+            if ply == 0 && self.multi_pv != 1 {
                 self.stats.selective_depth = 0;
             }
 
@@ -902,12 +926,8 @@ impl<'a> Searcher<'a> {
             } else {
                 // Late move reduction
                 let reduction_ply = if draft > 2 && searched_moves > 3 {
-                    let flags = mov.m.flags();
-
                     // Using formula and values from Ethereal according to https://www.chessprogramming.org/Late_Move_Reductions
-                    let mut reduction_fixedpoint_128 = if flags & MOVE_FLAG_CAPTURE == 0
-                        && flags & MOVE_FLAG_PROMOTION == 0
-                    {
+                    let mut reduction_fixedpoint_128 = if !mov.is_capture_or_promo() {
                         (100 + LN_FIXEDPOINT_128_VALUES[draft.min(LN_FIXEDPOINT_128_VALUES.len() as u8 - 1) as usize]
                             as i32
                             * LN_FIXEDPOINT_128_VALUES
@@ -977,7 +997,7 @@ impl<'a> Searcher<'a> {
             searched_moves += 1;
 
             if score >= beta {
-                let mut relevant_cont_histories = update_killers_and_history(
+                let mut relevant_cont_histories = update_killers_and_histories(
                     board,
                     mov.m,
                     draft,
@@ -990,7 +1010,7 @@ impl<'a> Searcher<'a> {
 
                 let penalty = -(draft as i16) * (draft as i16);
                 for sqm in searched_quiet_moves {
-                    update_history(board, self.history_table, sqm, penalty, &mut relevant_cont_histories);
+                    update_histories(board, self.history_table, sqm, penalty, &mut relevant_cont_histories);
                 }
 
                 if ply == 0 {
@@ -1025,7 +1045,7 @@ impl<'a> Searcher<'a> {
                     // Currently static eval is always set when not in check
                     if let Some(static_eval) = static_eval
                         && score >= static_eval
-                        && mov.m.data & MOVE_FLAG_CAPTURE_FULL == 0
+                        && !mov.is_capture()
                     {
                         self.correction_histories
                             .update_history(board, score - static_eval, draft, &self.ss, ply);
@@ -1058,7 +1078,8 @@ impl<'a> Searcher<'a> {
 
                     // If there is a new best PV
                     if index == 0 {
-                        self.root_pv_branch_nodes = self.stats.thread_total_nodes() + self.stats.total_search_leaves - start_of_search_nodes;
+                        self.root_pv_branch_nodes =
+                            self.stats.thread_total_nodes() + self.stats.total_search_leaves - start_of_search_nodes;
                     }
 
                     score = self.root_pvs.back().unwrap().search_result.score;
@@ -1137,7 +1158,7 @@ impl<'a> Searcher<'a> {
             // Currently static eval is always set when not in check
             if let Some(static_eval) = static_eval
                 && (improved_alpha || best_score <= static_eval)
-                && best_move.data & MOVE_FLAG_CAPTURE_FULL == 0
+                && !best_move.is_capture()
             {
                 self.correction_histories
                     .update_history(board, best_score - static_eval, draft, &self.ss, ply);
@@ -1147,11 +1168,19 @@ impl<'a> Searcher<'a> {
         Ok(best_score)
     }
 
-    pub fn quiescense_side_to_move_relative(&mut self, board: &mut Board, mut alpha: i16, beta: i16, ply: u8) -> i16 {
-        self.stats.inc_nodes();
+    pub fn quiescense_side_to_move_relative(
+        &mut self,
+        board: &mut Board,
+        mut alpha: i16,
+        beta: i16,
+        ply: u8,
+    ) -> Result<i16, ()> {
+        if self.inc_and_check_thread_nodes() {
+            return Err(());
+        }
 
         if board.is_insufficient_material() {
-            return 0;
+            return Ok(self.eval_draw(board));
         }
 
         let is_pv = alpha + 1 != beta;
@@ -1164,21 +1193,21 @@ impl<'a> Searcher<'a> {
                 match MoveType::from(tt_data.get_move_type()) {
                     transposition_table::MoveType::FailHigh => {
                         if tt_eval >= beta {
-                            return tt_eval;
+                            return Ok(tt_eval);
                         }
                     }
                     transposition_table::MoveType::Best => {
-                        return tt_eval;
+                        return Ok(tt_eval);
                     }
                     transposition_table::MoveType::FailLow => {
                         if tt_eval < alpha {
-                            return tt_eval;
+                            return Ok(tt_eval);
                         }
                     }
                 }
             }
 
-            if tt_data.important_move.data & MOVE_FLAG_CAPTURE_FULL != 0 {
+            if tt_data.important_move.is_capture() {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
                     score: 1,
@@ -1193,12 +1222,22 @@ impl<'a> Searcher<'a> {
 
         let mut best_score;
         let in_check = board.is_in_check(false);
+
+        // Need to not do anything that would go to the next ply before this
+        if ply == 255 {
+            return Ok(if in_check {
+                self.eval_draw(board)
+            } else {
+                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply)
+            });
+        }
+
         if !in_check {
             let stand_pat =
                 board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
 
             if stand_pat >= beta {
-                return stand_pat;
+                return Ok(stand_pat);
             }
 
             if alpha < stand_pat {
@@ -1240,7 +1279,7 @@ impl<'a> Searcher<'a> {
                 self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
-                let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1);
+                let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;
 
                 self.repetitions.unmake_move(new_board.hash);
 
@@ -1255,7 +1294,7 @@ impl<'a> Searcher<'a> {
                         self.starting_fullmove,
                     ));
 
-                    return score;
+                    return Ok(score);
                 }
 
                 if best_score < score {
@@ -1297,7 +1336,7 @@ impl<'a> Searcher<'a> {
             best_score = alpha.max(-4000);
         }
 
-        best_score
+        Ok(best_score)
     }
 
     fn eval_draw(&self, board: &Board) -> i16 {
@@ -1308,119 +1347,14 @@ impl<'a> Searcher<'a> {
                 -1
             }
     }
-}
 
-#[inline]
-fn update_killers_and_history<'a>(
-    board: &Board,
-    mov: Move,
-    draft: u8,
-    ply: u8,
-    history_table: &mut HistoryTable,
-    continuation_histories: &'a mut ContinuationHistoryTables,
-    ss: &mut [SearchStack],
-    root_killers: &mut [Move; 2],
-) -> MutRelevantContinuationHistories<'a> {
-    let mut relevant_cont_histories = get_relevant_cont_histories(ss, board, continuation_histories, ply as usize);
+    #[must_use]
+    /// Returns true if max nodes exceeded
+    fn inc_and_check_thread_nodes(&mut self) -> bool {
+        self.stats.inc_nodes();
 
-    // TODO: Change this to check for capture flag specifically
-    if mov.flags() != 0 {
-        return relevant_cont_histories;
+        self.hard_max_nodes && self.stats.thread_total_nodes() >= self.max_nodes
     }
-
-    let killers = if ply > 0 {
-        &mut ss[ply as usize - 1].killers
-    } else {
-        root_killers
-    };
-
-    update_history(
-        board,
-        history_table,
-        mov,
-        (draft as i16) * (draft as i16),
-        &mut relevant_cont_histories,
-    );
-
-    if killers[0] != mov {
-        if killers[1] == mov {
-            (killers[0], killers[1]) = (killers[1], killers[0]);
-        } else {
-            killers[1] = mov;
-        }
-    }
-
-    relevant_cont_histories
-}
-
-#[inline]
-fn update_history(
-    board: &Board,
-    history_table: &mut HistoryTable,
-    mov: Move,
-    bonus: i16,
-    relevant_cont_histories: &mut MutRelevantContinuationHistories,
-) {
-    // from https://www.chessprogramming.org/History_Heuristic
-    let piece_type_index = (board.get_piece_64(mov.from() as usize) & PIECE_MASK) as usize - 1;
-    let history_color_value = if board.white_to_move { 0 } else { 1 };
-    let to = mov.to() as usize;
-
-    let clamped_history_bonus = (bonus as i32).clamp(-MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_HISTORY_MAX);
-    let current_history = &mut history_table[history_color_value][piece_type_index][to];
-    *current_history += (clamped_history_bonus
-        - ((*current_history as i32) * clamped_history_bonus.abs() / MOVE_SCORE_HISTORY_MAX))
-        as i16;
-
-    if let Some(relevant_cont_hist) = &mut relevant_cont_histories[0] {
-        let clamped_const_history_bonus =
-            (bonus as i32).clamp(-MOVE_SCORE_CONT_HISTORY_PLY1_MAX, MOVE_SCORE_CONT_HISTORY_PLY1_MAX);
-        let current_cont_hist = &mut relevant_cont_hist[piece_type_index][to];
-        *current_cont_hist += (clamped_const_history_bonus
-            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONT_HISTORY_PLY1_MAX))
-            as i16;
-    }
-
-    if let Some(relevant_cont_hist) = &mut relevant_cont_histories[1] {
-        let clamped_const_history_bonus =
-            ((bonus / 2) as i32).clamp(-MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_CONT_HISTORY_PLY2_MAX);
-        let current_cont_hist = &mut relevant_cont_hist[piece_type_index][to];
-        *current_cont_hist += (clamped_const_history_bonus
-            - ((*current_cont_hist as i32) * clamped_const_history_bonus.abs() / MOVE_SCORE_CONT_HISTORY_PLY2_MAX))
-            as i16;
-    }
-}
-
-#[inline]
-fn get_relevant_cont_histories<'a>(
-    ss: &[SearchStack],
-    board: &Board,
-    continuation_histories: &'a mut ContinuationHistoryTables,
-    ply: usize,
-) -> MutRelevantContinuationHistories<'a> {
-    let mut result = [None, None];
-    let side = if board.white_to_move { 0 } else { 1 };
-
-    let table_for_ply = &mut continuation_histories.ply1;
-    let ply_offset = 1;
-    if ply >= ply_offset {
-        let entry = &ss[ply - ply_offset];
-        if entry.mov != EMPTY_MOVE {
-            result[0] = Some(&mut table_for_ply[side][entry.moved_piece_type as usize - 1][entry.mov.to() as usize]);
-        }
-    }
-
-    // I think I have to manually repeat this code or run afoul of the rules against mutably borrowing something multiple times
-    let table_for_ply = &mut continuation_histories.ply2;
-    let ply_offset = 2;
-    if ply >= ply_offset {
-        let entry = &ss[ply - ply_offset];
-        if entry.mov != EMPTY_MOVE {
-            result[1] = Some(&mut table_for_ply[side][entry.moved_piece_type as usize - 1][entry.mov.to() as usize]);
-        }
-    }
-
-    result
 }
 
 #[inline]
@@ -1462,50 +1396,6 @@ impl SearchStack {
 impl Drop for SearchMonitor {
     fn drop(&mut self) {
         IS_SEARCHING.store(false, std::sync::atomic::Ordering::Release);
-    }
-}
-
-impl ContinuationHistoryTables {
-    pub fn new() -> Box<Self> {
-        let layout = Layout::new::<ContinuationHistoryTables>();
-
-        unsafe {
-            // Safety: 0 is a valid value for i16 and ContinuationHistoryTables is a struct of multidimensional arrays of i16
-            let mem = alloc_zeroed(layout);
-
-            if mem.is_null() {
-                handle_alloc_error(layout);
-            }
-
-            let typed_mem = mem.cast::<ContinuationHistoryTables>();
-            Box::from_raw(typed_mem)
-        }
-    }
-}
-
-fn new_boxed_history_table() -> Box<HistoryTable> {
-    let layout = Layout::new::<HistoryTable>();
-
-    unsafe {
-        // Safety: 0 is a valid value for i16 and HistoryTable is a struct of multidimensional arrays of i16
-        let mem = alloc_zeroed(layout);
-
-        if mem.is_null() {
-            handle_alloc_error(layout);
-        }
-
-        let typed_mem = mem.cast::<HistoryTable>();
-        Box::from_raw(typed_mem)
-    }
-}
-
-impl ThreadHistoryTables {
-    pub fn new() -> Self {
-        Self {
-            history_table: new_boxed_history_table(),
-            continuation_histories: ContinuationHistoryTables::new(),
-            correction_histories: CorrectionHistoryTables::new(),
-        }
     }
 }
 

@@ -11,13 +11,13 @@ use crate::{
         PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
     eval_values::CENTIPAWN_VALUES_MIDGAME,
+    history::{DEFAULT_HISTORY_TABLE, HistoryTable},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
     repetition_tracker::RepetitionTracker,
-    search::{DEFAULT_HISTORY_TABLE, HistoryTable},
 };
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
@@ -578,7 +578,7 @@ impl Board {
             let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
             let from = mov.from();
             let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
-            let intermediate_move = Move::new(from as u8, intermediate_index as u8, 0);
+            let intermediate_move = Move::new(from, intermediate_index, 0);
 
             let mut castle_intermediate_board = self.clone();
             castle_intermediate_board.make_move(intermediate_move, repetitions);
@@ -662,6 +662,14 @@ impl ScoredMove {
             m: Move::new(from_square_index, to_square_index, flags),
             score,
         }
+    }
+
+    pub fn is_capture(&self) -> bool {
+        self.m.is_capture()
+    }
+
+    pub fn is_capture_or_promo(&self) -> bool {
+        self.m.is_capture_or_promo()
     }
 }
 

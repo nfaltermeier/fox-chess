@@ -12,9 +12,12 @@ The program is available for challenge some of the time at [lichess](https://lic
 | v1.0 | 2720 | |
 
 ## Uci Options
-* Hash: transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2.
-* MultiPV: The engine will search for and print this many Principal Variations / bestmoves. Values greater than 1 make search slower but produce more accurate results. Value must be at least 1 and less than 256.
+* Hash: Sets the transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2. Default is 128.
+* Threads: Sets the number of threads to use while searching. Must be at least 1. NUMA has not been tested for high thread counts. Default is 1.
+* MultiPV: The engine will search for and print this many Principal Variations / bestmoves. Values greater than 1 make search slower but produce more accurate results. Value must be at least 1 and less than 256. Default is 1.
 * Contempt: Sets the engine's draw score (in centipawns). Higher means the engine wants to avoid a draw more. Default is 0 and range is -100 to 100.
+* Soft Max Nodes: When enabled and max nodes is specified (ex. `go nodes 100000`), then the engine will try to finish searching the current iteration before reporting the best move (it can search more nodes than specified). If enabled and nodes searched exceeds 20x the maximum, then it will still cancel the search. A hard nodes maximum will not be exactly followed when using multiple threads. Default is disabled (false).
+* Move Overhead: Search will try to stop this many milliseconds earlier than normal. To account for overhead from network, GUI, etc. Default is 0.
 
 ## Prerequisites for Building
 The MSRV is currently 1.88. Using the latest version is probably best. I'm using 1.95.0 currently.
