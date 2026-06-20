@@ -547,18 +547,23 @@ impl Board {
                 return (false, false);
             }
 
-            let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
             let from = mov.from();
-            let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
-            let intermediate_move = Move::new(from, intermediate_index, 0);
+            let mut king_squares_between = SQUARES_BETWEEN[from as usize][mov.to() as usize];
+            loop {
+                let test_square = bitscan_forward_and_reset(&mut king_squares_between);
+                if test_square == 64 {
+                    break;
+                }
+                let intermediate_move = Move::new(from, test_square as u8, 0);
 
-            let mut castle_intermediate_board = self.clone();
-            castle_intermediate_board.make_move(intermediate_move, repetitions);
-            result = !castle_intermediate_board.can_capture_opponent_king(true);
-            repetitions.unmake_move(castle_intermediate_board.hash);
+                let mut castle_intermediate_board = self.clone();
+                castle_intermediate_board.make_move(intermediate_move, repetitions);
+                result = !castle_intermediate_board.can_capture_opponent_king(true);
+                repetitions.unmake_move(castle_intermediate_board.hash);
 
-            if !result {
-                return (result, false);
+                if !result {
+                    return (result, false);
+                }
             }
         }
 
