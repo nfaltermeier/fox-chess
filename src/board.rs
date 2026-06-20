@@ -333,10 +333,10 @@ impl Board {
                         board.castling_rights |= CASTLE_BLACK_QUEEN_FLAG;
                         board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
                         // squares left of the king, masked to the eighth rank
-                        let mask = (BIT_SQUARES[white_king_sq as usize] - 1) & 0xFF00000000000000;
+                        let mask = (BIT_SQUARES[black_king_sq as usize] - 1) & 0xFF00000000000000;
                         board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] = (board.piece_bitboards[1][PIECE_ROOK as usize] & mask).trailing_zeros() as u8;
                         if board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] == 64 {
-                            return Err("Castling availibility indicates white can castle queenside, but no rook was found queenside".to_string());
+                            return Err("Castling availibility indicates black can castle queenside, but no rook was found queenside".to_string());
                         }
                     }
                     'A'..'H' => {
