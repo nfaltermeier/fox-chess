@@ -4,9 +4,7 @@ use log::error;
 
 use crate::{
     board::{
-        Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
-        HASH_VALUES_EP_FILE_IDX, PIECE_MASK, PIECE_NONE, PIECE_PAWN, ZOBRIST_HASH_VALUES, file_8x8,
-        get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
+        Board, CASTLE_BLACK_KING_ROOK_SQ_IDX, CASTLE_BLACK_KING_SQ_IDX, CASTLE_BLACK_QUEEN_ROOK_SQ_IDX, CASTLE_WHITE_KING_ROOK_SQ_IDX, CASTLE_WHITE_KING_SQ_IDX, CASTLE_WHITE_QUEEN_ROOK_SQ_IDX, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_MASK, PIECE_NONE, PIECE_PAWN, Squares, ZOBRIST_HASH_VALUES, file_8x8, get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8
     },
     repetition_tracker::RepetitionTracker,
 };
@@ -188,22 +186,34 @@ impl Board {
         }
 
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
-            let king_from = if self.white_to_move { 4 } else { 60 };
+            let king_from = self.castling_piece_starting_positions[if self.white_to_move { CASTLE_WHITE_KING_SQ_IDX } else { CASTLE_BLACK_KING_SQ_IDX }];
             let rook_to;
             let rook_from;
             let king_to;
-            if flags == MOVE_KING_CASTLE {
-                rook_to = king_from + 1;
-                rook_from = king_from + 3;
-                king_to = king_from + 2;
+            if self.white_to_move {
+                if flags == MOVE_KING_CASTLE {
+                    rook_to = Squares::F1;
+                    rook_from = self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX];
+                    king_to = Squares::G1;
+                } else {
+                    rook_to = Squares::D1;
+                    rook_from = self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX];
+                    king_to = Squares::C1;
+                }
             } else {
-                rook_to = king_from - 1;
-                rook_from = king_from - 4;
-                king_to = king_from - 2;
+                if flags == MOVE_KING_CASTLE {
+                    rook_to = Squares::F8;
+                    rook_from = self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX];
+                    king_to = Squares::G8;
+                } else {
+                    rook_to = Squares::D8;
+                    rook_from = self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX];
+                    king_to = Squares::C8;
+                }
             }
 
-            self.move_piece(king_from, king_to);
-            self.move_piece(rook_from, rook_to);
+            self.move_piece(king_from, king_to as u8);
+            self.move_piece(rook_from, rook_to as u8);
         } else if flags & MOVE_FLAG_PROMOTION != 0 {
             let piece_type = ((flags as u8) & 3) + 2;
 
@@ -234,22 +244,21 @@ impl Board {
         }
 
         if self.castling_rights != 0 {
-            // potential optimization: match statement?
-            if from == 0 || to == 0 {
-                check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
-            } else if from == 4 {
+            if from == self.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX] {
                 check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
                 check_and_disable_castling(self, CastlingValue::WhiteKing, zobrist_hash_values);
-            } else if from == 7 || to == 7 {
+            } else if from == self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] {
+                check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
+            } else if from == self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] {
                 check_and_disable_castling(self, CastlingValue::WhiteKing, zobrist_hash_values);
             }
 
-            if from == 56 || to == 56 {
-                check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
-            } else if from == 60 {
+            if from == self.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] {
                 check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
                 check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
-            } else if from == 63 || to == 63 {
+            } else if from == self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] {
+                check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
+            } else if from == self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] {
                 check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
             }
         }

@@ -7,7 +7,7 @@ use crate::{
         south_west_one,
     },
     board::{
-        Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
+        Board,
         PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
     eval_values::CENTIPAWN_VALUES_MIDGAME,
@@ -17,7 +17,7 @@ use crate::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
-    repetition_tracker::RepetitionTracker,
+    repetition_tracker::RepetitionTracker, staged_move_generator::StagedMoveGenerator,
 };
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
@@ -227,35 +227,7 @@ impl Board {
 
         // Castling
         if !ONLY_CAPTURES && self.castling_rights != 0 {
-            if self.white_to_move {
-                if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
-                    && (self.occupancy & 0x1f) == 0x11
-                    && (self.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
-                {
-                    result.push(ScoredMove::new(4, 2, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
-
-                if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0
-                    && (self.occupancy & 0xf0) == 0x90
-                    && (self.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
-                {
-                    result.push(ScoredMove::new(4, 6, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            } else {
-                if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
-                    && (self.occupancy & 0x1f00000000000000) == 0x1100000000000000
-                    && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
-                {
-                    result.push(ScoredMove::new(60, 58, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
-                }
-
-                if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0
-                    && (self.occupancy & 0xf000000000000000) == 0x9000000000000000
-                    && (self.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
-                {
-                    result.push(ScoredMove::new(60, 62, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
-                }
-            }
+            StagedMoveGenerator::add_castling_moves(self, result);
         }
     }
 

@@ -76,6 +76,7 @@ impl UciInterface {
                     println!("option name Contempt type spin default 0 min -100 max 100");
                     println!("option name Soft Max Nodes type check default false");
                     println!("option name Move Overhead type spin default 0 min 0 max 5000");
+                    println!("option name UCI_Chess960 type check default false");
                     RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
@@ -295,6 +296,7 @@ impl UciInterface {
                                 error!("Expected a value for option Move Overhead");
                             }
                         }
+                        "uci_chess960" => {}
                         _ => {
                             error!("Unknown UCI setoption name '{name}'");
                         }
