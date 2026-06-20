@@ -6,10 +6,11 @@ A UCI chess engine. Intended for use with a chess GUI such as Cute Chess or Aren
 The program is available for challenge some of the time at [lichess](https://lichess.org/@/FoxChessBot). I run it on my own computer so availability is sporadic and is not guranteed.
 
 ## Rating
-| Version | CCRL 40/15 | Biggest additions |
-|---------|------------|-------------------|
-| v1.1 | est. 2870 | Singular extensions, mobility eval, and fixing history using ply instead of depth |
-| v1.0 | 2720 | |
+| Version | CCRL 40/15 | CCRL Blitz | Biggest additions |
+|---------|------------|------------|-------------------|
+| v1.2    |            | Est. 3060  | Static eval correction histories, adjusting fp and rfp, multithreading support |
+| v1.1    | 2876       |            | Singular extensions, mobility eval, and fixing history using ply instead of depth |
+| v1.0    | 2727       |            | |
 
 ## Uci Options
 * Hash: Sets the transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2. Default is 128.
@@ -71,7 +72,7 @@ cargo pgo run -- bench
 cargo pgo optimize
 ```
 
-If you want to build a fully portable executable on x86_64-pc-windows-msvc then you will need to explicitly pass `x86-64-v1` for the target
+If you want to build a fully portable executable on x86_64-pc-windows-msvc then you will need to explicitly pass `x86-64-v1` for the target. Most computers will support `x86-64-v3` or at least `x86-64-v2` though.
 
 #### AVX2 without PEXT
 This note is mostly for myself, but to create an optimized build without any code changes for Ryzen 1000 and 3000 series CPUs, use
