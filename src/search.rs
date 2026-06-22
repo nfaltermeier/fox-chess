@@ -12,7 +12,7 @@ use vampirc_uci::{UciSearchControl, UciTimeControl};
 
 use crate::{
     board::{Board, PIECE_KING, PIECE_MASK, PIECE_PAWN},
-    evaluate::MATE_THRESHOLD,
+    evaluate::{MATE_THRESHOLD, MATE_VALUE},
     history::{
         ContinuationHistoryTables, CorrectionHistoryTables, HistoryTable, ThreadHistoryTables, update_histories,
         update_killers_and_histories,
@@ -32,7 +32,7 @@ use crate::{
 pub static IS_SEARCHING: AtomicBool = AtomicBool::new(false);
 
 /// Each value is in addition to the last
-static ASPIRATION_WINDOW_OFFSETS: [i16; 4] = [50, 150, 600, i16::MAX];
+static ASPIRATION_WINDOW_OFFSETS: [u16; 4] = [50, 150, 600, u16::MAX];
 
 pub const EMPTY_MOVE: Move = Move { data: 0 };
 
@@ -470,8 +470,8 @@ impl<'a> Searcher<'a> {
             beta_window_index = ASPIRATION_WINDOW_OFFSETS.len();
         } else {
             let last_score = last_result.unwrap().score;
-            alpha = last_score - ASPIRATION_WINDOW_OFFSETS[0];
-            beta = last_score + ASPIRATION_WINDOW_OFFSETS[0];
+            alpha = last_score.saturating_sub_unsigned(ASPIRATION_WINDOW_OFFSETS[0]);
+            beta = last_score.saturating_add_unsigned(ASPIRATION_WINDOW_OFFSETS[0]);
             alpha_window_index = 1;
             beta_window_index = 1;
         }
@@ -511,7 +511,7 @@ impl<'a> Searcher<'a> {
 
                 while low_score <= alpha {
                     alpha = alpha
-                        .saturating_sub(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
+                        .saturating_sub_unsigned(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
                         .min(-i16::MAX);
                     alpha_window_index += 1;
                 }
@@ -519,7 +519,7 @@ impl<'a> Searcher<'a> {
                 self.stats.aspiration_researches += 1;
 
                 while high_score >= beta {
-                    beta = beta.saturating_add(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
+                    beta = beta.saturating_add_unsigned(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
                     beta_window_index += 1;
                 }
             } else {
@@ -539,7 +539,7 @@ impl<'a> Searcher<'a> {
         &mut self,
         board: &mut Board,
         mut alpha: i16,
-        beta: i16,
+        mut beta: i16,
         mut draft: u8,
         ply: u8,
         in_check: bool,
@@ -613,6 +613,16 @@ impl<'a> Searcher<'a> {
 
         if self.inc_and_check_thread_nodes() {
             return Err(());
+        }
+
+        if ply != 0 {
+            // Mate distance pruning
+            alpha = alpha.max(-MATE_VALUE + ply as i16);
+            beta = beta.min(MATE_VALUE - ply as i16);
+
+            if alpha >= beta {
+                return Ok(alpha);
+            }
         }
 
         if self.ss.get(ply as usize).is_none() {
@@ -1048,7 +1058,7 @@ impl<'a> Searcher<'a> {
                         && !mov.is_capture()
                     {
                         self.correction_histories
-                            .update_history(board, score - static_eval, draft, &self.ss, ply);
+                            .update_history(board, score.saturating_sub(static_eval), draft, &self.ss, ply);
                     }
                 }
 
@@ -1161,7 +1171,7 @@ impl<'a> Searcher<'a> {
                 && !best_move.is_capture()
             {
                 self.correction_histories
-                    .update_history(board, best_score - static_eval, draft, &self.ss, ply);
+                    .update_history(board, best_score.saturating_sub(static_eval), draft, &self.ss, ply);
             }
         }
 

@@ -362,7 +362,7 @@ impl UciInterface {
         let abs_cp = score.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
             let diff = MATE_VALUE - abs_cp;
-            let moves = (diff as f32 / 20.0).ceil();
+            let moves = (diff as f32 / 2.0).ceil();
             format!("score mate {}{moves}", if score < 0 { "-" } else { "" })
         } else {
             format!("score cp {score}")
