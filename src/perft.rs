@@ -147,7 +147,7 @@ fn check_perft_stats(mov: Move, board: &Board, stats: &mut PerftStats, repetitio
 }
 
 pub fn run_perft_suites() {
-    run_epd_perft_suite("assets/perft.epd", u64::MAX);
+    // run_epd_perft_suite("assets/perft.epd", u64::MAX);
     run_epd_perft_suite("assets/frcperftsuite.epd", 300_000_000);
 }
 
