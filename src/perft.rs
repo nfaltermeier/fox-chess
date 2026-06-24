@@ -1,7 +1,5 @@
 use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    time::Instant,
+    fs::File, io::{BufRead, BufReader}, time::Instant,
 };
 
 use log::{error, info};
@@ -148,8 +146,13 @@ fn check_perft_stats(mov: Move, board: &Board, stats: &mut PerftStats, repetitio
     }
 }
 
-pub fn run_full_perft_suite() {
-    let reader = File::open("assets/perft.epd");
+pub fn run_perft_suites() {
+    run_epd_perft_suite("assets/perft.epd", u64::MAX);
+    run_epd_perft_suite("assets/frcperftsuite.epd", 300_000_000);
+}
+
+fn run_epd_perft_suite(path: &str, nodes_for_skip: u64) {
+    let reader = File::open(path);
     if let Err(e) = reader {
         error!("Failed to load file 'assets/perft.epd': {e}");
         return;
@@ -219,6 +222,10 @@ pub fn run_full_perft_suite() {
             if let Err(e) = nodes {
                 error!("Failed to parse nodes from {part} as a u64: {e}");
                 return;
+            }
+
+            if *nodes.as_ref().unwrap() >= nodes_for_skip {
+                continue;
             }
 
             let result_nodes = board.start_perft(depth.unwrap(), false);

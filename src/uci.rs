@@ -19,7 +19,7 @@ use crate::{
     get_build_info,
     history::ThreadHistoryTables,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
-    perft::run_full_perft_suite,
+    perft::run_perft_suites,
     repetition_tracker::RepetitionTracker,
     search::{self, search_multithreaded, stats::SearchStats},
     transposition_table::{TTEntry, TranspositionTable},
@@ -337,7 +337,7 @@ impl UciInterface {
                             error!("Board must be set with position first");
                         }
                     } else if message.eq_ignore_ascii_case("perftsuite") {
-                        run_full_perft_suite();
+                        run_perft_suites();
                     } else {
                         error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
                     }
