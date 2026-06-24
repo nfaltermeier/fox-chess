@@ -436,6 +436,7 @@ impl StagedMoveGenerator {
     }
 
     pub fn add_castling_moves(board: &Board, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
+        // TODO: separate logic for chess960 to not slow down normal chess
         if board.white_to_move {
             if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
             {
