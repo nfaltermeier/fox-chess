@@ -68,6 +68,7 @@ impl Move {
         self.data & MOVE_FLAG_PROMOTION_FULL != 0
     }
 
+    // TODO: update
     pub fn pretty_print(&self, board: Option<&Board>) -> String {
         let flags = self.flags();
 

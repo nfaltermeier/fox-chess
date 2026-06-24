@@ -528,6 +528,7 @@ impl Board {
 
         // Castling
         if self.castling_rights != 0 {
+            // TODO update
             if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
                 result += "K";
             }
