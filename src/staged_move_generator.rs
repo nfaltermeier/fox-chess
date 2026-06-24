@@ -454,8 +454,8 @@ impl StagedMoveGenerator {
             }
 
             if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
-                let left = board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX].max(Squares::F1 as u8);
-                let right = board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX].min(Squares::G1 as u8);
+                let left = board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX].min(Squares::F1 as u8);
+                let right = board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX].max(Squares::G1 as u8);
                 let mask = SQUARES_BETWEEN[left as usize][right as usize];
                 if (board.occupancy & mask) == 0
                     && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] as usize]) != 0
@@ -482,8 +482,8 @@ impl StagedMoveGenerator {
             }
 
             if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
-                let left = board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX].max(Squares::F8 as u8);
-                let right = board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX].min(Squares::G8 as u8);
+                let left = board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX].min(Squares::F8 as u8);
+                let right = board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX].max(Squares::G8 as u8);
                 let mask = SQUARES_BETWEEN[left as usize][right as usize];
                 if (board.occupancy & mask) == 0
                     && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] as usize]) != 0

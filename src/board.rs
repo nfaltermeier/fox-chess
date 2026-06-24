@@ -339,7 +339,7 @@ impl Board {
                             return Err("Castling availibility indicates black can castle queenside, but no rook was found queenside".to_string());
                         }
                     }
-                    'A'..'H' => {
+                    'A'..='H' => {
                         let square = c as u8 - b'A';
                         if board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[square as usize] == 0 {
                             return Err(format!("Castling availibility indicates white can castle with a rook on file {c}, but no rook was found"));
@@ -361,7 +361,7 @@ impl Board {
                             board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] = square;
                         }
                     }
-                    'a'..'h' => {
+                    'a'..='h' => {
                         let square = c as u8 - b'a' + 56;
                         if board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[square as usize] == 0 {
                             return Err(format!("Castling availibility indicates black can castle with a rook on file {c}, but no rook was found"));

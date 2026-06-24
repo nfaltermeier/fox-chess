@@ -154,14 +154,14 @@ pub fn run_perft_suites() {
 fn run_epd_perft_suite(path: &str, nodes_for_skip: u64) {
     let reader = File::open(path);
     if let Err(e) = reader {
-        error!("Failed to load file 'assets/perft.epd': {e}");
+        error!("Failed to load file '{path}': {e}");
         return;
     }
     let reader = reader.unwrap();
 
     for line in BufReader::new(reader).lines() {
         if let Err(e) = line {
-            error!("Error while reading 'assets/perft.epd': {e}");
+            error!("Error while reading '{path}': {e}");
             return;
         }
         let line = line.unwrap();

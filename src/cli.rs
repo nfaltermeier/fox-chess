@@ -11,7 +11,7 @@ use vampirc_uci::parse_with_unknown;
 
 #[cfg(feature = "pgn")]
 use crate::pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
-use crate::{STARTING_FEN, bench, board::Board, perft::run_full_perft_suite, uci::UciInterface};
+use crate::{STARTING_FEN, bench, board::Board, perft::run_perft_suites, uci::UciInterface};
 
 #[derive(Parser)]
 pub struct CliArgs {
@@ -145,7 +145,7 @@ pub fn handle_startup_command(command: &Command) {
             }
         }
         Command::PerftSuite => {
-            run_full_perft_suite();
+            run_perft_suites();
         }
         Command::Bench => {
             bench();
