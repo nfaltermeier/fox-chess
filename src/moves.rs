@@ -213,8 +213,7 @@ impl Board {
                 }
             }
 
-            self.move_piece(king_from, king_to as u8);
-            self.move_piece(rook_from, rook_to as u8);
+            self.move_two_pieces(king_from, king_to as u8, rook_from, rook_to as u8);
         } else if flags & MOVE_FLAG_PROMOTION != 0 {
             let piece_type = ((flags as u8) & 3) + 2;
 

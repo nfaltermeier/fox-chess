@@ -159,6 +159,8 @@ fn run_epd_perft_suite(path: &str, nodes_for_skip: u64) {
     }
     let reader = reader.unwrap();
 
+    let start_time = Instant::now();
+    let mut total_nodes = 0;
     for line in BufReader::new(reader).lines() {
         if let Err(e) = line {
             error!("Error while reading '{path}': {e}");
@@ -230,8 +232,11 @@ fn run_epd_perft_suite(path: &str, nodes_for_skip: u64) {
 
             let result_nodes = board.start_perft(depth.unwrap(), false);
             assert_eq!(nodes.unwrap(), result_nodes);
+            total_nodes += result_nodes;
         }
     }
 
-    info!("Suite passed");
+    let elapsed = start_time.elapsed();
+    let nps = total_nodes as f64 / elapsed.as_secs_f64();
+    info!("Suite passed in {elapsed:#?} with {nps} nodes per second average");
 }

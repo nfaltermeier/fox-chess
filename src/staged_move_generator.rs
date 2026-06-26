@@ -440,57 +440,69 @@ impl StagedMoveGenerator {
         if board.white_to_move {
             if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
             {
-                let left = board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX].min(Squares::C1 as u8);
-                let right = board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX].max(Squares::D1 as u8);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize];
-                if (board.occupancy & mask) == 0
+                let rook_sq = board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] as usize;
+                let king_sq = board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX] as usize;
+
+                let left = rook_sq.min(Squares::C1 as usize);
+                let right = king_sq.max(Squares::D1 as usize);
+                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                if (board.occupancy & !BIT_SQUARES[rook_sq] & !BIT_SQUARES[king_sq] & mask) == 0
                     // TODO are these necessary? Maybe as sanity check against incorrect FEN? Maybe validate that in FEN parsing?
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] as usize]) != 0
-                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX] as usize]) != 0
+                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq as usize]) != 0
+                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX], Squares::C1 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, Squares::C1 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
                 }
             }
 
             if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
-                let left = board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX].min(Squares::F1 as u8);
-                let right = board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX].max(Squares::G1 as u8);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize];
-                if (board.occupancy & mask) == 0
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] as usize]) != 0
-                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX] as usize]) != 0
+                let rook_sq = board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] as usize;
+                let king_sq = board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX] as usize;
+
+                let left = king_sq.min(Squares::F1  as usize);
+                let right = rook_sq.max(Squares::G1  as usize);
+                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                if (board.occupancy & !BIT_SQUARES[king_sq] & !BIT_SQUARES[rook_sq] & mask) == 0
+                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq]) != 0
+                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(board.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX], Squares::G1 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, Squares::G1 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
                 }
             
             }
         } else {
             if board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
             {
-                let left = board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX].min(Squares::C8 as u8);
-                let right = board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX].max(Squares::D8 as u8);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize];
-                if (board.occupancy & mask) == 0
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] as usize]) != 0
-                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] as usize]) != 0
+                let rook_sq = board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] as usize;
+                let king_sq = board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] as usize;
+
+                let left = rook_sq.min(Squares::C8 as usize);
+                let right = king_sq.max(Squares::D8 as usize);
+                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                if (board.occupancy & !BIT_SQUARES[rook_sq] & !BIT_SQUARES[king_sq] & mask) == 0
+                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq as usize]) != 0
+                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX], Squares::C8 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, Squares::C8 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
                 }
             }
 
             if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
-                let left = board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX].min(Squares::F8 as u8);
-                let right = board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX].max(Squares::G8 as u8);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize];
-                if (board.occupancy & mask) == 0
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] as usize]) != 0
-                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] as usize]) != 0
+                let rook_sq = board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] as usize;
+                let king_sq = board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] as usize;
+
+                let left = king_sq.min(Squares::F8  as usize);
+                let right = rook_sq.max(Squares::G8 as usize);
+                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                if (board.occupancy & !BIT_SQUARES[rook_sq] & !BIT_SQUARES[king_sq] & mask) == 0
+                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq as usize]) != 0
+                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX], Squares::G8 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, Squares::G8 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
                 }
             
             }

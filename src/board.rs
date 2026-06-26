@@ -651,9 +651,6 @@ impl Board {
     /// Does not handle castling rights
     pub fn move_piece(&mut self, from: u8, to: u8) {
         let piece = self.get_piece_64(from as usize);
-        let piece_type = piece & PIECE_MASK;
-        let white = piece & COLOR_BLACK == 0;
-        let side = if white { 0 } else { 1 };
 
         debug_assert_ne!(PIECE_NONE, piece);
         debug_assert_eq!(PIECE_NONE, self.get_piece_64(to as usize));
@@ -661,7 +658,38 @@ impl Board {
         self.write_piece(PIECE_NONE, from as usize);
         self.write_piece(piece, to as usize);
 
+        self.move_piece_update_hashes(from, to, piece);
+    }
+
+    /// Handles if one piece is moving to where another is located. Does not update castling rights.
+    pub fn move_two_pieces(&mut self, from1: u8, to1: u8, from2: u8, to2: u8) {
+        let p1 = self.get_piece_64(from1 as usize);
+        let p2 = self.get_piece_64(from2 as usize);
+
+        debug_assert_ne!(PIECE_NONE, p1);
+        debug_assert_ne!(PIECE_NONE, p2);
+        if to1 != from2 {
+            debug_assert_eq!(PIECE_NONE, self.get_piece_64(to1 as usize));
+        }
+        if to2 != from1 {
+            debug_assert_eq!(PIECE_NONE, self.get_piece_64(to2 as usize));
+        }
+
+        self.write_piece(PIECE_NONE, from1 as usize);
+        self.write_piece(PIECE_NONE, from2 as usize);
+        self.write_piece(p1, to1 as usize);
+        self.write_piece(p2, to2 as usize);
+
+        self.move_piece_update_hashes(from1, to2, p1);
+        self.move_piece_update_hashes(from2, to2, p2);
+    }
+
+    fn move_piece_update_hashes(&mut self, from: u8, to: u8, piece: u8) {
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
+        
+        let piece_type = piece & PIECE_MASK;
+        let white = piece & COLOR_BLACK == 0;
+        let side = if white { 0 } else { 1 };
 
         let hash = get_zobrist_hash_value(piece_type, white, from as usize, zobrist_hash_values);
         self.hash ^= hash;
