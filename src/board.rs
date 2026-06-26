@@ -717,7 +717,7 @@ impl Board {
         self.write_piece(p1, to1 as usize);
         self.write_piece(p2, to2 as usize);
 
-        self.move_piece_update_hashes(from1, to2, p1);
+        self.move_piece_update_hashes(from1, to1, p1);
         self.move_piece_update_hashes(from2, to2, p2);
     }
 
