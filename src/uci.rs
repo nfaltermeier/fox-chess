@@ -1,5 +1,11 @@
 use std::{
-    io, sync::{atomic::AtomicBool, mpsc::{self, Receiver}}, thread, time::{Duration, Instant},
+    io,
+    sync::{
+        atomic::AtomicBool,
+        mpsc::{self, Receiver},
+    },
+    thread,
+    time::{Duration, Instant},
 };
 
 use build_info::VersionControl::Git;

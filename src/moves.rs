@@ -4,7 +4,11 @@ use log::error;
 
 use crate::{
     board::{
-        Board, CASTLE_BLACK_KING_ROOK_SQ_IDX, CASTLE_BLACK_KING_SQ_IDX, CASTLE_BLACK_QUEEN_ROOK_SQ_IDX, CASTLE_WHITE_KING_ROOK_SQ_IDX, CASTLE_WHITE_KING_SQ_IDX, CASTLE_WHITE_QUEEN_ROOK_SQ_IDX, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_MASK, PIECE_NONE, PIECE_PAWN, Squares, ZOBRIST_HASH_VALUES, file_8x8, get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8
+        Board, CASTLE_BLACK_KING_ROOK_SQ_IDX, CASTLE_BLACK_KING_SQ_IDX, CASTLE_BLACK_QUEEN_ROOK_SQ_IDX,
+        CASTLE_WHITE_KING_ROOK_SQ_IDX, CASTLE_WHITE_KING_SQ_IDX, CASTLE_WHITE_QUEEN_ROOK_SQ_IDX, COLOR_BLACK,
+        CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX, HASH_VALUES_EP_FILE_IDX, PIECE_MASK,
+        PIECE_NONE, PIECE_PAWN, Squares, ZOBRIST_HASH_VALUES, file_8x8, get_zobrist_hash_value, index_8x8_to_pos_str,
+        piece_to_colored_letter, rank_8x8,
     },
     repetition_tracker::RepetitionTracker,
 };
@@ -186,7 +190,11 @@ impl Board {
         }
 
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
-            let king_from = self.castling_piece_starting_positions[if self.white_to_move { CASTLE_WHITE_KING_SQ_IDX } else { CASTLE_BLACK_KING_SQ_IDX }];
+            let king_from = self.castling_piece_starting_positions[if self.white_to_move {
+                CASTLE_WHITE_KING_SQ_IDX
+            } else {
+                CASTLE_BLACK_KING_SQ_IDX
+            }];
             let rook_to;
             let rook_from;
             let king_to;
@@ -246,18 +254,26 @@ impl Board {
             if from == self.castling_piece_starting_positions[CASTLE_WHITE_KING_SQ_IDX] {
                 check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
                 check_and_disable_castling(self, CastlingValue::WhiteKing, zobrist_hash_values);
-            } else if from == self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] {
+            } else if from == self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX]
+                || to == self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX]
+            {
                 check_and_disable_castling(self, CastlingValue::WhiteQueen, zobrist_hash_values);
-            } else if from == self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] {
+            } else if from == self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX]
+                || to == self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX]
+            {
                 check_and_disable_castling(self, CastlingValue::WhiteKing, zobrist_hash_values);
             }
 
             if from == self.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] {
                 check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
                 check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
-            } else if from == self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] {
+            } else if from == self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX]
+                || to == self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX]
+            {
                 check_and_disable_castling(self, CastlingValue::BlackQueen, zobrist_hash_values);
-            } else if from == self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] || to == self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] {
+            } else if from == self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX]
+                || to == self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX]
+            {
                 check_and_disable_castling(self, CastlingValue::BlackKing, zobrist_hash_values);
             }
         }

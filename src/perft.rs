@@ -1,12 +1,18 @@
 use std::{
-    fs::File, io::{BufRead, BufReader}, time::Instant,
+    fs::File,
+    io::{BufRead, BufReader},
+    time::Instant,
 };
 
 use log::{error, info};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    board::Board, moves::{MOVE_EP_CAPTURE, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move}, repetition_tracker::RepetitionTracker, staged_move_generator::StagedMoveGenerator, uci::CHESS960,
+    board::Board,
+    moves::{MOVE_EP_CAPTURE, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
+    repetition_tracker::RepetitionTracker,
+    staged_move_generator::StagedMoveGenerator,
+    uci::CHESS960,
 };
 
 impl Board {

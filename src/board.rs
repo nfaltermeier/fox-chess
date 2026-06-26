@@ -3,7 +3,11 @@ use std::{fmt::Debug, sync::LazyLock};
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES, pretty_print_bitboard}, eval_values::PIECE_SQUARE_TABLES, evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker, uci::CHESS960,
+    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES, pretty_print_bitboard},
+    eval_values::PIECE_SQUARE_TABLES,
+    evaluate::GAME_STAGE_VALUES,
+    repetition_tracker::RepetitionTracker,
+    uci::CHESS960,
 };
 
 pub const PIECE_MASK: u8 = 0b0000_0111;
@@ -69,6 +73,7 @@ pub static MATERIAL_HASH_VALUES: LazyLock<[u64; 17 * 5 * 2]> = LazyLock::new(|| 
 });
 
 #[allow(dead_code)]
+#[rustfmt::skip]
 pub enum Squares {
     A1, B1, C1, D1, E1, F1, G1, H1,
     A2, B2, C2, D2, E2, F2, G2, H2,
@@ -296,11 +301,13 @@ impl Board {
                         board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_WHITE_KING_IDX];
                         // The king and squares to his right, masked to only the first rank
                         let mask = !(BIT_SQUARES[white_king_sq as usize] - 1) & 0xFF;
-                        let outermost_rook_leading_zeros = (board.piece_bitboards[0][PIECE_ROOK as usize] & mask).leading_zeros() as u8;
+                        let outermost_rook_leading_zeros =
+                            (board.piece_bitboards[0][PIECE_ROOK as usize] & mask).leading_zeros() as u8;
                         if outermost_rook_leading_zeros == 64 {
                             return Err("Castling availibility indicates white can castle kingside, but no rook was found kingside".to_string());
                         }
-                        board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] = 63 - outermost_rook_leading_zeros;
+                        board.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX] =
+                            63 - outermost_rook_leading_zeros;
                     }
                     'Q' => {
                         if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 {
@@ -310,7 +317,8 @@ impl Board {
                         board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_WHITE_QUEEN_IDX];
                         // squares left of the king
                         let mask = BIT_SQUARES[white_king_sq as usize] - 1;
-                        board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] = (board.piece_bitboards[0][PIECE_ROOK as usize] & mask).trailing_zeros() as u8;
+                        board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] =
+                            (board.piece_bitboards[0][PIECE_ROOK as usize] & mask).trailing_zeros() as u8;
                         if board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] == 64 {
                             return Err("Castling availibility indicates white can castle queenside, but no rook was found queenside".to_string());
                         }
@@ -320,18 +328,21 @@ impl Board {
                         board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_KING_IDX];
                         // The king and squares to his right
                         let mask = !(BIT_SQUARES[black_king_sq as usize] - 1);
-                        let outermost_rook_leading_zeros = (board.piece_bitboards[1][PIECE_ROOK as usize] & mask).leading_zeros() as u8;
+                        let outermost_rook_leading_zeros =
+                            (board.piece_bitboards[1][PIECE_ROOK as usize] & mask).leading_zeros() as u8;
                         if outermost_rook_leading_zeros == 64 {
                             return Err("Castling availibility indicates black can castle kingside, but no rook was found kingside".to_string());
                         }
-                        board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] = 63 - outermost_rook_leading_zeros;
+                        board.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX] =
+                            63 - outermost_rook_leading_zeros;
                     }
                     'q' => {
                         board.castling_rights |= CASTLE_BLACK_QUEEN_FLAG;
                         board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
                         // squares left of the king, masked to the eighth rank
                         let mask = (BIT_SQUARES[black_king_sq as usize] - 1) & 0xFF00000000000000;
-                        board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] = (board.piece_bitboards[1][PIECE_ROOK as usize] & mask).trailing_zeros() as u8;
+                        board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] =
+                            (board.piece_bitboards[1][PIECE_ROOK as usize] & mask).trailing_zeros() as u8;
                         if board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] == 64 {
                             return Err("Castling availibility indicates black can castle queenside, but no rook was found queenside".to_string());
                         }
@@ -339,19 +350,25 @@ impl Board {
                     'A'..='H' => {
                         let square = c as u8 - b'A';
                         if board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[square as usize] == 0 {
-                            return Err(format!("Castling availibility indicates white can castle with a rook on file {c}, but no rook was found"));
+                            return Err(format!(
+                                "Castling availibility indicates white can castle with a rook on file {c}, but no rook was found"
+                            ));
                         }
 
                         if square < white_king_sq {
                             if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 {
-                                return Err(format!("Castling availibility indicates that white can castle queenside twice, second indication is from file {c}"));
+                                return Err(format!(
+                                    "Castling availibility indicates that white can castle queenside twice, second indication is from file {c}"
+                                ));
                             }
                             board.castling_rights |= CASTLE_WHITE_QUEEN_FLAG;
                             board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_WHITE_QUEEN_IDX];
                             board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] = square;
                         } else {
                             if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
-                                return Err(format!("Castling availibility indicates that white can castle kingside twice, second indication is from file {c}"));
+                                return Err(format!(
+                                    "Castling availibility indicates that white can castle kingside twice, second indication is from file {c}"
+                                ));
                             }
                             board.castling_rights |= CASTLE_WHITE_KING_FLAG;
                             board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_WHITE_KING_IDX];
@@ -361,19 +378,25 @@ impl Board {
                     'a'..='h' => {
                         let square = c as u8 - b'a' + 56;
                         if board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[square as usize] == 0 {
-                            return Err(format!("Castling availibility indicates black can castle with a rook on file {c}, but no rook was found"));
+                            return Err(format!(
+                                "Castling availibility indicates black can castle with a rook on file {c}, but no rook was found"
+                            ));
                         }
 
                         if square < black_king_sq {
                             if board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 {
-                                return Err(format!("Castling availibility indicates that black can castle queenside twice, second indication is from file {c}"));
+                                return Err(format!(
+                                    "Castling availibility indicates that black can castle queenside twice, second indication is from file {c}"
+                                ));
                             }
                             board.castling_rights |= CASTLE_BLACK_QUEEN_FLAG;
                             board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_QUEEN_IDX];
                             board.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX] = square;
                         } else {
                             if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
-                                return Err(format!("Castling availibility indicates that black can castle kingside twice, second indication is from file {c}"));
+                                return Err(format!(
+                                    "Castling availibility indicates that black can castle kingside twice, second indication is from file {c}"
+                                ));
                             }
                             board.castling_rights |= CASTLE_BLACK_KING_FLAG;
                             board.hash ^= zobrist_hash_values[HASH_VALUES_CASTLE_BLACK_KING_IDX];
@@ -528,19 +551,35 @@ impl Board {
             let chess960 = CHESS960.load(std::sync::atomic::Ordering::Relaxed);
 
             if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
-                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX])) as char } else { 'K' });
+                result.push(if chess960 {
+                    (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX])) as char
+                } else {
+                    'K'
+                });
             }
 
             if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 {
-                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX])) as char } else { 'Q' });
+                result.push(if chess960 {
+                    (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX])) as char
+                } else {
+                    'Q'
+                });
             }
 
             if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
-                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX])) as char } else { 'k' });
+                result.push(if chess960 {
+                    (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX])) as char
+                } else {
+                    'k'
+                });
             }
 
             if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 {
-                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX])) as char } else { 'q' });
+                result.push(if chess960 {
+                    (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX])) as char
+                } else {
+                    'q'
+                });
             }
 
             result += " ";
@@ -684,7 +723,7 @@ impl Board {
 
     fn move_piece_update_hashes(&mut self, from: u8, to: u8, piece: u8) {
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
-        
+
         let piece_type = piece & PIECE_MASK;
         let white = piece & COLOR_BLACK == 0;
         let side = if white { 0 } else { 1 };
