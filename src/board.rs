@@ -569,7 +569,7 @@ impl Board {
 
             if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
                 result.push(if chess960 {
-                    (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX])) as char
+                    (b'a' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX])) as char
                 } else {
                     'k'
                 });
@@ -577,7 +577,7 @@ impl Board {
 
             if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 {
                 result.push(if chess960 {
-                    (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX])) as char
+                    (b'a' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX])) as char
                 } else {
                     'q'
                 });
