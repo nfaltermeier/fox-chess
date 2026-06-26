@@ -852,10 +852,12 @@ pub fn index_8x8_to_pos_str(i: u8) -> String {
 }
 
 pub fn get_zobrist_hash_value(piece_code: u8, white: bool, index: usize, zobrist_hash_values: &[u64; 781]) -> u64 {
+    debug_assert_ne!(piece_code, 0, "Null piece passed to get_zobrist_hash_value");
     zobrist_hash_values[if white { 0 } else { 6 * 64 } + ((piece_code - 1) as usize * 64) + index]
 }
 
 pub fn get_material_hash_value(piece_code: u8, white: bool, count: u8, material_hash_values: &[u64; 170]) -> u64 {
+    debug_assert_ne!(piece_code, 0, "Null piece passed to get_material_hash_value");
     material_hash_values[if white { 0 } else { 5 * 17 } + ((piece_code - 1) as usize * 17) + count.min(16) as usize]
 }
 
