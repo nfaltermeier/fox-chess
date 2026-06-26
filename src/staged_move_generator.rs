@@ -438,11 +438,11 @@ impl StagedMoveGenerator {
 
                 let left = rook_sq.min(Squares::C1 as usize);
                 let right = king_sq.max(Squares::D1 as usize);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                let mask = SQUARES_BETWEEN[left][right] | BIT_SQUARES[left] | BIT_SQUARES[right];
                 if (board.occupancy & !BIT_SQUARES[rook_sq] & !BIT_SQUARES[king_sq] & mask) == 0
                     // TODO are these necessary? Maybe as sanity check against incorrect FEN? Maybe validate that in FEN parsing?
-                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq as usize]) != 0
-                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
+                    && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq]) != 0
+                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq]) != 0
                 {
                     moves
                         .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
@@ -455,10 +455,10 @@ impl StagedMoveGenerator {
 
                 let left = king_sq.min(Squares::F1  as usize);
                 let right = rook_sq.max(Squares::G1  as usize);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                let mask = SQUARES_BETWEEN[left][right] | BIT_SQUARES[left] | BIT_SQUARES[right];
                 if (board.occupancy & !BIT_SQUARES[king_sq] & !BIT_SQUARES[rook_sq] & mask) == 0
                     && (board.piece_bitboards[0][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq]) != 0
-                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
+                    && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq]) != 0
                 {
                     moves
                         .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
@@ -473,10 +473,10 @@ impl StagedMoveGenerator {
 
                 let left = rook_sq.min(Squares::C8 as usize);
                 let right = king_sq.max(Squares::D8 as usize);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                let mask = SQUARES_BETWEEN[left][right] | BIT_SQUARES[left] | BIT_SQUARES[right];
                 if (board.occupancy & !BIT_SQUARES[rook_sq] & !BIT_SQUARES[king_sq] & mask) == 0
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq as usize]) != 0
-                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
+                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq]) != 0
+                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq]) != 0
                 {
                     moves
                         .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
@@ -489,10 +489,10 @@ impl StagedMoveGenerator {
 
                 let left = king_sq.min(Squares::F8  as usize);
                 let right = rook_sq.max(Squares::G8 as usize);
-                let mask = SQUARES_BETWEEN[left as usize][right as usize] | BIT_SQUARES[left] | BIT_SQUARES[right];
+                let mask = SQUARES_BETWEEN[left][right] | BIT_SQUARES[left] | BIT_SQUARES[right];
                 if (board.occupancy & !BIT_SQUARES[rook_sq] & !BIT_SQUARES[king_sq] & mask) == 0
-                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq as usize]) != 0
-                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
+                    && (board.piece_bitboards[1][PIECE_ROOK as usize] & BIT_SQUARES[rook_sq]) != 0
+                    && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq]) != 0
                 {
                     moves
                         .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
