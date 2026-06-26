@@ -291,6 +291,7 @@ impl Board {
         board.castling_piece_starting_positions[CASTLE_BLACK_KING_SQ_IDX] = black_king_sq;
 
         if fen_pieces[2] != "-" {
+            // TODO: more validation
             for c in fen_pieces[2].chars() {
                 match c {
                     'K' => {
