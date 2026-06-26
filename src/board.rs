@@ -3,10 +3,7 @@ use std::{fmt::Debug, sync::LazyLock};
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES, pretty_print_bitboard},
-    eval_values::PIECE_SQUARE_TABLES,
-    evaluate::GAME_STAGE_VALUES,
-    repetition_tracker::RepetitionTracker,
+    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES, pretty_print_bitboard}, eval_values::PIECE_SQUARE_TABLES, evaluate::GAME_STAGE_VALUES, repetition_tracker::RepetitionTracker, uci::CHESS960,
 };
 
 pub const PIECE_MASK: u8 = 0b0000_0111;
@@ -528,21 +525,22 @@ impl Board {
 
         // Castling
         if self.castling_rights != 0 {
-            // TODO update
+            let chess960 = CHESS960.load(std::sync::atomic::Ordering::Relaxed);
+
             if self.castling_rights & CASTLE_WHITE_KING_FLAG != 0 {
-                result += "K";
+                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_WHITE_KING_ROOK_SQ_IDX])) as char } else { 'K' });
             }
 
             if self.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0 {
-                result += "Q";
+                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX])) as char } else { 'Q' });
             }
 
             if self.castling_rights & CASTLE_BLACK_KING_FLAG != 0 {
-                result += "k";
+                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_KING_ROOK_SQ_IDX])) as char } else { 'k' });
             }
 
             if self.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0 {
-                result += "q";
+                result.push(if chess960 { (b'A' + file_8x8(self.castling_piece_starting_positions[CASTLE_BLACK_QUEEN_ROOK_SQ_IDX])) as char } else { 'q' });
             }
 
             result += " ";

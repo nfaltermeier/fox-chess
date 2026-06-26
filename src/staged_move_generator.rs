@@ -3,23 +3,16 @@ use arrayvec::ArrayVec;
 use crate::{
     bitboard::{
         BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack, lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one, south_west_one
-    },
-    board::{
+    }, board::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_KING_ROOK_SQ_IDX, CASTLE_BLACK_KING_SQ_IDX, CASTLE_BLACK_QUEEN_FLAG, CASTLE_BLACK_QUEEN_ROOK_SQ_IDX, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_KING_ROOK_SQ_IDX, CASTLE_WHITE_KING_SQ_IDX, CASTLE_WHITE_QUEEN_FLAG, CASTLE_WHITE_QUEEN_ROOK_SQ_IDX, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, Squares, file_8x8, rank_8x8
-    },
-    eval_values::CENTIPAWN_VALUES_MIDGAME,
-    history::{ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, HistoryTable, extra_quiet_move_scoring},
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
-    move_generator::{
+    }, eval_values::CENTIPAWN_VALUES_MIDGAME, history::{ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, HistoryTable, extra_quiet_move_scoring}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, move_generator::{
         MOVE_ARRAY_SIZE, MOVE_SCORE_CAPTURE, MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR, MOVE_SCORE_CONT_HISTORY_PLY1_MAX,
         MOVE_SCORE_CONT_HISTORY_PLY2_MAX, MOVE_SCORE_HISTORY_MAX, MOVE_SCORE_KING_CASTLE, MOVE_SCORE_QUEEN_CASTLE,
         MOVE_SCORE_QUIET, ScoredMove,
-    },
-    moves::{
+    }, moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
-    },
-    search::{EMPTY_MOVE, SearchStack},
+    }, search::{EMPTY_MOVE, SearchStack}, uci::CHESS960,
 };
 
 pub struct StagedMoveGenerator {
@@ -436,8 +429,8 @@ impl StagedMoveGenerator {
     }
 
     pub fn add_castling_moves(board: &Board, moves: &mut ArrayVec<ScoredMove, MOVE_ARRAY_SIZE>) {
-        // TODO: separate logic for chess960 to not slow down normal chess
-        if board.white_to_move {
+        if CHESS960.load(std::sync::atomic::Ordering::Relaxed) {
+            if board.white_to_move {
             if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
             {
                 let rook_sq = board.castling_piece_starting_positions[CASTLE_WHITE_QUEEN_ROOK_SQ_IDX] as usize;
@@ -452,7 +445,7 @@ impl StagedMoveGenerator {
                     && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(king_sq as u8, Squares::C1 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
                 }
             }
 
@@ -468,7 +461,7 @@ impl StagedMoveGenerator {
                     && (board.piece_bitboards[0][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(king_sq as u8, Squares::G1 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
                 }
             
             }
@@ -486,7 +479,7 @@ impl StagedMoveGenerator {
                     && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(king_sq as u8, Squares::C8 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
                 }
             }
 
@@ -502,10 +495,45 @@ impl StagedMoveGenerator {
                     && (board.piece_bitboards[1][PIECE_KING as usize] & BIT_SQUARES[king_sq as usize]) != 0
                 {
                     moves
-                        .push(ScoredMove::new(king_sq as u8, Squares::G8 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                        .push(ScoredMove::new(king_sq as u8, rook_sq as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
                 }
             
             }
+        }
+        } else {
+            if board.white_to_move {
+                    if board.castling_rights & CASTLE_WHITE_QUEEN_FLAG != 0
+                        && (board.occupancy & 0x1f) == 0x11
+                        && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x01) != 0
+                    {
+                        moves
+                            .push(ScoredMove::new(Squares::E1 as u8, Squares::C1 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                    }
+
+                    if board.castling_rights & CASTLE_WHITE_KING_FLAG != 0
+                        && (board.occupancy & 0xf0) == 0x90
+                        && (board.piece_bitboards[0][PIECE_ROOK as usize] & 0x80) != 0
+                    {
+                        moves
+                            .push(ScoredMove::new(Squares::E1 as u8, Squares::G1 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                    }
+                } else {
+                    if board.castling_rights & CASTLE_BLACK_QUEEN_FLAG != 0
+                        && (board.occupancy & 0x1f00000000000000) == 0x1100000000000000
+                        && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x100000000000000) != 0
+                    {
+                        moves
+                            .push(ScoredMove::new(Squares::E8 as u8, Squares::C8 as u8, MOVE_QUEEN_CASTLE, MOVE_SCORE_QUEEN_CASTLE));
+                    }
+
+                    if board.castling_rights & CASTLE_BLACK_KING_FLAG != 0
+                        && (board.occupancy & 0xf000000000000000) == 0x9000000000000000
+                        && (board.piece_bitboards[1][PIECE_ROOK as usize] & 0x8000000000000000) != 0
+                    {
+                        moves
+                            .push(ScoredMove::new(Squares::E8 as u8, Squares::G8 as u8, MOVE_KING_CASTLE, MOVE_SCORE_KING_CASTLE));
+                    }
+                }
         }
     }
 }

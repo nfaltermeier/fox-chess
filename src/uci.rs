@@ -1,8 +1,5 @@
 use std::{
-    io,
-    sync::mpsc::{self, Receiver},
-    thread,
-    time::{Duration, Instant},
+    io, sync::{atomic::AtomicBool, mpsc::{self, Receiver}}, thread, time::{Duration, Instant},
 };
 
 use build_info::VersionControl::Git;
@@ -25,6 +22,8 @@ use crate::{
     transposition_table::{TTEntry, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
+
+pub static CHESS960: AtomicBool = AtomicBool::new(false);
 
 pub struct UciInterface {
     board: Option<Board>,
@@ -296,7 +295,21 @@ impl UciInterface {
                                 error!("Expected a value for option Move Overhead");
                             }
                         }
-                        "uci_chess960" => {}
+                        "uci_chess960" => {
+                            if let Some(value) = value {
+                                let uci_chess960 = value.parse::<bool>();
+                                if let Ok(uci_chess960) = uci_chess960 {
+                                    CHESS960.store(uci_chess960, std::sync::atomic::Ordering::Relaxed);
+                                } else {
+                                    error!(
+                                        "Failed to parse UCI_Chess960 value as a boolean: {}",
+                                        uci_chess960.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option UCI_Chess960");
+                            }
+                        }
                         _ => {
                             error!("Unknown UCI setoption name '{name}'");
                         }
