@@ -238,5 +238,5 @@ fn run_epd_perft_suite(path: &str, nodes_for_skip: u64) {
 
     let elapsed = start_time.elapsed();
     let nps = total_nodes as f64 / elapsed.as_secs_f64();
-    info!("Suite passed in {elapsed:#?} with {nps} nodes per second average");
+    info!("Suite passed in {elapsed:#?} with {nps} nodes per second");
 }
