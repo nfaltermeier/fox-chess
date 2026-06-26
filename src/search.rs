@@ -1058,8 +1058,13 @@ impl<'a> Searcher<'a> {
                         && score >= static_eval
                         && !mov.is_capture()
                     {
-                        self.correction_histories
-                            .update_history(board, score.saturating_sub(static_eval), draft, &self.ss, ply);
+                        self.correction_histories.update_history(
+                            board,
+                            score.saturating_sub(static_eval),
+                            draft,
+                            &self.ss,
+                            ply,
+                        );
                     }
                 }
 
@@ -1171,8 +1176,13 @@ impl<'a> Searcher<'a> {
                 && (improved_alpha || best_score <= static_eval)
                 && !best_move.is_capture()
             {
-                self.correction_histories
-                    .update_history(board, best_score.saturating_sub(static_eval), draft, &self.ss, ply);
+                self.correction_histories.update_history(
+                    board,
+                    best_score.saturating_sub(static_eval),
+                    draft,
+                    &self.ss,
+                    ply,
+                );
             }
         }
 

@@ -5,12 +5,21 @@ use crate::{
         BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack,
         lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
         south_west_one,
-    }, board::{
-        Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, Squares,
-    }, eval_values::CENTIPAWN_VALUES_MIDGAME, history::{DEFAULT_HISTORY_TABLE, HistoryTable}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
+    },
+    board::{
+        Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        Squares,
+    },
+    eval_values::CENTIPAWN_VALUES_MIDGAME,
+    history::{DEFAULT_HISTORY_TABLE, HistoryTable},
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
-    }, repetition_tracker::RepetitionTracker, staged_move_generator::StagedMoveGenerator, uci::CHESS960,
+    },
+    repetition_tracker::RepetitionTracker,
+    staged_move_generator::StagedMoveGenerator,
+    uci::CHESS960,
 };
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
