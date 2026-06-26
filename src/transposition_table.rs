@@ -54,9 +54,9 @@ impl TTEntry {
 
         let mut tt_score = score;
         if tt_score >= MATE_THRESHOLD {
-            tt_score += 10 * ply as i16;
+            tt_score += ply as i16;
         } else if tt_score <= -MATE_THRESHOLD {
-            tt_score -= 10 * ply as i16;
+            tt_score -= ply as i16;
         }
 
         Self {
@@ -75,9 +75,9 @@ impl TTEntry {
         let mut score = self.score;
 
         if score >= MATE_THRESHOLD {
-            score -= 10 * ply as i16;
+            score -= ply as i16;
         } else if score <= -MATE_THRESHOLD {
-            score += 10 * ply as i16;
+            score += ply as i16;
         }
 
         score

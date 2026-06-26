@@ -34,8 +34,8 @@ pub const MIN_GAME_STAGE_FULLY_MIDGAME: i16 = GAME_STAGE_VALUES[PIECE_ROOK as us
 pub const ENDGAME_GAME_STAGE_FOR_QUIESCENSE: i16 =
     GAME_STAGE_VALUES[PIECE_BISHOP as usize] * 2 + GAME_STAGE_VALUES[PIECE_ROOK as usize] * 2;
 
-pub const MATE_THRESHOLD: i16 = 20000;
-pub const MATE_VALUE: i16 = 25000;
+pub const MATE_THRESHOLD: i16 = 29500;
+pub const MATE_VALUE: i16 = 30000;
 // The board as it appears here in the array is vertically flipped which changes the colors. a1 is a dark square.
 #[rustfmt::skip]
 static LIGHT_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
@@ -190,9 +190,9 @@ impl Board {
 
     pub fn evaluate_checkmate(&self, ply: u8) -> i16 {
         if self.white_to_move {
-            -MATE_VALUE + (ply as i16) * 10
+            -MATE_VALUE + (ply as i16)
         } else {
-            MATE_VALUE - (ply as i16) * 10
+            MATE_VALUE - (ply as i16)
         }
     }
 

@@ -31,7 +31,7 @@ pub fn pretty_print_stats(
     let abs_score = score.abs();
     let score_string = if abs_score >= MATE_THRESHOLD {
         let diff = MATE_VALUE - abs_score;
-        let moves = (diff as f32 / 20.0).ceil();
+        let moves = (diff as f32 / 2.0).ceil();
         let mate_str = format!("{}M{moves}", if score < 0 { "-" } else { "" });
         format!("{mate_str:>6}")
     } else {
