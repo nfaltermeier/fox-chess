@@ -5,19 +5,12 @@ use crate::{
         BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack,
         lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
         south_west_one,
-    },
-    board::{
+    }, board::{
         Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-    },
-    eval_values::CENTIPAWN_VALUES_MIDGAME,
-    history::{DEFAULT_HISTORY_TABLE, HistoryTable},
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
-    moves::{
+    }, eval_values::CENTIPAWN_VALUES_MIDGAME, history::{DEFAULT_HISTORY_TABLE, HistoryTable}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
-    },
-    repetition_tracker::RepetitionTracker,
-    staged_move_generator::StagedMoveGenerator,
+    }, repetition_tracker::RepetitionTracker, staged_move_generator::StagedMoveGenerator, uci::CHESS960,
 };
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
@@ -547,14 +540,30 @@ impl Board {
                 return (false, false);
             }
 
-            let from = mov.from();
-            let mut king_squares_between = SQUARES_BETWEEN[from as usize][mov.to() as usize];
-            loop {
-                let test_square = bitscan_forward_and_reset(&mut king_squares_between);
-                if test_square == 64 {
-                    break;
+            if CHESS960.load(std::sync::atomic::Ordering::Relaxed) {
+                let from = mov.from();
+                let mut king_squares_between = SQUARES_BETWEEN[from as usize][mov.to() as usize];
+                loop {
+                    let test_square = bitscan_forward_and_reset(&mut king_squares_between);
+                    if test_square == 64 {
+                        break;
+                    }
+                    let intermediate_move = Move::new(from, test_square as u8, 0);
+
+                    let mut castle_intermediate_board = self.clone();
+                    castle_intermediate_board.make_move(intermediate_move, repetitions);
+                    result = !castle_intermediate_board.can_capture_opponent_king(true);
+                    repetitions.unmake_move(castle_intermediate_board.hash);
+
+                    if !result {
+                        return (result, false);
+                    }
                 }
-                let intermediate_move = Move::new(from, test_square as u8, 0);
+            } else {
+                let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
+                let from = mov.from();
+                let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
+                let intermediate_move = Move::new(from, intermediate_index, 0);
 
                 let mut castle_intermediate_board = self.clone();
                 castle_intermediate_board.make_move(intermediate_move, repetitions);
