@@ -6,7 +6,7 @@ use crate::{
         lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
         south_west_one,
     }, board::{
-        Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
+        Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, Squares,
     }, eval_values::CENTIPAWN_VALUES_MIDGAME, history::{DEFAULT_HISTORY_TABLE, HistoryTable}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
@@ -542,7 +542,20 @@ impl Board {
 
             if CHESS960.load(std::sync::atomic::Ordering::Relaxed) {
                 let from = mov.from();
-                let mut king_squares_between = SQUARES_BETWEEN[from as usize][mov.to() as usize];
+                let king_ending_square = if self.white_to_move {
+                    if flags == MOVE_KING_CASTLE {
+                        Squares::G1
+                    } else {
+                        Squares::C1
+                    }
+                } else {
+                    if flags == MOVE_KING_CASTLE {
+                        Squares::G8
+                    } else {
+                        Squares::C8
+                    }
+                };
+                let mut king_squares_between = SQUARES_BETWEEN[from as usize][king_ending_square as usize];
                 while king_squares_between != 0 {
                     let test_square = bitscan_forward_and_reset(&mut king_squares_between);
                     let intermediate_move = Move::new(from, test_square as u8, 0);

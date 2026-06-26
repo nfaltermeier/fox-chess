@@ -34,7 +34,7 @@ pub enum Command {
         fen: Option<String>,
         moves: Option<String>,
     },
-    /// Runs a perft suite defined at assets/perft.epd
+    /// Runs perft suites defined at assets/perft.epd and assets/frcperftsuite.epd
     PerftSuite,
     /// Runs a benchmark test for the user to verify node count and nodes per second on a new device/build
     Bench,
