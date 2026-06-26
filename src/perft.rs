@@ -6,10 +6,7 @@ use log::{error, info};
 use num_format::{Locale, ToFormattedString};
 
 use crate::{
-    board::Board,
-    moves::{MOVE_EP_CAPTURE, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
-    repetition_tracker::RepetitionTracker,
-    staged_move_generator::StagedMoveGenerator,
+    board::Board, moves::{MOVE_EP_CAPTURE, MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move}, repetition_tracker::RepetitionTracker, staged_move_generator::StagedMoveGenerator, uci::CHESS960,
 };
 
 impl Board {
@@ -147,8 +144,14 @@ fn check_perft_stats(mov: Move, board: &Board, stats: &mut PerftStats, repetitio
 }
 
 pub fn run_perft_suites() {
-    // run_epd_perft_suite("assets/perft.epd", u64::MAX);
-    run_epd_perft_suite("assets/frcperftsuite.epd", 300_000_000);
+    run_epd_perft_suite("assets/perft.epd", u64::MAX);
+
+    let chess960 = CHESS960.load(std::sync::atomic::Ordering::Acquire);
+    CHESS960.store(true, std::sync::atomic::Ordering::Release);
+
+    run_epd_perft_suite("assets/frcperftsuite.epd", 100_000_000);
+
+    CHESS960.store(chess960, std::sync::atomic::Ordering::Release);
 }
 
 fn run_epd_perft_suite(path: &str, nodes_for_skip: u64) {
