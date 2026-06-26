@@ -543,11 +543,8 @@ impl Board {
             if CHESS960.load(std::sync::atomic::Ordering::Relaxed) {
                 let from = mov.from();
                 let mut king_squares_between = SQUARES_BETWEEN[from as usize][mov.to() as usize];
-                loop {
+                while king_squares_between != 0 {
                     let test_square = bitscan_forward_and_reset(&mut king_squares_between);
-                    if test_square == 64 {
-                        break;
-                    }
                     let intermediate_move = Move::new(from, test_square as u8, 0);
 
                     let mut castle_intermediate_board = self.clone();

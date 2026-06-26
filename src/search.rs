@@ -855,6 +855,7 @@ impl<'a> Searcher<'a> {
             }
 
             let mut new_board = board.clone();
+            let moved_piece_type = new_board.get_piece_64(mov.m.from() as usize) & PIECE_MASK;
             let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
             if !legal {
                 if move_made {
@@ -908,7 +909,7 @@ impl<'a> Searcher<'a> {
             }
 
             self.ss[ply as usize].mov = mov.m;
-            self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
+            self.ss[ply as usize].moved_piece_type = moved_piece_type;
 
             let gives_check = new_board.is_in_check(false);
             let start_of_search_nodes = if ply == 0 {
@@ -1277,6 +1278,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 let mut new_board = board.clone();
+                let moved_piece_type = new_board.get_piece_64(mov.m.from() as usize) & PIECE_MASK;
                 let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
                 if !legal {
                     if move_made {
@@ -1286,7 +1288,7 @@ impl<'a> Searcher<'a> {
                 }
 
                 self.ss[ply as usize].mov = mov.m;
-                self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
+                self.ss[ply as usize].moved_piece_type = moved_piece_type;
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;

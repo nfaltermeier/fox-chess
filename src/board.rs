@@ -705,10 +705,11 @@ impl Board {
 
         debug_assert_ne!(PIECE_NONE, p1);
         debug_assert_ne!(PIECE_NONE, p2);
-        if to1 != from2 {
+        // could optimize chess960 a bit more by checking if one piece doesn't need to move
+        if to1 != from2 && to1 != from1 {
             debug_assert_eq!(PIECE_NONE, self.get_piece_64(to1 as usize));
         }
-        if to2 != from1 {
+        if to2 != from1 && to2 != from2 {
             debug_assert_eq!(PIECE_NONE, self.get_piece_64(to2 as usize));
         }
 
