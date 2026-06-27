@@ -356,7 +356,9 @@ impl<'a> Pgn {
                             continue;
                         }
 
-                        let (legal, move_made) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
+                        let (legal, move_made) =
+                            self.board
+                                .test_legality_and_maybe_make_move(mov, &mut repetitions, None, None);
                         if !legal {
                             // If two pieces can pseudolegally move to a square but one of them is pinned,
                             // then the disambiguating rank/file may not be printed in the PGN so we need to backtrack
@@ -387,7 +389,9 @@ impl<'a> Pgn {
                         panic!("Move {} did not match expected move format", self.moves[move_index].mov);
                     };
 
-                    let (legal, _) = self.board.test_legality_and_maybe_make_move(mov, &mut repetitions);
+                    let (legal, _) = self
+                        .board
+                        .test_legality_and_maybe_make_move(mov, &mut repetitions, None, None);
                     if !legal {
                         panic!(
                             "Described move {} matched generated move {}, but it is illegal for position {}",

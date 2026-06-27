@@ -130,7 +130,7 @@ fn check_perft_stats(mov: Move, board: &Board, stats: &mut PerftStats, repetitio
         move_generator.generate_moves_check_evasion(board, None, None, None, None, None);
         while let Some(mov) = move_generator.get_next_move_unordered(board) {
             let mut new_board = board.clone();
-            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov, repetitions);
+            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov, repetitions, None, None);
 
             if move_made {
                 repetitions.unmake_move(new_board.hash);
