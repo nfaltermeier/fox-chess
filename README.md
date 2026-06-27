@@ -38,22 +38,17 @@ cargo install cargo-pgo
 Fox Chess now uses neural networks for evaluation. I currently don't have any automatic download setup, so you'll have to download it yourself and put it in the `networks` folder.
 You can find the networks here: https://github.com/nfaltermeier/fox-chess-nets/releases. If you don't do this, you'll get a compilation error such as 'error: couldn't read `src\../networks/first.nnue`: The system cannot find the file specified.'
 
-You are recommended to enable your CPU's supported features for the best performance. If you will be running the program on the same computer you are building, you can use
-```
-RUSTFLAGS=-Ctarget-cpu=native cargo pgo run -- bench
-RUSTFLAGS=-Ctarget-cpu=native cargo pgo optimize
-```
-Or on x86_64-pc-windows-msvc that will be enabled automatically and you can simply run
+All of your CPU's supported features will automatically be enabled for the best performance. To perform the build, you can use
 ```
 cargo pgo run -- bench
 cargo pgo optimize
 ```
-To skip PGO optimization, just run
+To skip PGO optimization, although this is not recommended, just run
 ```
 cargo build -r
 ```
 
-### Note for Ryzen CPUs below 5000 series
+### Note for Ryzen CPUs below 5000 series (zen 1 and zen 2)
 These CPUs support but have poor performance for some instructions used for determining sliding piece attacks. Before building you should disable the `use_pext` feature in `Cargo.toml` for the best performance.
 
 ### Building for another computer
