@@ -151,7 +151,7 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
             }
         }
 
-        let (legal, _) = board.test_legality_and_maybe_make_move(*mov, &mut repetitions);
+        let (legal, _) = board.test_legality_and_maybe_make_move(*mov, &mut repetitions, None, None);
         if !legal {
             panic!("Failed to make move {} when replaying PV", mov.pretty_print(None))
         }
@@ -168,7 +168,8 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
                 move_generator.generate_moves_check_evasion(&board, None, None, None, None, None);
                 while let Some(generated_move) = move_generator.get_next_move_unordered(&board) {
                     let mut new_board = board.clone();
-                    let (legal, _) = new_board.test_legality_and_maybe_make_move(generated_move, &mut repetitions);
+                    let (legal, _) =
+                        new_board.test_legality_and_maybe_make_move(generated_move, &mut repetitions, None, None);
                     if legal {
                         checkmate = false;
                         break;

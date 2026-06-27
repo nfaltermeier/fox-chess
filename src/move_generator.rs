@@ -10,13 +10,14 @@ use crate::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
         PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
     },
-    eval_values::CENTIPAWN_VALUES_MIDGAME,
+    evaluate::PIECE_VALUES_SEE,
     history::{DEFAULT_HISTORY_TABLE, HistoryTable},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
     },
+    nnue::{AccumulatorPairStack, Network},
     repetition_tracker::RepetitionTracker,
 };
 
@@ -74,35 +75,35 @@ impl Board {
                 if !promo {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                        score: MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                            - PIECE_VALUES_SEE[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                     });
                 } else {
-                    let score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
+                    let score = MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                        - PIECE_VALUES_SEE[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_QUEEN | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                        score + PIECE_VALUES_SEE[PIECE_QUEEN as usize],
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_ROOK | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                        score + PIECE_VALUES_SEE[PIECE_ROOK as usize],
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_BISHOP | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                        score + PIECE_VALUES_SEE[PIECE_BISHOP as usize],
                     ));
                     result.push(ScoredMove::new(
                         from,
                         to,
                         MOVE_PROMO_KNIGHT | MOVE_FLAG_CAPTURE,
-                        score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                        score + PIECE_VALUES_SEE[PIECE_KNIGHT as usize],
                     ));
                 }
             }
@@ -122,25 +123,25 @@ impl Board {
                             from,
                             to,
                             MOVE_PROMO_QUEEN,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                            MOVE_SCORE_PROMOTION + PIECE_VALUES_SEE[PIECE_QUEEN as usize],
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_ROOK,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                            MOVE_SCORE_PROMOTION + PIECE_VALUES_SEE[PIECE_ROOK as usize],
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_BISHOP,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                            MOVE_SCORE_PROMOTION + PIECE_VALUES_SEE[PIECE_BISHOP as usize],
                         ));
                         result.push(ScoredMove::new(
                             from,
                             to,
                             MOVE_PROMO_KNIGHT,
-                            MOVE_SCORE_PROMOTION + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                            MOVE_SCORE_PROMOTION + PIECE_VALUES_SEE[PIECE_KNIGHT as usize],
                         ));
                     } else {
                         result.push(ScoredMove::new(
@@ -298,8 +299,8 @@ impl Board {
                 } else {
                     result.push(ScoredMove {
                         m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                        score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                            - CENTIPAWN_VALUES_MIDGAME[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                        score: MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                            - PIECE_VALUES_SEE[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                     });
                 }
             }
@@ -516,8 +517,8 @@ impl Board {
                     }
             } else {
                 let target_piece = self.get_piece_64(to as usize);
-                MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR
+                MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                    - PIECE_VALUES_SEE[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR
             };
 
             if !PROMOS {
@@ -534,25 +535,25 @@ impl Board {
                     from,
                     to,
                     MOVE_PROMO_QUEEN | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                    score + PIECE_VALUES_SEE[PIECE_QUEEN as usize],
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_ROOK | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                    score + PIECE_VALUES_SEE[PIECE_ROOK as usize],
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_BISHOP | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                    score + PIECE_VALUES_SEE[PIECE_BISHOP as usize],
                 ));
                 result.push(ScoredMove::new(
                     from,
                     to,
                     MOVE_PROMO_KNIGHT | if CAPTURES { MOVE_FLAG_CAPTURE } else { 0 },
-                    score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                    score + PIECE_VALUES_SEE[PIECE_KNIGHT as usize],
                 ));
             }
         }
@@ -565,6 +566,8 @@ impl Board {
         &mut self,
         mov: Move,
         repetitions: &mut RepetitionTracker,
+        accumulators: Option<&mut AccumulatorPairStack>,
+        net: Option<&Network>,
     ) -> (bool, bool) {
         let mut result;
         let flags = mov.flags();
@@ -581,7 +584,7 @@ impl Board {
             let intermediate_move = Move::new(from, intermediate_index, 0);
 
             let mut castle_intermediate_board = self.clone();
-            castle_intermediate_board.make_move(intermediate_move, repetitions);
+            castle_intermediate_board.make_move(intermediate_move, repetitions, None, None);
             result = !castle_intermediate_board.can_capture_opponent_king(true);
             repetitions.unmake_move(castle_intermediate_board.hash);
 
@@ -590,7 +593,7 @@ impl Board {
             }
         }
 
-        self.make_move(mov, repetitions);
+        self.make_move(mov, repetitions, accumulators, net);
         result = !self.can_capture_opponent_king(true);
 
         (result, true)
@@ -689,7 +692,8 @@ mod check_evasion_tests {
 
             moves.retain(|mov| {
                 let mut new_board = self.clone();
-                let (result, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut repetitions);
+                let (result, move_made) =
+                    new_board.test_legality_and_maybe_make_move(mov.m, &mut repetitions, None, None);
 
                 if move_made {
                     repetitions.unmake_move(new_board.hash);

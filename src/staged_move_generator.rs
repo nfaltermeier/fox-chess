@@ -9,7 +9,7 @@ use crate::{
         Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
         PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, rank_8x8,
     },
-    eval_values::CENTIPAWN_VALUES_MIDGAME,
+    evaluate::PIECE_VALUES_SEE,
     history::{ContinuationHistoryTables, DEFAULT_HISTORY_TABLE, HistoryTable, extra_quiet_move_scoring},
     magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
     move_generator::{
@@ -246,19 +246,19 @@ impl StagedMoveGenerator {
             let base_score = MOVE_SCORE_QUIET + history_table[side][PIECE_PAWN as usize - 1][to as usize];
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_QUEEN),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                score: base_score + PIECE_VALUES_SEE[PIECE_QUEEN as usize],
             });
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_ROOK),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                score: base_score + PIECE_VALUES_SEE[PIECE_ROOK as usize],
             });
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_BISHOP),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                score: base_score + PIECE_VALUES_SEE[PIECE_BISHOP as usize],
             });
             self.move_buf.push(ScoredMove {
                 m: Move::new(from, to, MOVE_PROMO_KNIGHT),
-                score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                score: base_score + PIECE_VALUES_SEE[PIECE_KNIGHT as usize],
             });
         }
 
@@ -369,8 +369,8 @@ impl StagedMoveGenerator {
 
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                    score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                    score: MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                        - PIECE_VALUES_SEE[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                 });
             }
 
@@ -379,23 +379,23 @@ impl StagedMoveGenerator {
                 let from = to.checked_add_signed(offset).unwrap();
                 let target_piece = board.get_piece_64(to as usize);
 
-                let base_score = MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                    - CENTIPAWN_VALUES_MIDGAME[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
+                let base_score = MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                    - PIECE_VALUES_SEE[PIECE_PAWN as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR;
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_QUEEN),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_QUEEN as usize],
+                    score: base_score + PIECE_VALUES_SEE[PIECE_QUEEN as usize],
                 });
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_ROOK),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_ROOK as usize],
+                    score: base_score + PIECE_VALUES_SEE[PIECE_ROOK as usize],
                 });
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_BISHOP),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_BISHOP as usize],
+                    score: base_score + PIECE_VALUES_SEE[PIECE_BISHOP as usize],
                 });
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE | MOVE_PROMO_KNIGHT),
-                    score: base_score + CENTIPAWN_VALUES_MIDGAME[PIECE_KNIGHT as usize],
+                    score: base_score + PIECE_VALUES_SEE[PIECE_KNIGHT as usize],
                 });
             }
         }
@@ -451,8 +451,8 @@ impl StagedMoveGenerator {
 
                 self.move_buf.push(ScoredMove {
                     m: Move::new(from, to, MOVE_FLAG_CAPTURE),
-                    score: MOVE_SCORE_CAPTURE + CENTIPAWN_VALUES_MIDGAME[(target_piece & PIECE_MASK) as usize]
-                        - CENTIPAWN_VALUES_MIDGAME[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
+                    score: MOVE_SCORE_CAPTURE + PIECE_VALUES_SEE[(target_piece & PIECE_MASK) as usize]
+                        - PIECE_VALUES_SEE[piece_type as usize] / MOVE_SCORE_CAPTURE_ATTACKER_DIVISOR,
                 });
             }
         }

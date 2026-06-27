@@ -133,19 +133,44 @@ mod repetition_tracker_tests {
         let mut repetitions = RepetitionTracker::new();
         let mut board = Board::from_fen(STARTING_FEN, Some(&mut repetitions)).unwrap();
 
-        board.make_move(Move::from_simple_long_algebraic_notation("g1f3", 0), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("g1f3", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
         assert!(!repetitions.test_repetition(&board));
 
-        board.make_move(Move::from_simple_long_algebraic_notation("g8f6", 0), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("g8f6", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
         assert!(!repetitions.test_repetition(&board));
 
-        board.make_move(Move::from_simple_long_algebraic_notation("f3g1", 0), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("f3g1", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
         assert!(!repetitions.test_repetition(&board));
 
-        board.make_move(Move::from_simple_long_algebraic_notation("f6g8", 0), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("f6g8", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
         assert!(repetitions.test_repetition(&board));
 
-        board.make_move(Move::from_simple_long_algebraic_notation("g1f3", 0), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("g1f3", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
         assert!(repetitions.test_repetition(&board));
     }
 
@@ -157,10 +182,27 @@ mod repetition_tracker_tests {
         board.make_move(
             Move::from_simple_long_algebraic_notation("d6c4", MOVE_FLAG_CAPTURE),
             &mut repetitions,
+            None,
+            None,
         );
-        board.make_move(Move::from_simple_long_algebraic_notation("e3d4", 0), &mut repetitions);
-        board.make_move(Move::from_simple_long_algebraic_notation("c4d6", 0), &mut repetitions);
-        board.make_move(Move::from_simple_long_algebraic_notation("d4e3", 0), &mut repetitions);
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("e3d4", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("c4d6", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
+        board.make_move(
+            Move::from_simple_long_algebraic_notation("d4e3", 0),
+            &mut repetitions,
+            None,
+            None,
+        );
 
         // Simulate a hash collision to force unmaking moves to test for repetition
         repetitions.repetitions[(board.hash & TABLE_MASK) as usize] += 1;

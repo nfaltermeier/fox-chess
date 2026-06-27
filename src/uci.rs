@@ -19,6 +19,7 @@ use crate::{
     get_build_info,
     history::ThreadHistoryTables,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
+    nnue::{AccumulatorPair, NNUE},
     perft::run_full_perft_suite,
     repetition_tracker::RepetitionTracker,
     search::{self, search_multithreaded, stats::SearchStats},
@@ -330,7 +331,14 @@ impl UciInterface {
                         bench();
                     } else if message.starts_with("eval") {
                         if let Some(board) = &self.board {
-                            println!("Static eval: {}", board.evaluate_side_to_move_relative())
+                            let accumulators = AccumulatorPair::from(board, &NNUE);
+                            let eval = if board.white_to_move {
+                                NNUE.evaluate(&accumulators.white, &accumulators.black)
+                            } else {
+                                NNUE.evaluate(&accumulators.black, &accumulators.white)
+                            };
+
+                            println!("Static eval: {}", eval);
                         } else {
                             error!("Board must be set with position first");
                         }

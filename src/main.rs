@@ -13,12 +13,12 @@ mod bench;
 mod bitboard;
 mod board;
 mod cli;
-mod eval_values;
 mod evaluate;
 mod history;
 mod magic_bitboard;
 mod move_generator;
 mod moves;
+mod nnue;
 mod perft;
 #[cfg(feature = "pgn")]
 mod pgn;

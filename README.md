@@ -5,6 +5,8 @@ A UCI chess engine. Intended for use with a chess GUI such as Cute Chess or Aren
 
 The program is available for challenge some of the time at [lichess](https://lichess.org/@/FoxChessBot). I run it on my own computer so availability is sporadic and is not guranteed.
 
+Now uses an efficiently updatable neural network (NNUE) for evaluation, which is trained on exclusively self-generated data. The network was trained using [bullet](https://github.com/jw1912/bullet/tree/main).
+
 ## Rating
 | Version | CCRL 40/15 | CCRL Blitz | Biggest additions |
 |---------|------------|------------|-------------------|
@@ -33,6 +35,9 @@ cargo install cargo-pgo
 ```
 
 ## Building
+Fox Chess now uses neural networks for evaluation. I currently don't have any automatic download setup, so you'll have to download it yourself and put it in the `networks` folder.
+You can find the networks here: https://github.com/nfaltermeier/fox-chess-nets/releases. If you don't do this, you'll get a compilation error such as 'error: couldn't read `src\../networks/first.nnue`: The system cannot find the file specified.'
+
 You are recommended to enable your CPU's supported features for the best performance. If you will be running the program on the same computer you are building, you can use
 ```
 RUSTFLAGS=-Ctarget-cpu=native cargo pgo run -- bench

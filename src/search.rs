@@ -19,6 +19,7 @@ use crate::{
     },
     move_generator::{MOVE_ARRAY_SIZE, ScoredMove},
     moves::Move,
+    nnue::{AccumulatorPairStack, NNUE},
     pretty_print_stats::{pretty_print_stats, print_header},
     repetition_tracker::RepetitionTracker,
     search::stats::SearchStats,
@@ -100,6 +101,7 @@ pub struct Searcher<'a> {
     correction_histories: &'a mut CorrectionHistoryTables,
     thread_num: u16,
     stop_search: &'a AtomicBool,
+    accumulators: AccumulatorPairStack,
 }
 
 /// Returns the stats and result from the main thread
@@ -260,6 +262,7 @@ impl<'a> Searcher<'a> {
             correction_histories: &mut thread_histories.correction_histories,
             thread_num,
             stop_search,
+            accumulators: AccumulatorPairStack::new(),
         }
     }
 
@@ -268,6 +271,7 @@ impl<'a> Searcher<'a> {
         self.starting_fullmove = board.fullmove_counter as u8;
         self.starting_in_check = board.is_in_check(false);
         self.white_started_search = board.white_to_move;
+        self.accumulators.init(board, &NNUE);
     }
 
     fn iterative_deepening_search(
@@ -571,7 +575,7 @@ impl<'a> Searcher<'a> {
             return Ok(if in_check {
                 self.eval_draw(board)
             } else {
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply)
+                self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply)
             });
         }
 
@@ -680,8 +684,7 @@ impl<'a> Searcher<'a> {
         let mut static_eval = None;
         let mut futility_prune = false;
         if !in_check && excluded_move.is_none() {
-            let eval =
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
+            let eval = self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply);
             static_eval = Some(eval);
             self.ss[ply as usize].static_eval = Some(eval);
 
@@ -854,17 +857,7 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            let mut new_board = board.clone();
-            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
-            if !legal {
-                if move_made {
-                    self.repetitions.unmake_move(new_board.hash);
-                }
-                continue;
-            }
-
-            has_legal_move = true;
-
+            // test for SE before making move so the accumulator updates from make_move don't get overwitten
             let mut extension = 0;
             if ply != 0
                 && draft >= 5
@@ -876,7 +869,6 @@ impl<'a> Searcher<'a> {
                         && tt_entry.get_score(ply).abs() < MATE_THRESHOLD - 2600
                 })
             {
-                self.repetitions.unmake_move(new_board.hash);
                 self.ss[ply as usize].excluded_move = Some(mov.m);
 
                 let verification_draft = draft / 2;
@@ -904,8 +896,23 @@ impl<'a> Searcher<'a> {
                 }
 
                 self.ss[ply as usize].excluded_move = None;
-                self.repetitions.make_move(mov.m, new_board.hash);
             }
+
+            let mut new_board = board.clone();
+            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(
+                mov.m,
+                &mut self.repetitions,
+                Some(&mut self.accumulators),
+                Some(&NNUE),
+            );
+            if !legal {
+                if move_made {
+                    self.unmake_move(&new_board);
+                }
+                continue;
+            }
+
+            has_legal_move = true;
 
             self.ss[ply as usize].mov = mov.m;
             self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
@@ -1003,7 +1010,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            self.repetitions.unmake_move(new_board.hash);
+            self.unmake_move(&new_board);
             searched_moves += 1;
 
             if score >= beta {
@@ -1057,8 +1064,13 @@ impl<'a> Searcher<'a> {
                         && score >= static_eval
                         && !mov.is_capture()
                     {
-                        self.correction_histories
-                            .update_history(board, score.saturating_sub(static_eval), draft, &self.ss, ply);
+                        self.correction_histories.update_history(
+                            board,
+                            score.saturating_sub(static_eval),
+                            draft,
+                            &self.ss,
+                            ply,
+                        );
                     }
                 }
 
@@ -1170,8 +1182,13 @@ impl<'a> Searcher<'a> {
                 && (improved_alpha || best_score <= static_eval)
                 && !best_move.is_capture()
             {
-                self.correction_histories
-                    .update_history(board, best_score.saturating_sub(static_eval), draft, &self.ss, ply);
+                self.correction_histories.update_history(
+                    board,
+                    best_score.saturating_sub(static_eval),
+                    draft,
+                    &self.ss,
+                    ply,
+                );
             }
         }
 
@@ -1238,13 +1255,12 @@ impl<'a> Searcher<'a> {
             return Ok(if in_check {
                 self.eval_draw(board)
             } else {
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply)
+                self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply)
             });
         }
 
         if !in_check {
-            let stand_pat =
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
+            let stand_pat = self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply);
 
             if stand_pat >= beta {
                 return Ok(stand_pat);
@@ -1277,10 +1293,15 @@ impl<'a> Searcher<'a> {
                 }
 
                 let mut new_board = board.clone();
-                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
+                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(
+                    mov.m,
+                    &mut self.repetitions,
+                    Some(&mut self.accumulators),
+                    Some(&NNUE),
+                );
                 if !legal {
                     if move_made {
-                        self.repetitions.unmake_move(new_board.hash);
+                        self.unmake_move(&new_board);
                     }
                     continue;
                 }
@@ -1291,7 +1312,7 @@ impl<'a> Searcher<'a> {
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;
 
-                self.repetitions.unmake_move(new_board.hash);
+                self.unmake_move(&new_board);
 
                 if score >= beta {
                     self.transposition_table.store_entry(TTEntry::new(
@@ -1364,6 +1385,21 @@ impl<'a> Searcher<'a> {
         self.stats.inc_nodes();
 
         self.hard_max_nodes && self.stats.thread_total_nodes() >= self.max_nodes
+    }
+
+    fn evaluate_nnue(&self, board: &Board) -> i16 {
+        let pair = self.accumulators.get_current_accumulator();
+        if board.white_to_move {
+            NNUE.evaluate(&pair.white, &pair.black)
+        } else {
+            NNUE.evaluate(&pair.black, &pair.white)
+        }
+    }
+
+    /// Does not modify the board, but does update the repetition tracker and change which accumulator is current
+    fn unmake_move(&mut self, new_board: &Board) {
+        self.repetitions.unmake_move(new_board.hash);
+        self.accumulators.decr_ply();
     }
 }
 
