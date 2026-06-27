@@ -1,2 +1,2 @@
-second.nnue
-CRC64: 58B90C5C080083EC
+fennec.nnue
+CRC64: FF9DCA7AAA7D7515

@@ -6,12 +6,12 @@ use crate::{
 const QA: i32 = 255;
 const QB: i32 = 64;
 const SCALE: i32 = 400;
-const HIDDEN_SIZE: usize = 16;
+const HIDDEN_SIZE: usize = 32;
 
 // Based on the bullet inference example
 
 // Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
-pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/second.nnue")) };
+pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/fennec.nnue")) };
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
@@ -77,8 +77,7 @@ impl Network {
 /// A column of the feature-weights matrix.
 /// Note the `align(64)`.
 #[derive(Clone, PartialEq)]
-// TODO: change to align(64) when HIDDEN_SIZE is upped to 32. Currently an accumulator is only 32 bits.
-#[repr(C, align(32))]
+#[repr(C, align(64))]
 pub struct Accumulator {
     vals: [i16; HIDDEN_SIZE],
 }
