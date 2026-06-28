@@ -6,12 +6,12 @@ use crate::{
 const QA: i32 = 255;
 const QB: i32 = 64;
 const SCALE: i32 = 400;
-const HIDDEN_SIZE: usize = 32;
+const HIDDEN_SIZE: usize = 64;
 
 // Based on the bullet inference example
 
 // Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
-pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/kit.nnue")) };
+pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/swift.nnue")) };
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
