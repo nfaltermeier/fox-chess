@@ -70,3 +70,15 @@ Games: 300, Wins: 132, Losses: 53, Draws: 115, Points: 189.5 (63.17 %)
 Ptnml(0-2): [1, 18, 53, 57, 21], WL/DD Ratio: 1.65
 LLR: 2.91 (100.6%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Kit
+* Data: Add 36M positions (filtered) @ 5K soft nodes self-generated with Fennec
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 53.77 +/- 20.14, nElo: 84.23 +/- 31.02
+LOS: 100.00 %, DrawRatio: 41.49 %, PairsRatio: 2.44
+Games: 482, Wins: 181, Losses: 107, Draws: 194, Points: 278.0 (57.68 %)
+Ptnml(0-2): [5, 36, 100, 80, 20], WL/DD Ratio: 1.56
+LLR: 2.95 (102.0%) (-2.25, 2.89) [0.00, 10.00]
+```
