@@ -94,3 +94,18 @@ Games: 338, Wins: 140, Losses: 61, Draws: 137, Points: 208.5 (61.69 %)
 Ptnml(0-2): [3, 19, 63, 64, 20], WL/DD Ratio: 1.33
 LLR: 2.90 (100.3%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Cape
+* LR: Cosine decay from 0.001 to 0.001 * 0.3^5
+* Superbatches: 80
+
+It is testing two changes at once, but I feel like they make a lot of sense together
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 12.36 +/- 8.85, nElo: 19.16 +/- 13.69
+LOS: 99.69 %, DrawRatio: 41.71 %, PairsRatio: 1.19
+Games: 2474, Wins: 693, Losses: 605, Draws: 1176, Points: 1281.0 (51.78 %)
+Ptnml(0-2): [40, 289, 516, 327, 65], WL/DD Ratio: 0.84
+LLR: 2.90 (100.3%) (-2.25, 2.89) [0.00, 10.00]
+```

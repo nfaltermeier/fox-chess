@@ -11,7 +11,7 @@ const HIDDEN_SIZE: usize = 64;
 // Based on the bullet inference example
 
 // Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
-pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/swift.nnue")) };
+pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/cape.nnue")) };
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
