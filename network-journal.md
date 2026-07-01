@@ -109,3 +109,28 @@ Games: 2474, Wins: 693, Losses: 605, Draws: 1176, Points: 1281.0 (51.78 %)
 Ptnml(0-2): [40, 289, 516, 327, 65], WL/DD Ratio: 0.84
 LLR: 2.90 (100.3%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# 0.3 WDL
+* WDL: Constant 0.3
+
+```
+Results of engine1 vs engine2 (30+0.3, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: -14.05 +/- 12.68, nElo: -24.66 +/- 22.21
+LOS: 1.48 %, DrawRatio: 47.87 %, PairsRatio: 0.73
+Games: 940, Wins: 228, Losses: 266, Draws: 446, Points: 451.0 (47.98 %)
+Ptnml(0-2): [10, 132, 225, 92, 11], WL/DD Ratio: 1.03
+LLR: -2.28 (-101.5%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Tibetan
+* WDL: Linear from 0.4 to 0.6
+
+VS Cape
+```
+Results of engine1 vs engine2 (30+0.3, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 11.45 +/- 8.06, nElo: 20.02 +/- 14.08
+LOS: 99.73 %, DrawRatio: 47.82 %, PairsRatio: 1.23
+Games: 2338, Wins: 621, Losses: 544, Draws: 1173, Points: 1207.5 (51.65 %)
+Ptnml(0-2): [19, 255, 559, 302, 34], WL/DD Ratio: 0.81
+LLR: 2.91 (100.5%) (-2.25, 2.89) [0.00, 10.00]
+```
