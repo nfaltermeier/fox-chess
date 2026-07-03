@@ -11,7 +11,14 @@ use vampirc_uci::parse_with_unknown;
 
 #[cfg(feature = "pgn")]
 use crate::pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
-use crate::{STARTING_FEN, bench, board::Board, perft::run_full_perft_suite, uci::UciInterface};
+#[cfg(feature = "datagen")]
+use crate::datagen::{DatagenSubcommands, resume_datagen, start_new_datagen};
+use crate::{
+    STARTING_FEN, bench,
+    board::Board,
+    perft::run_full_perft_suite,
+    uci::UciInterface,
+};
 
 #[derive(Parser)]
 pub struct CliArgs {
@@ -40,6 +47,9 @@ pub enum Command {
     Bench,
     /// Prints the version of the program
     Version,
+    #[cfg(feature = "datagen")]
+    #[command(subcommand)]
+    Datagen(DatagenSubcommands),
     /// Tools for processing PGN files
     #[cfg(feature = "pgn")]
     #[command(subcommand)]
@@ -153,6 +163,11 @@ pub fn handle_startup_command(command: &Command) {
         Command::Version => {
             println!("{}", UciInterface::get_version());
         }
+        #[cfg(feature = "datagen")]
+        Command::Datagen(subcommand) => match subcommand {
+            DatagenSubcommands::Start(datagen_args) => start_new_datagen(datagen_args),
+            DatagenSubcommands::Resume { output_folder } => resume_datagen(output_folder),
+        },
         #[cfg(feature = "pgn")]
         Command::Pgn(subcommand) => match subcommand {
             PgnCommands::Epd {

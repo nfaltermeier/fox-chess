@@ -4,8 +4,12 @@ use std::{sync::mpsc, time::Instant};
 use vampirc_uci::UciSearchControl;
 
 use crate::{
-    board::Board, history::ThreadHistoryTables, repetition_tracker::RepetitionTracker, search::search_multithreaded,
-    transposition_table::TranspositionTable, uci_required_options_helper::RequiredUciOptions,
+    board::Board,
+    history::ThreadHistoryTables,
+    repetition_tracker::RepetitionTracker,
+    search::{PrintMode, search_multithreaded},
+    transposition_table::TranspositionTable,
+    uci_required_options_helper::RequiredUciOptions,
 };
 
 pub fn bench() {
@@ -74,7 +78,7 @@ pub fn bench() {
 
         println!("Fen: {}", board.to_fen());
 
-        let transposition_table = TranspositionTable::new(18);
+        let transposition_table = TranspositionTable::new_with_bucket_count_log_2(18);
         let mut thread_history = ThreadHistoryTables::new();
 
         let (_, stop_rx) = mpsc::channel::<()>();
@@ -87,7 +91,7 @@ pub fn bench() {
             RequiredUciOptions::default(),
             0,
             repetitions,
-            true,
+            PrintMode::Uci,
             board,
             &tc,
             &sc,

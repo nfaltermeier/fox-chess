@@ -13,6 +13,8 @@ mod bench;
 mod bitboard;
 mod board;
 mod cli;
+#[cfg(feature = "datagen")]
+mod datagen;
 mod evaluate;
 mod history;
 mod magic_bitboard;

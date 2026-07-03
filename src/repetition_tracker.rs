@@ -7,7 +7,6 @@ use crate::{
 const TABLE_LOG_2_SIZE: usize = 14;
 const MAX_MOVE_HISTORY: usize = 356;
 const TABLE_MASK: u64 = (1 << TABLE_LOG_2_SIZE) - 1;
-const MIN_REPETITIONS_FOR_DRAW: u8 = 2;
 
 #[derive(Clone)]
 pub struct RepetitionTracker {
@@ -49,8 +48,8 @@ impl RepetitionTracker {
         self.repetitions[(hash & TABLE_MASK) as usize] -= 1;
     }
 
-    pub fn test_repetition(&self, board: &Board) -> bool {
-        if self.repetitions[(board.hash & TABLE_MASK) as usize] >= MIN_REPETITIONS_FOR_DRAW {
+    pub fn position_has_repeated_times(&self, board: &Board, times: u8) -> bool {
+        if self.repetitions[(board.hash & TABLE_MASK) as usize] >= times {
             let mut check = true;
             let mut repetitions = 1;
             let target_hash = board.hash;
@@ -62,7 +61,7 @@ impl RepetitionTracker {
                 if self.move_history[i].flags() != 0
                     || (new_board.get_piece_64(self.move_history[i].to() as usize) & PIECE_MASK) == PIECE_PAWN
                 {
-                    break;
+                    return false;
                 }
 
                 new_board.unmake_reversible_move_for_repetitions(i, self);
@@ -70,20 +69,18 @@ impl RepetitionTracker {
 
                 if check && new_board.hash == target_hash {
                     repetitions += 1;
-                    if repetitions == MIN_REPETITIONS_FOR_DRAW {
-                        break;
+                    if repetitions == times {
+                        return true;
                     }
                 }
 
                 // If out of moves
                 if i == 0 {
-                    break;
+                    return false;
                 }
 
                 i -= 1;
             }
-
-            repetitions >= MIN_REPETITIONS_FOR_DRAW
         } else {
             false
         }
@@ -139,7 +136,7 @@ mod repetition_tracker_tests {
             None,
             None,
         );
-        assert!(!repetitions.test_repetition(&board));
+        assert!(!repetitions.position_has_repeated_times(&board, 2));
 
         board.make_move(
             Move::from_simple_long_algebraic_notation("g8f6", 0),
@@ -147,7 +144,7 @@ mod repetition_tracker_tests {
             None,
             None,
         );
-        assert!(!repetitions.test_repetition(&board));
+        assert!(!repetitions.position_has_repeated_times(&board, 2));
 
         board.make_move(
             Move::from_simple_long_algebraic_notation("f3g1", 0),
@@ -155,7 +152,7 @@ mod repetition_tracker_tests {
             None,
             None,
         );
-        assert!(!repetitions.test_repetition(&board));
+        assert!(!repetitions.position_has_repeated_times(&board, 2));
 
         board.make_move(
             Move::from_simple_long_algebraic_notation("f6g8", 0),
@@ -163,7 +160,7 @@ mod repetition_tracker_tests {
             None,
             None,
         );
-        assert!(repetitions.test_repetition(&board));
+        assert!(repetitions.position_has_repeated_times(&board, 2));
 
         board.make_move(
             Move::from_simple_long_algebraic_notation("g1f3", 0),
@@ -171,7 +168,7 @@ mod repetition_tracker_tests {
             None,
             None,
         );
-        assert!(repetitions.test_repetition(&board));
+        assert!(repetitions.position_has_repeated_times(&board, 2));
     }
 
     #[test]
@@ -210,6 +207,6 @@ mod repetition_tracker_tests {
         board.halfmove_clock += 1;
 
         // Bugged builds will actually fail at the flags != 0 debug assertion in unmake_reversible_move_for_repetitions, before testing this assertion
-        assert!(!repetitions.test_repetition(&board));
+        assert!(!repetitions.position_has_repeated_times(&board, 2));
     }
 }
