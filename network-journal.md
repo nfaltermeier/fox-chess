@@ -134,3 +134,15 @@ Games: 2338, Wins: 621, Losses: 544, Draws: 1173, Points: 1207.5 (51.65 %)
 Ptnml(0-2): [19, 255, 559, 302, 34], WL/DD Ratio: 0.81
 LLR: 2.91 (100.5%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Tibetan-V2
+* Data: Add 77M positions (filtered) @ 5K soft nodes self-generated with Tibetan
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 34.76 +/- 15.87, nElo: 56.70 +/- 25.70
+LOS: 100.00 %, DrawRatio: 41.88 %, PairsRatio: 1.79
+Games: 702, Wins: 236, Losses: 166, Draws: 300, Points: 386.0 (54.99 %)
+Ptnml(0-2): [6, 67, 147, 113, 18], WL/DD Ratio: 1.45
+LLR: 2.93 (101.3%) (-2.25, 2.89) [0.00, 10.00]
+```
