@@ -3,7 +3,7 @@ use crate::{
     board::{Board, COLOR_BLACK, PIECE_KING, PIECE_MASK},
 };
 
-const QA: i32 = 255;
+const QA: i16 = 255;
 const QB: i32 = 64;
 const SCALE: i32 = 400;
 const HIDDEN_SIZE: usize = 128;
@@ -15,11 +15,15 @@ pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../netw
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
-/// Note that this takes the i16s in the accumulator to i32s.
 /// Range is 0.0 .. 1.0 (in other words, 0 to QA*QA quantized).
-fn screlu(x: i16) -> i32 {
-    let y = i32::from(x).clamp(0, QA);
-    y * y
+/// Implements Lizard screlu as described by https://asteri.sm/files/2024-06-01-nnue#lizard-simd-for-squared-clipped-relu
+/// With notes based on their description
+fn screlu_mul(x: i16, w: i16) -> i32 {
+    let clamped = x.clamp(0, QA);
+    // Will not overflow because max(clamped) = 255 [QA] and max(w) = 127
+    // because weights are clamped to [-1.98, 1.98] by the optimizer. round(1.98 * 64 [QB]) = 127.
+    let intermediate = clamped * w;
+    intermediate as i32 * clamped as i32
 }
 
 /// This is the quantised format that bullet outputs.
@@ -50,16 +54,16 @@ impl Network {
 
         // Side-To-Move Accumulator -> Output.
         for (&input, &weight) in us.vals.iter().zip(&self.output_weights[..HIDDEN_SIZE]) {
-            output += screlu(input) * i32::from(weight);
+            output += screlu_mul(input, weight);
         }
 
         // Not-Side-To-Move Accumulator -> Output.
         for (&input, &weight) in them.vals.iter().zip(&self.output_weights[HIDDEN_SIZE..]) {
-            output += screlu(input) * i32::from(weight);
+            output += screlu_mul(input, weight);
         }
 
         // Reduce quantization from QA * QA * QB to QA * QB.
-        output /= QA;
+        output /= QA as i32;
 
         // Add bias.
         output += i32::from(self.output_bias);
@@ -68,7 +72,7 @@ impl Network {
         output *= SCALE;
 
         // Remove quantisation altogether.
-        output /= QA * QB;
+        output /= QA as i32 * QB;
 
         output as i16
     }
