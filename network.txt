@@ -1,2 +1,2 @@
-tibetan-v2.nnue
-CRC64: AB3CCE396B21858F
+corsasc.nnue
+CRC64: EA543D70B8AE959A

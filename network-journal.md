@@ -146,3 +146,15 @@ Games: 702, Wins: 236, Losses: 166, Draws: 300, Points: 386.0 (54.99 %)
 Ptnml(0-2): [6, 67, 147, 113, 18], WL/DD Ratio: 1.45
 LLR: 2.93 (101.3%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Corasc
+* Arch: (768 -> 128)x2 -> 1
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 86.46 +/- 24.58, nElo: 138.92 +/- 37.83
+LOS: 100.00 %, DrawRatio: 31.48 %, PairsRatio: 4.05
+Games: 324, Wins: 127, Losses: 48, Draws: 149, Points: 201.5 (62.19 %)
+Ptnml(0-2): [2, 20, 51, 75, 14], WL/DD Ratio: 0.89
+LLR: 2.92 (101.1%) (-2.25, 2.89) [0.00, 10.00]
+```
