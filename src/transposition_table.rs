@@ -103,14 +103,33 @@ impl Default for TTEntry {
 }
 
 impl TranspositionTable {
-    /// Panics if size_log_2 is less than 10
-    pub fn new(size_log_2: u8) -> TranspositionTable {
-        if size_log_2 < 10 {
-            error!("TranspositionTable size_log_2 must be at least 10");
-            panic!("TranspositionTable size_log_2 must be at least 10");
+    /// The size (in Mebibytes) must be at least 1.
+    /// The size will be rounded down to the nearest power of two (or to one).
+    pub fn new_with_size_mib(size_mib: u32) -> Result<Self, String> {
+        let hash_bytes = (size_mib as usize).checked_mul(1024 * 1024);
+        if hash_bytes.is_none() {
+            return Err(String::from("Requested size is too large"));
+        }
+        let hash_bytes = hash_bytes.unwrap();
+
+        if hash_bytes == 0 {
+            return Err(String::from("Minimum value is 1 (MiB)"));
         }
 
-        let capacity = 1 << (size_log_2 - 1);
+        let entries = hash_bytes / size_of::<TTEntry>();
+        let entries_log2 = entries.checked_ilog2().unwrap();
+
+        return Ok(Self::new_with_bucket_count_log_2(entries_log2 as u8));
+    }
+
+    /// Panics if size_log_2 is less than 10
+    pub fn new_with_bucket_count_log_2(buckets_log2: u8) -> TranspositionTable {
+        if buckets_log2 < 10 {
+            error!("TranspositionTable buckets_log2 must be at least 10");
+            panic!("TranspositionTable buckets_log2 must be at least 10");
+        }
+
+        let capacity = 1 << (buckets_log2 - 1);
         let mut vec = Vec::with_capacity(capacity);
         for _ in 0..capacity {
             vec.push(TwoTierEntry::default());
@@ -118,7 +137,7 @@ impl TranspositionTable {
 
         TranspositionTable {
             table: vec,
-            key_mask: (1 << (size_log_2 - 1)) - 1,
+            key_mask: (1 << (buckets_log2 - 1)) - 1,
         }
     }
 

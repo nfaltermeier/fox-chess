@@ -1,0 +1,2 @@
+corsasc.nnue
+CRC64: EA543D70B8AE959A

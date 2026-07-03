@@ -22,10 +22,11 @@ use crate::{
     get_build_info,
     history::ThreadHistoryTables,
     moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
+    nnue::{AccumulatorPair, NNUE},
     perft::run_perft_suites,
     repetition_tracker::RepetitionTracker,
-    search::{self, search_multithreaded, stats::SearchStats},
-    transposition_table::{TTEntry, TranspositionTable},
+    search::{self, PrintMode, search_multithreaded, stats::SearchStats},
+    transposition_table::TranspositionTable,
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
 };
 
@@ -54,7 +55,7 @@ impl UciInterface {
             board: None,
             repetitions: RepetitionTracker::new(),
             stop_rx,
-            transposition_table: TranspositionTable::new(tt_size_log_2),
+            transposition_table: TranspositionTable::new_with_bucket_count_log_2(tt_size_log_2),
             thread_histories: vec![ThreadHistoryTables::new()],
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
@@ -160,7 +161,11 @@ impl UciInterface {
                             self.extra_uci_options.convert(),
                             self.contempt,
                             self.repetitions.clone(),
-                            self.use_uci_mode,
+                            if self.use_uci_mode {
+                                PrintMode::Uci
+                            } else {
+                                PrintMode::Pretty
+                            },
                             b.clone(),
                             &time_control,
                             &search_control,
@@ -185,27 +190,14 @@ impl UciInterface {
                     match name.to_ascii_lowercase().as_str() {
                         "hash" => {
                             if let Some(value) = value {
-                                let hash_mib = value.parse::<usize>();
+                                let hash_mib = value.parse::<u32>();
                                 if let Ok(hash_mib) = hash_mib {
-                                    let hash_bytes = hash_mib * 1024 * 1024;
-
-                                    if hash_bytes == 0 {
-                                        error!("Minimum value is 1 (MiB)");
-                                        continue;
+                                    let new_tt = TranspositionTable::new_with_size_mib(hash_mib);
+                                    if let Err(e) = new_tt {
+                                        println!("{e}");
+                                    } else {
+                                        self.transposition_table = new_tt.unwrap();
                                     }
-
-                                    let entries = hash_bytes / size_of::<TTEntry>();
-                                    let entries_log2 = entries.checked_ilog2().unwrap();
-
-                                    if entries_log2 > u8::MAX as u32 {
-                                        error!("Value is too big");
-                                        continue;
-                                    } else if entries_log2 < 2 {
-                                        error!("Something went wrong, entries_log2 is less than 2");
-                                        continue;
-                                    }
-
-                                    self.transposition_table = TranspositionTable::new(entries_log2 as u8);
                                 } else {
                                     error!(
                                         "Failed to parse Hash value as a natural number: {}",
@@ -351,7 +343,14 @@ impl UciInterface {
                         bench();
                     } else if message.starts_with("eval") {
                         if let Some(board) = &self.board {
-                            println!("Static eval: {}", board.evaluate_side_to_move_relative())
+                            let accumulators = AccumulatorPair::from(board, &NNUE);
+                            let eval = if board.white_to_move {
+                                NNUE.evaluate(&accumulators.white, &accumulators.black)
+                            } else {
+                                NNUE.evaluate(&accumulators.black, &accumulators.white)
+                            };
+
+                            println!("Static eval: {}", eval);
                         } else {
                             error!("Board must be set with position first");
                         }

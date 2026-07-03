@@ -19,6 +19,7 @@ use crate::{
     },
     move_generator::{MOVE_ARRAY_SIZE, ScoredMove},
     moves::Move,
+    nnue::{AccumulatorPairStack, NNUE},
     pretty_print_stats::{pretty_print_stats, print_header},
     repetition_tracker::RepetitionTracker,
     search::stats::SearchStats,
@@ -46,6 +47,13 @@ enum SearchControl {
     Depth,
     Infinite,
     Nodes,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum PrintMode {
+    None,
+    Uci,
+    Pretty,
 }
 
 #[derive(Clone)]
@@ -96,10 +104,10 @@ pub struct Searcher<'a> {
     ss: Vec<SearchStack>,
     root_killers: [Move; 2],
     repetitions: Box<RepetitionTracker>,
-    use_uci_mode: bool,
     correction_histories: &'a mut CorrectionHistoryTables,
     thread_num: u16,
     stop_search: &'a AtomicBool,
+    accumulators: AccumulatorPairStack,
 }
 
 /// Returns the stats and result from the main thread
@@ -112,7 +120,7 @@ pub fn search_multithreaded<'a, F>(
     extra_uci_options: RequiredUciOptions,
     contempt: i16,
     repetitions: Box<RepetitionTracker>,
-    use_uci_mode: bool,
+    print_mode: PrintMode,
     board: Board,
     time_options: &Option<UciTimeControl>,
     search_options: &Option<UciSearchControl>,
@@ -159,7 +167,6 @@ where
                     extra_uci_options,
                     contempt,
                     repetitions,
-                    use_uci_mode,
                     thread_num,
                     stop_search,
                     stats,
@@ -199,13 +206,13 @@ where
             extra_uci_options,
             contempt,
             repetitions,
-            use_uci_mode,
             0,
             &stop_search,
             stats,
             hard_max_nodes,
         );
-        let result = searcher.iterative_deepening_search(board, time_options, search_options, move_overhead);
+        let result =
+            searcher.iterative_deepening_search(board, time_options, search_options, move_overhead, print_mode);
 
         // Ensure the other threads know to stop whenever the main thread stops
         stop_search.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -225,7 +232,6 @@ impl<'a> Searcher<'a> {
         extra_uci_options: RequiredUciOptions,
         contempt: i16,
         repetitions: Box<RepetitionTracker>,
-        use_uci_mode: bool,
         thread_num: u16,
         stop_search: &'a AtomicBool,
         stats: SearchStats,
@@ -256,10 +262,10 @@ impl<'a> Searcher<'a> {
             ss: Vec::new(),
             root_killers: [EMPTY_MOVE; 2],
             repetitions,
-            use_uci_mode,
             correction_histories: &mut thread_histories.correction_histories,
             thread_num,
             stop_search,
+            accumulators: AccumulatorPairStack::new(),
         }
     }
 
@@ -268,6 +274,7 @@ impl<'a> Searcher<'a> {
         self.starting_fullmove = board.fullmove_counter as u8;
         self.starting_in_check = board.is_in_check(false);
         self.white_started_search = board.white_to_move;
+        self.accumulators.init(board, &NNUE);
     }
 
     fn iterative_deepening_search(
@@ -276,6 +283,7 @@ impl<'a> Searcher<'a> {
         time_options: &Option<UciTimeControl>,
         search_options: &Option<UciSearchControl>,
         move_overhead: u16,
+        print_mode: PrintMode,
     ) -> (SearchResult, SearchStats) {
         let start_time = Instant::now();
         let mut soft_cutoff_time = None;
@@ -283,7 +291,7 @@ impl<'a> Searcher<'a> {
         let mut max_depth = 40;
         let mut cutoff_times = None;
 
-        if !self.use_uci_mode {
+        if print_mode == PrintMode::Pretty {
             print_header();
         }
 
@@ -368,30 +376,36 @@ impl<'a> Searcher<'a> {
             {
                 let elapsed = start_time.elapsed();
 
-                for (i, pv) in self.root_pvs.iter().enumerate() {
-                    if self.use_uci_mode {
-                        UciInterface::print_search_info(
-                            pv.search_result.score,
-                            &self.stats,
-                            &elapsed,
-                            self.transposition_table,
-                            &pv.pv,
-                            self.starting_fullmove,
-                            i as u8 + 1,
-                            pv.selective_depth,
-                        );
-                    } else {
-                        pretty_print_stats(
-                            pv.search_result.score,
-                            &self.stats,
-                            &elapsed,
-                            self.transposition_table,
-                            &pv.pv,
-                            self.starting_fullmove,
-                            i as u8 + 1,
-                            pv.selective_depth,
-                            &board,
-                        );
+                if print_mode != PrintMode::None {
+                    for (i, pv) in self.root_pvs.iter().enumerate() {
+                        match print_mode {
+                            PrintMode::None => unreachable!(),
+                            PrintMode::Uci => {
+                                UciInterface::print_search_info(
+                                    pv.search_result.score,
+                                    &self.stats,
+                                    &elapsed,
+                                    self.transposition_table,
+                                    &pv.pv,
+                                    self.starting_fullmove,
+                                    i as u8 + 1,
+                                    pv.selective_depth,
+                                );
+                            }
+                            PrintMode::Pretty => {
+                                pretty_print_stats(
+                                    pv.search_result.score,
+                                    &self.stats,
+                                    &elapsed,
+                                    self.transposition_table,
+                                    &pv.pv,
+                                    self.starting_fullmove,
+                                    i as u8 + 1,
+                                    pv.selective_depth,
+                                    &board,
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -437,10 +451,12 @@ impl<'a> Searcher<'a> {
 
                 latest_result = Some(best_pv.search_result.clone());
             } else {
-                println!(
-                    "info string search interrupted with nodes {}",
-                    self.stats.global_total_nodes()
-                );
+                if print_mode != PrintMode::None {
+                    println!(
+                        "info string search interrupted with nodes {}",
+                        self.stats.global_total_nodes()
+                    );
+                }
 
                 if !self.stop_received {
                     debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
@@ -550,7 +566,7 @@ impl<'a> Searcher<'a> {
 
         if ply != 0
             && (board.halfmove_clock >= 100
-                || self.repetitions.test_repetition(board)
+                || self.repetitions.position_has_repeated_times(board, 2)
                 || board.is_insufficient_material())
         {
             if self.inc_and_check_thread_nodes() {
@@ -571,7 +587,7 @@ impl<'a> Searcher<'a> {
             return Ok(if in_check {
                 self.eval_draw(board)
             } else {
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply)
+                self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply)
             });
         }
 
@@ -680,8 +696,7 @@ impl<'a> Searcher<'a> {
         let mut static_eval = None;
         let mut futility_prune = false;
         if !in_check && excluded_move.is_none() {
-            let eval =
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
+            let eval = self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply);
             static_eval = Some(eval);
             self.ss[ply as usize].static_eval = Some(eval);
 
@@ -854,18 +869,7 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            let mut new_board = board.clone();
-            let moved_piece_type = new_board.get_piece_64(mov.m.from() as usize) & PIECE_MASK;
-            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
-            if !legal {
-                if move_made {
-                    self.repetitions.unmake_move(new_board.hash);
-                }
-                continue;
-            }
-
-            has_legal_move = true;
-
+            // test for SE before making move so the accumulator updates from make_move don't get overwitten
             let mut extension = 0;
             if ply != 0
                 && draft >= 5
@@ -877,7 +881,6 @@ impl<'a> Searcher<'a> {
                         && tt_entry.get_score(ply).abs() < MATE_THRESHOLD - 2600
                 })
             {
-                self.repetitions.unmake_move(new_board.hash);
                 self.ss[ply as usize].excluded_move = Some(mov.m);
 
                 let verification_draft = draft / 2;
@@ -905,8 +908,24 @@ impl<'a> Searcher<'a> {
                 }
 
                 self.ss[ply as usize].excluded_move = None;
-                self.repetitions.make_move(mov.m, new_board.hash);
             }
+
+            let mut new_board = board.clone();
+            let moved_piece_type = new_board.get_piece_64(mov.m.from() as usize) & PIECE_MASK;
+            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(
+                mov.m,
+                &mut self.repetitions,
+                Some(&mut self.accumulators),
+                Some(&NNUE),
+            );
+            if !legal {
+                if move_made {
+                    self.unmake_move(&new_board);
+                }
+                continue;
+            }
+
+            has_legal_move = true;
 
             self.ss[ply as usize].mov = mov.m;
             self.ss[ply as usize].moved_piece_type = moved_piece_type;
@@ -1004,7 +1023,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            self.repetitions.unmake_move(new_board.hash);
+            self.unmake_move(&new_board);
             searched_moves += 1;
 
             if score >= beta {
@@ -1249,13 +1268,12 @@ impl<'a> Searcher<'a> {
             return Ok(if in_check {
                 self.eval_draw(board)
             } else {
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply)
+                self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply)
             });
         }
 
         if !in_check {
-            let stand_pat =
-                board.evaluate_side_to_move_relative() + self.correction_histories.get_adjustment(board, &self.ss, ply);
+            let stand_pat = self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply);
 
             if stand_pat >= beta {
                 return Ok(stand_pat);
@@ -1289,10 +1307,11 @@ impl<'a> Searcher<'a> {
 
                 let mut new_board = board.clone();
                 let moved_piece_type = new_board.get_piece_64(mov.m.from() as usize) & PIECE_MASK;
-                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions);
+                let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov.m, &mut self.repetitions, Some(&mut self.accumulators),
+                    Some(&NNUE));
                 if !legal {
                     if move_made {
-                        self.repetitions.unmake_move(new_board.hash);
+                        self.unmake_move(&new_board);
                     }
                     continue;
                 }
@@ -1303,7 +1322,7 @@ impl<'a> Searcher<'a> {
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;
 
-                self.repetitions.unmake_move(new_board.hash);
+                self.unmake_move(&new_board);
 
                 if score >= beta {
                     self.transposition_table.store_entry(TTEntry::new(
@@ -1376,6 +1395,21 @@ impl<'a> Searcher<'a> {
         self.stats.inc_nodes();
 
         self.hard_max_nodes && self.stats.thread_total_nodes() >= self.max_nodes
+    }
+
+    fn evaluate_nnue(&self, board: &Board) -> i16 {
+        let pair = self.accumulators.get_current_accumulator();
+        if board.white_to_move {
+            NNUE.evaluate(&pair.white, &pair.black)
+        } else {
+            NNUE.evaluate(&pair.black, &pair.white)
+        }
+    }
+
+    /// Does not modify the board, but does update the repetition tracker and change which accumulator is current
+    fn unmake_move(&mut self, new_board: &Board) {
+        self.repetitions.unmake_move(new_board.hash);
+        self.accumulators.decr_ply();
     }
 }
 

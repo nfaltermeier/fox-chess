@@ -3,9 +3,7 @@ use std::{fmt::Debug, sync::LazyLock};
 use rand::{Fill, SeedableRng, rngs::StdRng};
 
 use crate::{
-    bitboard::{BIT_SQUARES, DARK_SQUARES, LIGHT_SQUARES, pretty_print_bitboard},
-    eval_values::PIECE_SQUARE_TABLES,
-    evaluate::GAME_STAGE_VALUES,
+    bitboard::{BIT_SQUARES, pretty_print_bitboard},
     repetition_tracker::RepetitionTracker,
     uci::CHESS960,
 };
@@ -49,9 +47,6 @@ pub const HASH_VALUES_CASTLE_BLACK_KING_IDX: usize = HASH_VALUES_CASTLE_WHITE_QU
 pub const HASH_VALUES_CASTLE_BLACK_QUEEN_IDX: usize = HASH_VALUES_CASTLE_BLACK_KING_IDX + 1;
 pub const HASH_VALUES_EP_FILE_IDX: usize = HASH_VALUES_CASTLE_BLACK_QUEEN_IDX + 1;
 
-pub const BISHOP_COLORS_LIGHT: u8 = 1;
-pub const BISHOP_COLORS_DARK: u8 = 2;
-
 pub static ZOBRIST_HASH_VALUES: LazyLock<[u64; 781]> = LazyLock::new(|| {
     // rand crate doesn't gurantee values are reproducible...
     let mut rng = StdRng::seed_from_u64(0x88d885d4bb51ffc2);
@@ -74,6 +69,7 @@ pub static MATERIAL_HASH_VALUES: LazyLock<[u64; 17 * 5 * 2]> = LazyLock::new(|| 
 
 #[allow(dead_code)]
 #[rustfmt::skip]
+#[derive(Clone, Copy)]
 pub enum Squares {
     A1, B1, C1, D1, E1, F1, G1, H1,
     A2, B2, C2, D2, E2, F2, G2, H2,
@@ -98,16 +94,12 @@ pub struct Board {
     pub pawn_hash: u64,
     pub material_hash: u64,
     pub nonpawn_hashes: [u64; 2],
-    pub game_stage: i16,
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_counts: [[u8; 7]; 2],
     /// White then black, pieces are stored by their piece index so 0 is nothing, 1 is pawn, etc.
     pub piece_bitboards: [[u64; 7]; 2],
     pub side_occupancy: [u64; 2],
     pub occupancy: u64,
-    pub piecesquare_midgame: i16,
-    pub piecesquare_endgame: i16,
-    pub bishop_colors: [u8; 2],
 }
 
 impl Board {
@@ -125,8 +117,6 @@ impl Board {
                 self.piece_bitboards[side][piece_type] &= !bit_square;
                 self.side_occupancy[side] &= !bit_square;
                 self.occupancy &= !bit_square;
-                self.piecesquare_midgame -= PIECE_SQUARE_TABLES[side][piece_type - 1][square_index];
-                self.piecesquare_endgame -= PIECE_SQUARE_TABLES[side][piece_type - 1 + 6][square_index];
             }
         } else {
             let side = if piece & COLOR_BLACK != 0 { 1 } else { 0 };
@@ -134,8 +124,6 @@ impl Board {
             self.piece_bitboards[side][piece_type] |= bit_square;
             self.side_occupancy[side] |= bit_square;
             self.occupancy |= bit_square;
-            self.piecesquare_midgame += PIECE_SQUARE_TABLES[side][piece_type - 1][square_index];
-            self.piecesquare_endgame += PIECE_SQUARE_TABLES[side][piece_type - 1 + 6][square_index];
         }
 
         self.squares[square_index] = piece;
@@ -166,14 +154,10 @@ impl Board {
             pawn_hash: 0,
             material_hash: 0,
             nonpawn_hashes: [0; 2],
-            game_stage: 0,
             piece_counts: [[0; 7]; 2],
             piece_bitboards: [[0; 7]; 2],
             side_occupancy: [0; 2],
             occupancy: 0,
-            piecesquare_midgame: 0,
-            piecesquare_endgame: 0,
-            bishop_colors: [0; 2],
         };
         let mut board_index: usize = 56;
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
@@ -201,11 +185,6 @@ impl Board {
                 }
                 'B' => {
                     place_piece_init(&mut board, PIECE_BISHOP, true, board_index, zobrist_hash_values);
-                    board.bishop_colors[0] |= if BIT_SQUARES[board_index] & DARK_SQUARES != 0 {
-                        BISHOP_COLORS_DARK
-                    } else {
-                        BISHOP_COLORS_LIGHT
-                    };
                     board_index += 1;
                 }
                 'R' => {
@@ -230,11 +209,6 @@ impl Board {
                 }
                 'b' => {
                     place_piece_init(&mut board, PIECE_BISHOP, false, board_index, zobrist_hash_values);
-                    board.bishop_colors[1] |= if BIT_SQUARES[board_index] & DARK_SQUARES != 0 {
-                        BISHOP_COLORS_DARK
-                    } else {
-                        BISHOP_COLORS_LIGHT
-                    };
                     board_index += 1;
                 }
                 'r' => {
@@ -629,14 +603,6 @@ impl Board {
             self.piece_counts[side][piece_type as usize],
             material_hash_values,
         );
-
-        if piece_type == PIECE_BISHOP {
-            self.bishop_colors[side] |= if BIT_SQUARES[board_index as usize] & DARK_SQUARES != 0 {
-                BISHOP_COLORS_DARK
-            } else {
-                BISHOP_COLORS_LIGHT
-            };
-        }
     }
 
     /// Does not handle castling rights
@@ -649,7 +615,6 @@ impl Board {
         let white = old_piece & COLOR_BLACK == 0;
         let side = if white { 0 } else { 1 };
 
-        self.game_stage -= GAME_STAGE_VALUES[piece_type as usize];
         self.piece_counts[side][piece_type as usize] -= 1;
 
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
@@ -675,15 +640,6 @@ impl Board {
             self.piece_counts[side][piece_type as usize],
             material_hash_values,
         );
-
-        if piece_type == PIECE_BISHOP {
-            if self.piece_bitboards[side][PIECE_BISHOP as usize] & DARK_SQUARES == 0 {
-                self.bishop_colors[side] &= !BISHOP_COLORS_DARK;
-            }
-            if self.piece_bitboards[side][PIECE_BISHOP as usize] & LIGHT_SQUARES == 0 {
-                self.bishop_colors[side] &= !BISHOP_COLORS_LIGHT;
-            }
-        }
     }
 
     /// Does not handle castling rights
@@ -765,12 +721,10 @@ impl Debug for Board {
                 "nonpawn_hashes",
                 &format!("[{:#018x}, {:#018x}]", self.nonpawn_hashes[0], self.nonpawn_hashes[1]),
             )
-            .field("game_stage", &self.game_stage)
             .field("piece_counts", &self.piece_counts)
             .field("piece_bitboards", &"See end value")
             .field("side_occupancy", &"See end value")
             .field("occupancy", &"See end value")
-            .field("bishop_colors", &self.bishop_colors)
             .finish();
         if result.is_err() {
             panic!("Failed to convert Board to debug struct representation")
@@ -875,7 +829,6 @@ fn place_piece_init(board: &mut Board, piece_code: u8, white: bool, index: usize
         board.nonpawn_hashes[side] ^= hash;
     }
 
-    board.game_stage += GAME_STAGE_VALUES[piece_code as usize];
     board.piece_counts[side][piece_code as usize] += 1;
 }
 
