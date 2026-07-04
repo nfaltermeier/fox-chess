@@ -147,7 +147,7 @@ Ptnml(0-2): [6, 67, 147, 113, 18], WL/DD Ratio: 1.45
 LLR: 2.93 (101.3%) (-2.25, 2.89) [0.00, 10.00]
 ```
 
-# Corasc
+# Corsac
 * Arch: (768 -> 128)x2 -> 1
 
 ```
@@ -157,4 +157,28 @@ LOS: 100.00 %, DrawRatio: 31.48 %, PairsRatio: 4.05
 Games: 324, Wins: 127, Losses: 48, Draws: 149, Points: 201.5 (62.19 %)
 Ptnml(0-2): [2, 20, 51, 75, 14], WL/DD Ratio: 0.89
 LLR: 2.92 (101.1%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Corsac-V2
+* Superbatches: 120
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: -11.42 +/- 12.09, nElo: -19.19 +/- 20.29
+LOS: 3.19 %, DrawRatio: 47.96 %, PairsRatio: 0.83
+Games: 1126, Wins: 260, Losses: 297, Draws: 569, Points: 544.5 (48.36 %)
+Ptnml(0-2): [23, 137, 270, 120, 13], WL/DD Ratio: 0.73
+LLR: -2.25 (-100.1%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Corsac-V3
+* Data: Add 134M positions (filtered) @ 5K soft nodes self-generated with Corsac
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 46.02 +/- 17.78, nElo: 80.98 +/- 30.89
+LOS: 100.00 %, DrawRatio: 46.50 %, PairsRatio: 2.42
+Games: 486, Wins: 151, Losses: 87, Draws: 248, Points: 275.0 (56.58 %)
+Ptnml(0-2): [2, 36, 113, 80, 12], WL/DD Ratio: 0.71
+LLR: 2.89 (100.1%) (-2.25, 2.89) [0.00, 10.00]
 ```

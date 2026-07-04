@@ -1,2 +1,2 @@
-corsasc.nnue
-CRC64: EA543D70B8AE959A
+corsasc-v3.nnue
+CRC64: 5502122B0FF7E8D7
