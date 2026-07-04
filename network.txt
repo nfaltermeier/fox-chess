@@ -1,2 +1,2 @@
-corsasc-v3.nnue
-CRC64: 5502122B0FF7E8D7
+bengal.nnue
+CRC64: 9E571B51C75274EB

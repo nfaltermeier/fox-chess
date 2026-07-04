@@ -174,11 +174,24 @@ LLR: -2.25 (-100.1%) (-2.25, 2.89) [0.00, 10.00]
 # Corsac-V3
 * Data: Add 134M positions (filtered) @ 5K soft nodes self-generated with Corsac
 
+VS Corsac
 ```
 Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
 Elo: 46.02 +/- 17.78, nElo: 80.98 +/- 30.89
 LOS: 100.00 %, DrawRatio: 46.50 %, PairsRatio: 2.42
 Games: 486, Wins: 151, Losses: 87, Draws: 248, Points: 275.0 (56.58 %)
 Ptnml(0-2): [2, 36, 113, 80, 12], WL/DD Ratio: 0.71
+LLR: 2.89 (100.1%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Bengal
+* Arch: (768 -> 256)x2 -> 1
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 35.75 +/- 16.17, nElo: 60.24 +/- 27.04
+LOS: 100.00 %, DrawRatio: 44.79 %, PairsRatio: 1.78
+Games: 634, Wins: 209, Losses: 144, Draws: 281, Points: 349.5 (55.13 %)
+Ptnml(0-2): [2, 61, 142, 94, 18], WL/DD Ratio: 1.25
 LLR: 2.89 (100.1%) (-2.25, 2.89) [0.00, 10.00]
 ```
