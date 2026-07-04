@@ -70,3 +70,103 @@ Games: 300, Wins: 132, Losses: 53, Draws: 115, Points: 189.5 (63.17 %)
 Ptnml(0-2): [1, 18, 53, 57, 21], WL/DD Ratio: 1.65
 LLR: 2.91 (100.6%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Kit
+* Data: Add 36M positions (filtered) @ 5K soft nodes self-generated with Fennec
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 53.77 +/- 20.14, nElo: 84.23 +/- 31.02
+LOS: 100.00 %, DrawRatio: 41.49 %, PairsRatio: 2.44
+Games: 482, Wins: 181, Losses: 107, Draws: 194, Points: 278.0 (57.68 %)
+Ptnml(0-2): [5, 36, 100, 80, 20], WL/DD Ratio: 1.56
+LLR: 2.95 (102.0%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Swift
+* Arch: (768 -> 64)x2 -> 1
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 82.73 +/- 25.09, nElo: 127.06 +/- 37.04
+LOS: 100.00 %, DrawRatio: 37.28 %, PairsRatio: 3.82
+Games: 338, Wins: 140, Losses: 61, Draws: 137, Points: 208.5 (61.69 %)
+Ptnml(0-2): [3, 19, 63, 64, 20], WL/DD Ratio: 1.33
+LLR: 2.90 (100.3%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Cape
+* LR: Cosine decay from 0.001 to 0.001 * 0.3^5
+* Superbatches: 80
+
+It is testing two changes at once, but I feel like they make a lot of sense together
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 12.36 +/- 8.85, nElo: 19.16 +/- 13.69
+LOS: 99.69 %, DrawRatio: 41.71 %, PairsRatio: 1.19
+Games: 2474, Wins: 693, Losses: 605, Draws: 1176, Points: 1281.0 (51.78 %)
+Ptnml(0-2): [40, 289, 516, 327, 65], WL/DD Ratio: 0.84
+LLR: 2.90 (100.3%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# 0.3 WDL
+* WDL: Constant 0.3
+
+```
+Results of engine1 vs engine2 (30+0.3, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: -14.05 +/- 12.68, nElo: -24.66 +/- 22.21
+LOS: 1.48 %, DrawRatio: 47.87 %, PairsRatio: 0.73
+Games: 940, Wins: 228, Losses: 266, Draws: 446, Points: 451.0 (47.98 %)
+Ptnml(0-2): [10, 132, 225, 92, 11], WL/DD Ratio: 1.03
+LLR: -2.28 (-101.5%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Tibetan
+* WDL: Linear from 0.4 to 0.6
+
+VS Cape
+```
+Results of engine1 vs engine2 (30+0.3, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 11.45 +/- 8.06, nElo: 20.02 +/- 14.08
+LOS: 99.73 %, DrawRatio: 47.82 %, PairsRatio: 1.23
+Games: 2338, Wins: 621, Losses: 544, Draws: 1173, Points: 1207.5 (51.65 %)
+Ptnml(0-2): [19, 255, 559, 302, 34], WL/DD Ratio: 0.81
+LLR: 2.91 (100.5%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Tibetan-V2
+* Data: Add 77M positions (filtered) @ 5K soft nodes self-generated with Tibetan
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 34.76 +/- 15.87, nElo: 56.70 +/- 25.70
+LOS: 100.00 %, DrawRatio: 41.88 %, PairsRatio: 1.79
+Games: 702, Wins: 236, Losses: 166, Draws: 300, Points: 386.0 (54.99 %)
+Ptnml(0-2): [6, 67, 147, 113, 18], WL/DD Ratio: 1.45
+LLR: 2.93 (101.3%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Corsac
+* Arch: (768 -> 128)x2 -> 1
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 86.46 +/- 24.58, nElo: 138.92 +/- 37.83
+LOS: 100.00 %, DrawRatio: 31.48 %, PairsRatio: 4.05
+Games: 324, Wins: 127, Losses: 48, Draws: 149, Points: 201.5 (62.19 %)
+Ptnml(0-2): [2, 20, 51, 75, 14], WL/DD Ratio: 0.89
+LLR: 2.92 (101.1%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Corsac-V2
+* Superbatches: 120
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: -11.42 +/- 12.09, nElo: -19.19 +/- 20.29
+LOS: 3.19 %, DrawRatio: 47.96 %, PairsRatio: 0.83
+Games: 1126, Wins: 260, Losses: 297, Draws: 569, Points: 544.5 (48.36 %)
+Ptnml(0-2): [23, 137, 270, 120, 13], WL/DD Ratio: 0.73
+LLR: -2.25 (-100.1%) (-2.25, 2.89) [0.00, 10.00]
+```

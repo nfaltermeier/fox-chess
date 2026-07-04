@@ -1,2 +1,2 @@
-fennec.nnue
-CRC64: FF9DCA7AAA7D7515
+corsasc.nnue
+CRC64: EA543D70B8AE959A

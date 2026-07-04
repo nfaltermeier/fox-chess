@@ -49,6 +49,13 @@ enum SearchControl {
     Nodes,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum PrintMode {
+    None,
+    Uci,
+    Pretty,
+}
+
 #[derive(Clone)]
 pub struct SearchResult {
     pub best_move: Move,
@@ -97,7 +104,6 @@ pub struct Searcher<'a> {
     ss: Vec<SearchStack>,
     root_killers: [Move; 2],
     repetitions: Box<RepetitionTracker>,
-    use_uci_mode: bool,
     correction_histories: &'a mut CorrectionHistoryTables,
     thread_num: u16,
     stop_search: &'a AtomicBool,
@@ -114,7 +120,7 @@ pub fn search_multithreaded<'a, F>(
     extra_uci_options: RequiredUciOptions,
     contempt: i16,
     repetitions: Box<RepetitionTracker>,
-    use_uci_mode: bool,
+    print_mode: PrintMode,
     board: Board,
     time_options: &Option<UciTimeControl>,
     search_options: &Option<UciSearchControl>,
@@ -161,7 +167,6 @@ where
                     extra_uci_options,
                     contempt,
                     repetitions,
-                    use_uci_mode,
                     thread_num,
                     stop_search,
                     stats,
@@ -201,13 +206,13 @@ where
             extra_uci_options,
             contempt,
             repetitions,
-            use_uci_mode,
             0,
             &stop_search,
             stats,
             hard_max_nodes,
         );
-        let result = searcher.iterative_deepening_search(board, time_options, search_options, move_overhead);
+        let result =
+            searcher.iterative_deepening_search(board, time_options, search_options, move_overhead, print_mode);
 
         // Ensure the other threads know to stop whenever the main thread stops
         stop_search.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -227,7 +232,6 @@ impl<'a> Searcher<'a> {
         extra_uci_options: RequiredUciOptions,
         contempt: i16,
         repetitions: Box<RepetitionTracker>,
-        use_uci_mode: bool,
         thread_num: u16,
         stop_search: &'a AtomicBool,
         stats: SearchStats,
@@ -258,7 +262,6 @@ impl<'a> Searcher<'a> {
             ss: Vec::new(),
             root_killers: [EMPTY_MOVE; 2],
             repetitions,
-            use_uci_mode,
             correction_histories: &mut thread_histories.correction_histories,
             thread_num,
             stop_search,
@@ -280,6 +283,7 @@ impl<'a> Searcher<'a> {
         time_options: &Option<UciTimeControl>,
         search_options: &Option<UciSearchControl>,
         move_overhead: u16,
+        print_mode: PrintMode,
     ) -> (SearchResult, SearchStats) {
         let start_time = Instant::now();
         let mut soft_cutoff_time = None;
@@ -287,7 +291,7 @@ impl<'a> Searcher<'a> {
         let mut max_depth = 40;
         let mut cutoff_times = None;
 
-        if !self.use_uci_mode {
+        if print_mode == PrintMode::Pretty {
             print_header();
         }
 
@@ -372,30 +376,36 @@ impl<'a> Searcher<'a> {
             {
                 let elapsed = start_time.elapsed();
 
-                for (i, pv) in self.root_pvs.iter().enumerate() {
-                    if self.use_uci_mode {
-                        UciInterface::print_search_info(
-                            pv.search_result.score,
-                            &self.stats,
-                            &elapsed,
-                            self.transposition_table,
-                            &pv.pv,
-                            self.starting_fullmove,
-                            i as u8 + 1,
-                            pv.selective_depth,
-                        );
-                    } else {
-                        pretty_print_stats(
-                            pv.search_result.score,
-                            &self.stats,
-                            &elapsed,
-                            self.transposition_table,
-                            &pv.pv,
-                            self.starting_fullmove,
-                            i as u8 + 1,
-                            pv.selective_depth,
-                            &board,
-                        );
+                if print_mode != PrintMode::None {
+                    for (i, pv) in self.root_pvs.iter().enumerate() {
+                        match print_mode {
+                            PrintMode::None => unreachable!(),
+                            PrintMode::Uci => {
+                                UciInterface::print_search_info(
+                                    pv.search_result.score,
+                                    &self.stats,
+                                    &elapsed,
+                                    self.transposition_table,
+                                    &pv.pv,
+                                    self.starting_fullmove,
+                                    i as u8 + 1,
+                                    pv.selective_depth,
+                                );
+                            }
+                            PrintMode::Pretty => {
+                                pretty_print_stats(
+                                    pv.search_result.score,
+                                    &self.stats,
+                                    &elapsed,
+                                    self.transposition_table,
+                                    &pv.pv,
+                                    self.starting_fullmove,
+                                    i as u8 + 1,
+                                    pv.selective_depth,
+                                    &board,
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -441,10 +451,12 @@ impl<'a> Searcher<'a> {
 
                 latest_result = Some(best_pv.search_result.clone());
             } else {
-                println!(
-                    "info string search interrupted with nodes {}",
-                    self.stats.global_total_nodes()
-                );
+                if print_mode != PrintMode::None {
+                    println!(
+                        "info string search interrupted with nodes {}",
+                        self.stats.global_total_nodes()
+                    );
+                }
 
                 if !self.stop_received {
                     debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
@@ -554,7 +566,7 @@ impl<'a> Searcher<'a> {
 
         if ply != 0
             && (board.halfmove_clock >= 100
-                || self.repetitions.test_repetition(board)
+                || self.repetitions.position_has_repeated_times(board, 2)
                 || board.is_insufficient_material())
         {
             if self.inc_and_check_thread_nodes() {
