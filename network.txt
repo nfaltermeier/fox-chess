@@ -1,2 +1,2 @@
-bengal.nnue
-CRC64: 9E571B51C75274EB
+bengal-v3.nnue
+CRC64: 5C70FC64EF396648

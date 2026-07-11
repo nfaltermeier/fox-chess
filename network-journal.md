@@ -195,3 +195,28 @@ Games: 634, Wins: 209, Losses: 144, Draws: 281, Points: 349.5 (55.13 %)
 Ptnml(0-2): [2, 61, 142, 94, 18], WL/DD Ratio: 1.25
 LLR: 2.89 (100.1%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Bengal-V2
+* Superbatches: 100
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: -0.79 +/- 6.24, nElo: -1.29 +/- 10.25
+LOS: 40.24 %, DrawRatio: 45.38 %, PairsRatio: 0.97
+Games: 4416, Wins: 1118, Losses: 1128, Draws: 2170, Points: 2203.0 (49.89 %)
+Ptnml(0-2): [69, 542, 1002, 520, 75], WL/DD Ratio: 0.81
+LLR: -2.30 (-102.3%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Bengal-V3
+* WDL: Linear from 0.4 to 0.6
+
+VS Bengal-V2
+```
+Results of engine1 vs engine2 (30+0.3, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 8.94 +/- 6.79, nElo: 15.44 +/- 11.71
+LOS: 99.51 %, DrawRatio: 46.80 %, PairsRatio: 1.19
+Games: 3380, Wins: 898, Losses: 811, Draws: 1671, Points: 1733.5 (51.29 %)
+Ptnml(0-2): [35, 376, 791, 443, 45], WL/DD Ratio: 0.86
+LLR: 2.91 (100.8%) (-2.25, 2.89) [0.00, 10.00]
+```
