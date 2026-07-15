@@ -1,12 +1,34 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES},
-    board::{Board, PIECE_BISHOP, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
-    moves::Move,
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES}, board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move,
 };
 
 /// 0 is no piece
 pub static PIECE_VALUES_SEE: [i16; 7] = [0, 97, 359, 378, 544, 1097, 20000];
+
+// The board as it appears here in the array is vertically flipped which changes the colors. a1 is a dark square.
+#[rustfmt::skip]
+static LIGHT_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
+    7, 6, 5, 4, 3, 2, 1, 0,
+    6, 7, 6, 5, 4, 3, 2, 1,
+    5, 6, 7, 6, 5, 4, 3, 2,
+    4, 5, 6, 7, 6, 5, 4, 3,
+    3, 4, 5, 6, 7, 6, 5, 4,
+    2, 3, 4, 5, 6, 7, 6, 5,
+    1, 2, 3, 4, 5, 6, 7, 6,
+    0, 1, 2, 3, 4, 5, 6, 7,
+];
+
+#[rustfmt::skip]
+static DARK_SQUARE_BISHOP_CORNER_DISTANCE: [i8; 64] = [
+    0, 1, 2, 3, 4, 5, 6, 7,
+    1, 2, 3, 4, 5, 6, 7, 6,
+    2, 3, 4, 5, 6, 7, 6, 5,
+    3, 4, 5, 6, 7, 6, 5, 4,
+    4, 5, 6, 7, 6, 5, 4, 3,
+    5, 6, 7, 6, 5, 4, 3, 2,
+    6, 7, 6, 5, 4, 3, 2, 1,
+    7, 6, 5, 4, 3, 2, 1, 0,
+];
 
 pub const MATE_THRESHOLD: i16 = 29500;
 pub const MATE_VALUE: i16 = 30000;
@@ -22,6 +44,34 @@ impl Board {
 
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
+    }
+
+    pub fn kbnk_modifier(&self) -> i16 {
+        if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
+            let white_has_piece = self.side_occupancy[0].count_ones() > 1;
+            let winning_side = if white_has_piece { 0 } else { 1 };
+
+            if self.piece_bitboards[winning_side][PIECE_QUEEN as usize] == 0
+                && self.piece_bitboards[winning_side][PIECE_ROOK as usize] == 0
+                && self.piece_bitboards[winning_side][PIECE_PAWN as usize] == 0
+                && self.piece_bitboards[winning_side][PIECE_BISHOP as usize].count_ones() == 1
+            {
+                let light_square_bishop =
+                    self.piece_bitboards[winning_side][PIECE_BISHOP as usize] & LIGHT_SQUARES != 0;
+                let table = if light_square_bishop {
+                    &LIGHT_SQUARE_BISHOP_CORNER_DISTANCE
+                } else {
+                    &DARK_SQUARE_BISHOP_CORNER_DISTANCE
+                };
+
+                let losing_side = if white_has_piece { 1 } else { 0 };
+                let losing_king = self.piece_bitboards[losing_side][PIECE_KING as usize].trailing_zeros();
+
+                return if white_has_piece { 1 } else { -1 } * (7 - table[losing_king as usize]) as i16 * 100;
+            }
+        }
+
+        0
     }
 
     /// Returns true if this position will be called a draw by the arbiter

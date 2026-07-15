@@ -1401,11 +1401,13 @@ impl<'a> Searcher<'a> {
 
     fn evaluate_nnue(&self, board: &Board) -> i16 {
         let pair = self.accumulators.get_current_accumulator();
-        if board.white_to_move {
+        let nnue_eval = if board.white_to_move {
             NNUE.evaluate(&pair.white, &pair.black)
         } else {
             NNUE.evaluate(&pair.black, &pair.white)
-        }
+        };
+
+        nnue_eval + board.kbnk_modifier()
     }
 
     /// Does not modify the board, but does update the repetition tracker and change which accumulator is current
