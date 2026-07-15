@@ -1407,7 +1407,7 @@ impl<'a> Searcher<'a> {
             NNUE.evaluate(&pair.black, &pair.white)
         };
 
-        nnue_eval + board.kbnk_modifier()
+        nnue_eval + board.eval_modifiers()
     }
 
     /// Does not modify the board, but does update the repetition tracker and change which accumulator is current

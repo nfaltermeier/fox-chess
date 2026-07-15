@@ -46,7 +46,11 @@ impl Board {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
 
-    pub fn kbnk_modifier(&self) -> i16 {
+    pub fn eval_modifiers(&self) -> i16 {
+        self.kbnk_modifier()
+    }
+
+    fn kbnk_modifier(&self) -> i16 {
         if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
             let white_has_piece = self.side_occupancy[0].count_ones() > 1;
             let winning_side = if white_has_piece { 0 } else { 1 };
