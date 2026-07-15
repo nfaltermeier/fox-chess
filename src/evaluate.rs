@@ -71,7 +71,7 @@ impl Board {
                 let losing_side = if white_has_piece { 1 } else { 0 };
                 let losing_king = self.piece_bitboards[losing_side][PIECE_KING as usize].trailing_zeros();
 
-                return if white_has_piece { 1 } else { -1 } * (7 - table[losing_king as usize]) as i16 * 100;
+                return if white_has_piece { 1 } else { -1 } * (7 - table[losing_king as usize]) as i16 * 800;
             }
         }
 
