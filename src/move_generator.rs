@@ -5,22 +5,12 @@ use crate::{
         BIT_SQUARES, RANK_1, RANK_3, RANK_6, RANK_8, SQUARES_BETWEEN, bitscan_forward_and_reset, lookup_king_attack,
         lookup_knight_attack, lookup_pawn_attack, north_east_one, north_one, north_west_one, south_east_one, south_one,
         south_west_one,
-    },
-    board::{
-        Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK,
-        Squares,
-    },
-    evaluate::PIECE_VALUES_SEE,
-    history::{DEFAULT_HISTORY_TABLE, HistoryTable},
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
-    moves::{
+    }, board::{
+        Board, COLOR_BLACK, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, Squares,
+    }, evaluate::PIECE_VALUES_SEE, history::{DEFAULT_HISTORY_TABLE, HistoryTable}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::{
         MOVE_DOUBLE_PAWN, MOVE_EP_CAPTURE, MOVE_FLAG_CAPTURE, MOVE_KING_CASTLE, MOVE_PROMO_BISHOP, MOVE_PROMO_KNIGHT,
         MOVE_PROMO_QUEEN, MOVE_PROMO_ROOK, MOVE_QUEEN_CASTLE, Move,
-    },
-    nnue::{AccumulatorPairStack, Network},
-    repetition_tracker::RepetitionTracker,
-    staged_move_generator::StagedMoveGenerator,
-    uci::CHESS960,
+    }, nnue::{AccumulatorPairStack, Network}, repetition_tracker::RepetitionTracker, staged_move_generator::StagedMoveGenerator, uci::CHESS960,
 };
 
 /// Has value of target - self added so typical range is +-800. I guess kings capturing have the highest value.
@@ -585,12 +575,14 @@ impl Board {
                 let direction_sign = if flags == MOVE_KING_CASTLE { 1 } else { -1 };
                 let from = mov.from();
                 let intermediate_index = from.checked_add_signed(direction_sign).unwrap();
-                let intermediate_move = Move::new(from, intermediate_index, 0);
 
                 let mut castle_intermediate_board = self.clone();
-                castle_intermediate_board.make_move(intermediate_move, repetitions, None, None);
-                result = !castle_intermediate_board.can_capture_opponent_king(true);
-                repetitions.unmake_move(castle_intermediate_board.hash);
+                castle_intermediate_board.write_piece(PIECE_NONE, from as usize);
+                castle_intermediate_board.write_piece(
+                    PIECE_KING | if self.white_to_move { 0 } else { COLOR_BLACK },
+                    intermediate_index as usize,
+                );
+                result = !castle_intermediate_board.is_in_check(false);
 
                 if !result {
                     return (result, false);

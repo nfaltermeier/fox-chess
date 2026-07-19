@@ -855,7 +855,12 @@ impl<'a> Searcher<'a> {
             }
 
             // Futility pruning and late move pruning
-            if (futility_prune || (!is_pv && !in_check && searched_moves >= 6 && alpha > -MATE_THRESHOLD && mov.score < 51 + (-92 * draft as i16)))
+            if (futility_prune
+                || (!is_pv
+                    && !in_check
+                    && searched_moves >= 6
+                    && alpha > -MATE_THRESHOLD
+                    && mov.score < 51 + (-92 * draft as i16)))
                 && searched_moves >= 1
             {
                 move_gen.prune_quiet_non_promos();
@@ -865,7 +870,11 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            if !is_pv && mov.is_capture() && alpha > -MATE_THRESHOLD && !board.is_static_exchange_eval_at_least(mov.m, see_margin) {
+            if !is_pv
+                && mov.is_capture()
+                && alpha > -MATE_THRESHOLD
+                && !board.is_static_exchange_eval_at_least(mov.m, see_margin)
+            {
                 continue;
             }
 

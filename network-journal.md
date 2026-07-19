@@ -211,7 +211,7 @@ LLR: -2.30 (-102.3%) (-2.25, 2.89) [0.00, 10.00]
 # Bengal-V3
 * WDL: Linear from 0.4 to 0.6
 
-VS Bengal-V2
+VS Bengal
 ```
 Results of engine1 vs engine2 (30+0.3, 1t, 64MB, UHO_Lichess_4852_v1.epd):
 Elo: 8.94 +/- 6.79, nElo: 15.44 +/- 11.71
@@ -219,4 +219,16 @@ LOS: 99.51 %, DrawRatio: 46.80 %, PairsRatio: 1.19
 Games: 3380, Wins: 898, Losses: 811, Draws: 1671, Points: 1733.5 (51.29 %)
 Ptnml(0-2): [35, 376, 791, 443, 45], WL/DD Ratio: 0.86
 LLR: 2.91 (100.8%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Bengal-V4
+* Data filtering: Add fen skipping with 50% chance
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: -4.86 +/- 8.96, nElo: -8.12 +/- 14.96
+LOS: 14.36 %, DrawRatio: 45.08 %, PairsRatio: 0.95
+Games: 2072, Wins: 530, Losses: 559, Draws: 983, Points: 1021.5 (49.30 %)
+Ptnml(0-2): [36, 256, 467, 255, 22], WL/DD Ratio: 0.98
+LLR: -2.25 (-100.1%) (-2.25, 2.89) [0.00, 10.00]
 ```
