@@ -167,7 +167,7 @@ impl Board {
         repetitions: &mut RepetitionTracker,
         accumulators: Option<&mut AccumulatorPairStack>,
         net: Option<&Network>,
-    ) {
+    ) -> u8 {
         let from = mov.from();
         let to = mov.to();
         let flags = mov.flags();
@@ -189,6 +189,7 @@ impl Board {
         }
 
         let moved_piece = self.get_piece_64(from as usize);
+        let mut piece_at_to = moved_piece;
         if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
             self.halfmove_clock = 0;
         } else {
@@ -244,6 +245,7 @@ impl Board {
 
             self.remove_piece(from);
             self.add_piece(piece_type, self.white_to_move, to);
+            piece_at_to = self.get_piece_64(to as usize);
 
             if let Some(accumulators) = accumulators
                 && let Some(net) = net
@@ -337,6 +339,7 @@ impl Board {
         self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
         repetitions.make_move(mov, self.hash);
+        piece_at_to
     }
 
     /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
@@ -442,7 +445,7 @@ pub fn find_and_run_moves(board: &mut Board, indices: Vec<(u8, u8, Option<u16>)>
             repetitions.clear();
         }
 
-        let (legal, _) = board.test_legality_and_maybe_make_move(gen_move.m, repetitions, None, None);
+        let (legal, _, _) = board.test_legality_and_maybe_make_move(gen_move.m, repetitions, None, None);
         if !legal {
             error!(
                 "Requested move {} from {} {} to {} {}. Move is pseudo legal but not legal.",

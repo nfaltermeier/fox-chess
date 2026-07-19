@@ -302,7 +302,7 @@ fn run_datagen_thread(threadnum: u16, sync: &Arc<Sync>, args: &DatagenArgs) {
                 let mov = moves[i].m;
 
                 let mut new_board = fc_board.clone();
-                let (legal, _) = new_board.test_legality_and_maybe_make_move(mov, &mut repetitions, None, None);
+                let (legal, _, _) = new_board.test_legality_and_maybe_make_move(mov, &mut repetitions, None, None);
                 if legal {
                     chosen_move = Some(mov);
                     fc_board = new_board;
@@ -661,7 +661,7 @@ impl Board {
 
         while let Some(mov) = move_generator.get_next_move_unordered(self) {
             let mut new_board = self.clone();
-            let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov, repetitions, None, None);
+            let (legal, move_made, _) = new_board.test_legality_and_maybe_make_move(mov, repetitions, None, None);
             if legal {
                 repetitions.unmake_move(new_board.hash);
                 return GameOutcome::Ongoing;

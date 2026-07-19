@@ -526,20 +526,21 @@ impl Board {
     /// If the move is legal then the move will have been made.
     /// First bool of return: if move is legal
     /// Second bool of return: if move is made
+    /// U8 of return: The piece that was moved, or the piece that was promoted to
     pub fn test_legality_and_maybe_make_move(
         &mut self,
         mov: Move,
         repetitions: &mut RepetitionTracker,
         accumulators: Option<&mut AccumulatorPairStack>,
         net: Option<&Network>,
-    ) -> (bool, bool) {
+    ) -> (bool, bool, u8) {
         let mut result;
         let flags = mov.flags();
 
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
             // Check the king isn't in check to begin with
             if self.is_in_check(false) {
-                return (false, false);
+                return (false, false, 0);
             }
 
             if CHESS960.load(std::sync::atomic::Ordering::Relaxed) {
@@ -570,7 +571,7 @@ impl Board {
                     result = !castle_intermediate_board.is_in_check(false);
 
                     if !result {
-                        return (result, false);
+                        return (result, false, 0);
                     }
                 }
             } else {
@@ -587,15 +588,15 @@ impl Board {
                 result = !castle_intermediate_board.is_in_check(false);
 
                 if !result {
-                    return (result, false);
+                    return (result, false, 0);
                 }
             }
         }
 
-        self.make_move(mov, repetitions, accumulators, net);
+        let piece_at_to = self.make_move(mov, repetitions, accumulators, net);
         result = !self.can_capture_opponent_king(true);
 
-        (result, true)
+        (result, true, piece_at_to)
     }
 
     #[inline]
@@ -691,7 +692,7 @@ mod check_evasion_tests {
 
             moves.retain(|mov| {
                 let mut new_board = self.clone();
-                let (result, move_made) =
+                let (result, move_made, _) =
                     new_board.test_legality_and_maybe_make_move(mov.m, &mut repetitions, None, None);
 
                 if move_made {

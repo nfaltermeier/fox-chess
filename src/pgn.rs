@@ -356,7 +356,7 @@ impl<'a> Pgn {
                             continue;
                         }
 
-                        let (legal, move_made) =
+                        let (legal, move_made, _) =
                             self.board
                                 .test_legality_and_maybe_make_move(mov, &mut repetitions, None, None);
                         if !legal {
@@ -389,7 +389,7 @@ impl<'a> Pgn {
                         panic!("Move {} did not match expected move format", self.moves[move_index].mov);
                     };
 
-                    let (legal, _) = self
+                    let (legal, _, _) = self
                         .board
                         .test_legality_and_maybe_make_move(mov, &mut repetitions, None, None);
                     if !legal {
