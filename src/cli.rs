@@ -9,16 +9,11 @@ use clap::{Parser, Subcommand};
 use log::error;
 use vampirc_uci::parse_with_unknown;
 
-#[cfg(feature = "pgn")]
-use crate::pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
 #[cfg(feature = "datagen")]
 use crate::datagen::{DatagenSubcommands, resume_datagen, start_new_datagen};
-use crate::{
-    STARTING_FEN, bench,
-    board::Board,
-    perft::run_full_perft_suite,
-    uci::UciInterface,
-};
+#[cfg(feature = "pgn")]
+use crate::pgn::{print_epds_for_pgn, print_tuning_positions, reprint_pgns};
+use crate::{STARTING_FEN, bench, board::Board, perft::run_full_perft_suite, uci::UciInterface};
 
 #[derive(Parser)]
 pub struct CliArgs {
