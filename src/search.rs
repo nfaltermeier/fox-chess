@@ -500,6 +500,7 @@ impl<'a> Searcher<'a> {
             self.stats.start_of_iteration_nodes = self.stats.thread_total_nodes();
             self.stats.start_of_iteration_search_leaves = self.stats.total_search_leaves;
 
+            self.transposition_table.prefetch_entry(board.hash);
             let result = self.alpha_beta_recurse(board, alpha, beta, draft, 0, self.starting_in_check, true, &mut pv);
 
             if result.is_err() {
@@ -766,6 +767,7 @@ impl<'a> Searcher<'a> {
             // Need to ensure draft >= 1
             let reduction = 3 + draft / 6;
 
+            self.transposition_table.prefetch_entry(board.hash);
             let nmp_score = -self.alpha_beta_recurse(
                 board,
                 -beta,
@@ -947,6 +949,8 @@ impl<'a> Searcher<'a> {
             if ply == 0 && self.multi_pv != 1 {
                 self.stats.selective_depth = 0;
             }
+
+            self.transposition_table.prefetch_entry(new_board.hash);
 
             let mut score;
             if searched_moves == 0 {
@@ -1329,6 +1333,8 @@ impl<'a> Searcher<'a> {
 
                 self.ss[ply as usize].mov = mov.m;
                 self.ss[ply as usize].moved_piece_type = new_board.get_piece_64(mov.m.to() as usize) & PIECE_MASK;
+
+                self.transposition_table.prefetch_entry(new_board.hash);
 
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;
