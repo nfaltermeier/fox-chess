@@ -560,12 +560,14 @@ impl Board {
                 let mut king_squares_between = SQUARES_BETWEEN[from as usize][king_ending_square as usize];
                 while king_squares_between != 0 {
                     let test_square = bitscan_forward_and_reset(&mut king_squares_between);
-                    let intermediate_move = Move::new(from, test_square as u8, 0);
 
                     let mut castle_intermediate_board = self.clone();
-                    castle_intermediate_board.make_move(intermediate_move, repetitions, None, None);
-                    result = !castle_intermediate_board.can_capture_opponent_king(true);
-                    repetitions.unmake_move(castle_intermediate_board.hash);
+                    castle_intermediate_board.write_piece(PIECE_NONE, from as usize);
+                    castle_intermediate_board.write_piece(
+                        PIECE_KING | if self.white_to_move { 0 } else { COLOR_BLACK },
+                        test_square as usize,
+                    );
+                    result = !castle_intermediate_board.is_in_check(false);
 
                     if !result {
                         return (result, false);
