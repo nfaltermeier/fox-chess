@@ -220,6 +220,20 @@ impl TranspositionTable {
 
         count
     }
+
+    pub fn prefetch_entry(&self, key: u64) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+
+            let index = key as usize & self.key_mask;
+
+            unsafe {
+                let ptr = self.table.as_ptr().add(index).cast();
+                _mm_prefetch::<_MM_HINT_T0>(ptr);
+            }
+        }
+    }
 }
 
 impl From<u8> for MoveType {
