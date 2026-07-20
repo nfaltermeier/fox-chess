@@ -43,7 +43,7 @@ All of your CPU's supported features will automatically be enabled for the best 
 cargo pgo run -- bench
 cargo pgo optimize
 ```
-Skipping PGO may be best on Linux. On my machine, for some reason it results in a 30% slowdown. To skip PGO optimization just run
+To skip PGO optimization, although this is not recommended, just run
 ```
 cargo build -r
 ```

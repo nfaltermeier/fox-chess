@@ -1,2 +1,3 @@
-[build]
+# cargo-pgo overrides [build] rustflags configuration https://github.com/Kobzol/cargo-pgo/issues/49
+[target.'cfg(all())']
 rustflags = ["-Ctarget-cpu=native"]
