@@ -42,6 +42,9 @@ pub enum Command {
     Bench,
     /// Prints the version of the program
     Version,
+    Uci {
+        commands: Vec<String>,
+    },
     #[cfg(feature = "datagen")]
     #[command(subcommand)]
     Datagen(DatagenSubcommands),
@@ -140,7 +143,7 @@ pub fn handle_startup_command(command: &Command) {
                     let messages = parse_with_unknown(&uci_command);
                     let (_, stop_rx) = mpsc::channel::<()>();
                     let mut uci = UciInterface::new(10, stop_rx);
-                    uci.process_command((uci_command.clone(), messages));
+                    uci.process_command(&uci_command, messages);
 
                     uci.get_board_copy().unwrap().start_perft(depth, true);
                     return;
@@ -157,6 +160,16 @@ pub fn handle_startup_command(command: &Command) {
         }
         Command::Version => {
             println!("{}", UciInterface::get_version());
+        }
+        Command::Uci { commands } => {
+            let (_, stop_rx) = mpsc::channel::<()>();
+            let mut uci = UciInterface::new(23, stop_rx);
+            for command in commands {
+                let messages = parse_with_unknown(&command);
+                if uci.process_command(&command, messages) {
+                    return;
+                }
+            }
         }
         #[cfg(feature = "datagen")]
         Command::Datagen(subcommand) => match subcommand {

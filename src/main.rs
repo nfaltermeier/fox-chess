@@ -94,7 +94,7 @@ fn run_uci() {
     loop {
         match message_rx.recv() {
             Ok(val) => {
-                if uci.process_command(val) {
+                if uci.process_command(&val.0, val.1) {
                     return;
                 }
             }
