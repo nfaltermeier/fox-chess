@@ -1,5 +1,5 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES}, board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move,
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES}, board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, rank_8x8}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move,
 };
 
 /// 0 is no piece
@@ -53,7 +53,7 @@ impl Board {
     fn kbnk_modifier(&self) -> i16 {
         if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
             let white_has_piece = self.side_occupancy[0].count_ones() > 1;
-            let winning_side = if white_has_piece { 0 } else { 1 };
+            let (winning_side, losing_side) = if white_has_piece { (0, 1) } else { (1, 0) };
 
             if self.piece_bitboards[winning_side][PIECE_QUEEN as usize] == 0
                 && self.piece_bitboards[winning_side][PIECE_ROOK as usize] == 0
@@ -68,11 +68,14 @@ impl Board {
                 } else {
                     &DARK_SQUARE_BISHOP_CORNER_DISTANCE
                 };
+        
+                let losing_king_sq = self.side_occupancy[losing_side].trailing_zeros() as u8;
+                let winning_king_sq = self.piece_bitboards[winning_side][PIECE_KING as usize].trailing_zeros() as u8;
 
-                let losing_side = if white_has_piece { 1 } else { 0 };
-                let losing_king = self.piece_bitboards[losing_side][PIECE_KING as usize].trailing_zeros();
+                let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs()
+                    + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
 
-                return if white_has_piece { 1 } else { -1 } * (7 - table[losing_king as usize]) as i16 * 100;
+                return if white_has_piece { 1 } else { -1 } * ((7 - table[losing_king_sq as usize]) as i16 * 100 + (14 - manhattan_distance) as i16 * 10);
             }
         }
 
