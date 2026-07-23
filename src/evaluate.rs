@@ -51,10 +51,12 @@ impl Board {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
 
+    /// Eval modifiers are side-to-move relative
     pub fn eval_modifiers(&self) -> i16 {
         self.mop_up_eval()
     }
 
+    /// side-to-move relative
     pub fn mop_up_eval(&self) -> i16 {
         if self.side_occupancy[0].count_ones() != 1 && self.side_occupancy[1].count_ones() != 1 {
             return 0;
@@ -74,7 +76,7 @@ impl Board {
             + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
         let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
 
-        center_manhattan_distance as i16 * 10 + (14 - manhattan_distance) as i16 * 3
+        return if white_has_piece == self.white_to_move { 1 } else { -1 } * (center_manhattan_distance as i16 * 10 + (14 - manhattan_distance) as i16 * 3);
     }
 
     /// Returns true if this position will be called a draw by the arbiter
