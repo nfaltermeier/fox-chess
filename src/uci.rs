@@ -329,9 +329,11 @@ impl UciInterface {
                                 NNUE.evaluate(&accumulators.black, &accumulators.white)
                             };
 
-                            let total_eval = nnue_eval + board.eval_modifiers();
+                            let modifier = board.eval_modifiers();
 
-                            println!("Static eval: {total_eval}");
+                            let total_eval = nnue_eval + modifier;
+
+                            println!("Static eval: {total_eval}, nnue eval: {nnue_eval}, modifier: {modifier}");
                         } else {
                             error!("Board must be set with position first");
                         }
