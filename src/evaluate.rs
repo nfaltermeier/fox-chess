@@ -1,12 +1,33 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES},
-    board::{Board, PIECE_BISHOP, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK},
-    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
-    moves::Move,
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES}, board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, rank_8x8}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move,
 };
 
 /// 0 is no piece
 pub static PIECE_VALUES_SEE: [i16; 7] = [0, 97, 359, 378, 544, 1097, 20000];
+
+#[rustfmt::skip]
+static CENTER_DISTANCE: [i8; 64] = [
+  3, 3, 3, 3, 3, 3, 3, 3,
+  3, 2, 2, 2, 2, 2, 2, 3,
+  3, 2, 1, 1, 1, 1, 2, 3,
+  3, 2, 1, 0, 0, 1, 2, 3,
+  3, 2, 1, 0, 0, 1, 2, 3,
+  3, 2, 1, 1, 1, 1, 2, 3,
+  3, 2, 2, 2, 2, 2, 2, 3,
+  3, 3, 3, 3, 3, 3, 3, 3,
+];
+
+#[rustfmt::skip]
+static CENTER_MANHATTAN_DISTANCE: [i8; 64] = [
+  6, 5, 4, 3, 3, 4, 5, 6,
+  5, 4, 3, 2, 2, 3, 4, 5,
+  4, 3, 2, 1, 1, 2, 3, 4,
+  3, 2, 1, 0, 0, 1, 2, 3,
+  3, 2, 1, 0, 0, 1, 2, 3,
+  4, 3, 2, 1, 1, 2, 3, 4,
+  5, 4, 3, 2, 2, 3, 4, 5,
+  6, 5, 4, 3, 3, 4, 5, 6
+];
 
 pub const MATE_THRESHOLD: i16 = 29500;
 pub const MATE_VALUE: i16 = 30000;
@@ -22,6 +43,27 @@ impl Board {
 
     pub fn evaluate_checkmate_side_to_move_relative(&self, ply: u8) -> i16 {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
+    }
+
+    pub fn eval_modifiers(&self) -> i16 {
+        self.mop_up_eval()
+    }
+
+    pub fn mop_up_eval(&self) -> i16 {
+        if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
+            let white_has_piece = self.side_occupancy[0].count_ones() > 1;
+            let (winning_side, losing_side) = if white_has_piece { (0, 1) } else { (1, 0) };
+
+            let losing_king_sq = self.side_occupancy[losing_side].trailing_zeros() as u8;
+            let winning_king_sq = self.piece_bitboards[winning_side][PIECE_KING as usize].trailing_zeros() as u8;
+
+            let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs() + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
+            let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
+
+            center_manhattan_distance as i16 * 20 + (14 - manhattan_distance) as i16 * 7
+        } else {
+            0
+        }
     }
 
     /// Returns true if this position will be called a draw by the arbiter
