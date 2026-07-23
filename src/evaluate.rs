@@ -56,21 +56,25 @@ impl Board {
     }
 
     pub fn mop_up_eval(&self) -> i16 {
-        if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
-            let white_has_piece = self.side_occupancy[0].count_ones() > 1;
-            let (winning_side, losing_side) = if white_has_piece { (0, 1) } else { (1, 0) };
-
-            let losing_king_sq = self.side_occupancy[losing_side].trailing_zeros() as u8;
-            let winning_king_sq = self.piece_bitboards[winning_side][PIECE_KING as usize].trailing_zeros() as u8;
-
-            let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs()
-                + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
-            let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
-
-            center_manhattan_distance as i16 * 20 + (14 - manhattan_distance) as i16 * 7
-        } else {
-            0
+        if self.side_occupancy[0].count_ones() != 1 && self.side_occupancy[1].count_ones() != 1 {
+            return 0;
         }
+
+        let white_has_piece = self.side_occupancy[0].count_ones() > 1;
+        let (winning_side, losing_side) = if white_has_piece { (0, 1) } else { (1, 0) };
+
+        if self.piece_bitboards[winning_side][PIECE_PAWN as usize] == 0 {
+            return 0;
+        }
+        
+        let losing_king_sq = self.side_occupancy[losing_side].trailing_zeros() as u8;
+        let winning_king_sq = self.piece_bitboards[winning_side][PIECE_KING as usize].trailing_zeros() as u8;
+
+        let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs()
+            + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
+        let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
+
+        center_manhattan_distance as i16 * 20 + (14 - manhattan_distance) as i16 * 7
     }
 
     /// Returns true if this position will be called a draw by the arbiter
