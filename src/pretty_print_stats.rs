@@ -3,17 +3,11 @@ use std::time::Duration;
 use tinyvec::TinyVec;
 
 use crate::{
-    board::{Board, PIECE_MASK, PIECE_PAWN, file_8x8, piece_to_letter, rank_8x8},
-    evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
-    repetition_tracker::RepetitionTracker,
-    search::stats::SearchStats,
-    staged_move_generator::StagedMoveGenerator,
-    transposition_table::TranspositionTable,
+    board::{Board, PIECE_MASK, PIECE_PAWN, file_8x8, piece_to_letter, rank_8x8}, evaluate::{MATE_THRESHOLD, MATE_VALUE}, moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move}, repetition_tracker::RepetitionTracker, search::stats::SearchStats, staged_move_generator::StagedMoveGenerator, transposition_table::TranspositionTable, wdl,
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score       time nodes nodes/s hashfull pv");
+    println!("  d/sd pv#  score (raw)      time nodes nodes/s hashfull pv");
 }
 
 #[inline(never)]
@@ -35,8 +29,9 @@ pub fn pretty_print_stats(
         let mate_str = format!("{}M{moves}", if score < 0 { "-" } else { "" });
         format!("{mate_str:>6}")
     } else {
+        let normalized_pawns = wdl::normalize_score(score, board) as f32 / 100.0;
         let pawns = score as f32 / 100.0;
-        format!("{pawns:>6.2}")
+        format!("{normalized_pawns:>6.2} ({pawns:>6.2})")
     };
 
     let time = {

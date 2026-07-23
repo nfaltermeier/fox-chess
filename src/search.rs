@@ -390,6 +390,7 @@ impl<'a> Searcher<'a> {
                                     self.starting_fullmove,
                                     i as u8 + 1,
                                     pv.selective_depth,
+                                    &board,
                                 );
                             }
                             PrintMode::Pretty => {

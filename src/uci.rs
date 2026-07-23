@@ -12,19 +12,7 @@ use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
-    STARTING_FEN,
-    bench::bench,
-    board::Board,
-    evaluate::{MATE_THRESHOLD, MATE_VALUE},
-    get_build_info,
-    history::ThreadHistoryTables,
-    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
-    nnue::{AccumulatorPair, NNUE},
-    perft::run_full_perft_suite,
-    repetition_tracker::RepetitionTracker,
-    search::{self, PrintMode, search_multithreaded, stats::SearchStats},
-    transposition_table::TranspositionTable,
-    uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
+    STARTING_FEN, bench::bench, board::Board, evaluate::{MATE_THRESHOLD, MATE_VALUE}, get_build_info, history::ThreadHistoryTables, moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves}, nnue::{AccumulatorPair, NNUE}, perft::run_full_perft_suite, repetition_tracker::RepetitionTracker, search::{self, PrintMode, search_multithreaded, stats::SearchStats}, transposition_table::TranspositionTable, uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions}, wdl,
 };
 
 pub struct UciInterface {
@@ -329,7 +317,9 @@ impl UciInterface {
                                 NNUE.evaluate(&accumulators.black, &accumulators.white)
                             };
 
-                            println!("Static eval: {}", eval);
+                            let normalized = wdl::normalize_score(eval, board);
+
+                            println!("Normalized eval: {normalized}, Raw eval: {eval}");
                         } else {
                             error!("Board must be set with position first");
                         }
@@ -357,6 +347,7 @@ impl UciInterface {
         search_starting_fullmove: u8,
         multi_pv: u8,
         selective_depth: u8,
+        board: &Board,
     ) {
         let abs_cp = score.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
@@ -364,13 +355,14 @@ impl UciInterface {
             let moves = (diff as f32 / 2.0).ceil();
             format!("score mate {}{moves}", if score < 0 { "-" } else { "" })
         } else {
-            format!("score cp {score}")
+            let normalized_score = wdl::normalize_score(score, board);
+            format!("score cp {normalized_score}")
         };
 
         let total_nodes = stats.global_total_nodes();
         let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {}",
+            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {} raw_score {score}",
             stats.depth,
             elapsed.as_millis(),
             transposition_table.hashfull(search_starting_fullmove),
