@@ -46,10 +46,12 @@ impl Board {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
 
+    /// Modifiers are side-to-move relative
     pub fn eval_modifiers(&self) -> i16 {
         self.kbnk_modifier()
     }
 
+    /// Modifiers are side-to-move relative
     fn kbnk_modifier(&self) -> i16 {
         if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
             let white_has_piece = self.side_occupancy[0].count_ones() > 1;
@@ -75,7 +77,7 @@ impl Board {
                 let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs()
                     + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
 
-                return if white_has_piece { 1 } else { -1 } * ((7 - table[losing_king_sq as usize]) as i16 * 20 + (14 - manhattan_distance) as i16 * 2);
+                return if white_has_piece == self.white_to_move { 1 } else { -1 } * ((7 - table[losing_king_sq as usize]) as i16 * 20 + (14 - manhattan_distance) as i16 * 2);
             }
         }
 
