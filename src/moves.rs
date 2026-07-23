@@ -511,7 +511,7 @@ mod moves_tests {
                         uci_command.push_str(m);
 
                         let messages = parse_with_unknown(&uci_command);
-                        uci.process_command((uci_command.clone(), messages));
+                        uci.process_command(&uci_command, messages);
                         let from_uci = uci.get_board_copy().unwrap();
 
                         let fen = from_uci.to_fen();

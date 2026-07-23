@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use clap::{Args, Subcommand};
-use num_format::{Buffer, Locale};
 use core::slice;
+use num_format::{Buffer, Locale};
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -445,7 +445,9 @@ fn run_datagen_thread(threadnum: u16, sync: &Arc<Sync>, args: &DatagenArgs) {
             local_games_for_flush = 0;
 
             if let Err(e) = outfile.flush() {
-                println!("Stopping datagen early. Got an error while periodically flushing generated games to file: {e}");
+                println!(
+                    "Stopping datagen early. Got an error while periodically flushing generated games to file: {e}"
+                );
                 sync.errored.store(true, Ordering::Release);
                 sync.stop.store(true, Ordering::Release);
                 break;

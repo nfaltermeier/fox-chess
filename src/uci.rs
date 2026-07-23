@@ -63,9 +63,9 @@ impl UciInterface {
     }
 
     #[uci_fields_parser(extra_uci_options)]
-    pub fn process_command(&mut self, cmds: (String, Vec<UciMessage>)) -> bool {
-        debug!("Received UCI cmd string (trimmed) '{}'", cmds.0.trim());
-        for m in cmds.1 {
+    pub fn process_command(&mut self, command_text: &str, parsed_commands: Vec<UciMessage>) -> bool {
+        debug!("Received UCI cmd string (trimmed) '{}'", command_text.trim());
+        for m in parsed_commands {
             match m {
                 UciMessage::Uci => {
                     self.use_uci_mode = true;
@@ -342,7 +342,7 @@ impl UciInterface {
                     }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in (trimmed) '{}'", cmds.0.trim());
+                    error!("Unhandled UCI cmd in (trimmed) '{}'", command_text.trim());
                 }
             }
         }
