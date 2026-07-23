@@ -65,7 +65,7 @@ impl Board {
         let white_has_piece = self.side_occupancy[0].count_ones() > 1;
         let (winning_side, losing_side) = if white_has_piece { (0, 1) } else { (1, 0) };
 
-        if self.piece_bitboards[winning_side][PIECE_PAWN as usize] == 0 {
+        if self.piece_bitboards[winning_side][PIECE_PAWN as usize] != 0 {
             return 0;
         }
         
