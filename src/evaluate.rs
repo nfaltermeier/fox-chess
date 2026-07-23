@@ -59,6 +59,7 @@ impl Board {
                 && self.piece_bitboards[winning_side][PIECE_ROOK as usize] == 0
                 && self.piece_bitboards[winning_side][PIECE_PAWN as usize] == 0
                 && self.piece_bitboards[winning_side][PIECE_BISHOP as usize].count_ones() == 1
+                && self.piece_bitboards[winning_side][PIECE_KNIGHT as usize].count_ones() == 1
             {
                 let light_square_bishop =
                     self.piece_bitboards[winning_side][PIECE_BISHOP as usize] & LIGHT_SQUARES != 0;
