@@ -74,7 +74,7 @@ impl Board {
             + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
         let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
 
-        center_manhattan_distance as i16 * 20 + (14 - manhattan_distance) as i16 * 7
+        center_manhattan_distance as i16 * 10 + (14 - manhattan_distance) as i16 * 3
     }
 
     /// Returns true if this position will be called a draw by the arbiter
