@@ -1,5 +1,11 @@
 use crate::{
-    bitboard::{BIT_SQUARES, LIGHT_SQUARES}, board::{Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8, rank_8x8}, magic_bitboard::{lookup_bishop_attack, lookup_rook_attack}, moves::Move,
+    bitboard::{BIT_SQUARES, LIGHT_SQUARES},
+    board::{
+        Board, PIECE_BISHOP, PIECE_KING, PIECE_KNIGHT, PIECE_MASK, PIECE_PAWN, PIECE_QUEEN, PIECE_ROOK, file_8x8,
+        rank_8x8,
+    },
+    magic_bitboard::{lookup_bishop_attack, lookup_rook_attack},
+    moves::Move,
 };
 
 /// 0 is no piece
@@ -57,7 +63,8 @@ impl Board {
             let losing_king_sq = self.side_occupancy[losing_side].trailing_zeros() as u8;
             let winning_king_sq = self.piece_bitboards[winning_side][PIECE_KING as usize].trailing_zeros() as u8;
 
-            let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs() + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
+            let manhattan_distance = (rank_8x8(losing_king_sq) as i8 - rank_8x8(winning_king_sq) as i8).abs()
+                + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
             let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
 
             center_manhattan_distance as i16 * 20 + (14 - manhattan_distance) as i16 * 7
