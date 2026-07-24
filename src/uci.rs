@@ -375,7 +375,6 @@ impl UciInterface {
             elapsed.as_millis(),
             transposition_table.hashfull(search_starting_fullmove),
             pv.iter()
-                .rev()
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),
