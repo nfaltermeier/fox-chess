@@ -76,7 +76,7 @@ impl Board {
             + (file_8x8(losing_king_sq) as i8 - file_8x8(winning_king_sq) as i8).abs();
         let center_manhattan_distance = CENTER_MANHATTAN_DISTANCE[losing_king_sq as usize];
 
-        return if white_has_piece == self.white_to_move { 1 } else { -1 } * (center_manhattan_distance as i16 * 7 + (14 - manhattan_distance) as i16 * 2);
+        return if white_has_piece == self.white_to_move { 1 } else { -1 } * (center_manhattan_distance as i16 * 20 + (14 - manhattan_distance) as i16 * 6);
     }
 
     /// Returns true if this position will be called a draw by the arbiter
