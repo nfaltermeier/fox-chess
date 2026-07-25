@@ -46,11 +46,13 @@ impl Board {
         self.evaluate_checkmate(ply) * if self.white_to_move { 1 } else { -1 }
     }
 
+    #[inline(always)]
     /// Modifiers are side-to-move relative
     pub fn eval_modifiers(&self) -> i16 {
         self.kbnk_modifier()
     }
 
+    #[inline(always)]
     /// Modifiers are side-to-move relative
     fn kbnk_modifier(&self) -> i16 {
         if self.side_occupancy[0].count_ones() == 1 || self.side_occupancy[1].count_ones() == 1 {
