@@ -59,6 +59,20 @@ pub static MATERIAL_HASH_VALUES: LazyLock<[u64; 17 * 5 * 2]> = LazyLock::new(|| 
     result
 });
 
+#[allow(dead_code)]
+#[rustfmt::skip]
+#[derive(Clone, Copy)]
+pub enum Squares {
+    A1, B1, C1, D1, E1, F1, G1, H1,
+    A2, B2, C2, D2, E2, F2, G2, H2,
+    A3, B3, C3, D3, E3, F3, G3, H3,
+    A4, B4, C4, D4, E4, F4, G4, H4,
+    A5, B5, C5, D5, E5, F5, G5, H5,
+    A6, B6, C6, D6, E6, F6, G6, H6,
+    A7, B7, C7, D7, E7, F7, G7, H7,
+    A8, B8, C8, D8, E8, F8, G8, H8,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Board {
     squares: [u8; 64],
@@ -66,6 +80,9 @@ pub struct Board {
     pub castling_rights: u8,
     pub en_passant_target_square_index: Option<u8>,
     pub halfmove_clock: u8,
+    /// Used for detecting threefold repetition, so it only counts moves that have been observed through make_move.
+    /// Therefore it may have a lower value than halfmove_clock when loading from a FEN.
+    pub moves_since_irreversible: u8,
     pub fullmove_counter: u16,
     pub hash: u64,
     pub pawn_hash: u64,
@@ -125,6 +142,7 @@ impl Board {
             castling_rights: 0,
             en_passant_target_square_index: None,
             halfmove_clock: 0,
+            moves_since_irreversible: 0,
             fullmove_counter: 1,
             hash: 0,
             pawn_hash: 0,
@@ -328,7 +346,7 @@ impl Board {
 
         if let Some(repetitions) = repetitions {
             repetitions.clear();
-            repetitions.add_start_position(board.hash);
+            repetitions.push_hash(board.hash);
         }
 
         Ok(board)
@@ -535,6 +553,7 @@ impl Debug for Board {
             .field("castling_rights", &self.castling_rights)
             .field("en_passant_target_square_index", &self.en_passant_target_square_index)
             .field("halfmove_clock", &self.halfmove_clock)
+            .field("moves_since_irreversible", &self.moves_since_irreversible)
             .field("fullmove_counter", &self.fullmove_counter)
             .field("hash", &format!("{:#018x}", self.hash))
             .field("pawn_hash", &format!("{:#018x}", self.pawn_hash))

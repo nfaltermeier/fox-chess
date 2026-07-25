@@ -568,7 +568,6 @@ impl<'a> Searcher<'a> {
 
         if ply != 0
             && (board.halfmove_clock >= 100
-                || self.repetitions.position_has_repeated_times(board, 2)
                 || board.is_insufficient_material())
         {
             if self.inc_and_check_thread_nodes() {
@@ -576,6 +575,17 @@ impl<'a> Searcher<'a> {
             }
 
             return Ok(self.eval_draw(board));
+        }
+
+        if ply == 1 && self.repetitions.position_has_repeated_times(board, 2) {
+            return Ok(self.eval_draw(board));
+        }
+
+        if ply != 0 && alpha < self.eval_draw(board) && self.repetitions.test_has_upcoming_repetition(board) {
+            alpha = self.eval_draw(board);
+            if alpha >= beta {
+                return Ok(alpha);
+            }
         }
 
         self.stats.selective_depth = self.stats.selective_depth.max(ply);
@@ -689,7 +699,9 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            move_gen.set_tt_move(tt_data.important_move);
+            if tt_data.important_move != EMPTY_MOVE {
+                move_gen.set_tt_move(tt_data.important_move);
+            }
         }
 
         let mut static_eval = None;
@@ -928,7 +940,7 @@ impl<'a> Searcher<'a> {
             );
             if !legal {
                 if move_made {
-                    self.unmake_move(&new_board);
+                    self.unmake_move();
                 }
                 continue;
             }
@@ -1033,7 +1045,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            self.unmake_move(&new_board);
+            self.unmake_move();
             searched_moves += 1;
 
             if score >= beta {
@@ -1185,7 +1197,7 @@ impl<'a> Searcher<'a> {
         }
 
         if excluded_move.is_none() {
-            let best_move = best_move.unwrap();
+            let best_move = best_move.unwrap_or(EMPTY_MOVE);
 
             let entry_type = if improved_alpha {
                 MoveType::Best
@@ -1259,7 +1271,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            if tt_data.important_move.is_capture() {
+            if tt_data.important_move.is_capture() && tt_data.important_move != EMPTY_MOVE {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
                     score: 1,
@@ -1326,7 +1338,7 @@ impl<'a> Searcher<'a> {
                 );
                 if !legal {
                     if move_made {
-                        self.unmake_move(&new_board);
+                        self.unmake_move();
                     }
                     continue;
                 }
@@ -1339,7 +1351,7 @@ impl<'a> Searcher<'a> {
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;
 
-                self.unmake_move(&new_board);
+                self.unmake_move();
 
                 if score >= beta {
                     self.transposition_table.store_entry(TTEntry::new(
@@ -1423,9 +1435,9 @@ impl<'a> Searcher<'a> {
         }
     }
 
-    /// Does not modify the board, but does update the repetition tracker and change which accumulator is current
-    fn unmake_move(&mut self, new_board: &Board) {
-        self.repetitions.unmake_move(new_board.hash);
+    /// Updates the repetition tracker and changes which accumulator is current
+    fn unmake_move(&mut self) {
+        self.repetitions.pop_hash();
         self.accumulators.decr_ply();
     }
 }

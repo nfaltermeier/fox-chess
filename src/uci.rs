@@ -434,3 +434,14 @@ impl UciInterface {
         format!("{} {}", build_info.profile, commit)
     }
 }
+
+#[cfg(test)]
+mod uci_tests {
+    use super::*;
+
+    impl UciInterface {
+        pub fn repetition_tracker(&self) -> &RepetitionTracker {
+            &self.repetitions
+        }
+    }
+}
