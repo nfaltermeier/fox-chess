@@ -63,7 +63,7 @@ pub struct SearchResult {
 }
 
 struct PvData {
-    /// PVs are stored as a stack, FILO
+    /// PVs are stored as a queue, FIFO
     pub pv: TinyVec<[Move; 32]>,
     pub search_result: SearchResult,
     pub selective_depth: u8,
@@ -561,21 +561,31 @@ impl<'a> Searcher<'a> {
         ply: u8,
         in_check: bool,
         can_null_move: bool,
-        parent_pv: &mut TinyVec<[Move; 32]>,
+        pv: &mut TinyVec<[Move; 32]>,
     ) -> Result<i16, ()> {
         debug_assert!(alpha <= beta);
+        pv.clear();
 
         if ply != 0
             && (board.halfmove_clock >= 100
-                || self.repetitions.position_has_repeated_times(board, 2)
                 || board.is_insufficient_material())
         {
             if self.inc_and_check_thread_nodes() {
                 return Err(());
             }
 
-            parent_pv.clear();
             return Ok(self.eval_draw(board));
+        }
+
+        if ply == 1 && self.repetitions.position_has_repeated_times(board, 2) {
+            return Ok(self.eval_draw(board));
+        }
+
+        if ply != 0 && alpha < self.eval_draw(board) && self.repetitions.test_has_upcoming_repetition(board) {
+            alpha = self.eval_draw(board);
+            if alpha >= beta {
+                return Ok(alpha);
+            }
         }
 
         self.stats.selective_depth = self.stats.selective_depth.max(ply);
@@ -622,8 +632,6 @@ impl<'a> Searcher<'a> {
                     return Err(());
                 }
             }
-
-            parent_pv.clear();
 
             return self.quiescense_side_to_move_relative(board, alpha, beta, ply);
         }
@@ -691,7 +699,9 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            move_gen.set_tt_move(tt_data.important_move);
+            if tt_data.important_move != EMPTY_MOVE {
+                move_gen.set_tt_move(tt_data.important_move);
+            }
         }
 
         let mut static_eval = None;
@@ -744,7 +754,7 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        let mut pv: TinyVec<[Move; 32]> = tiny_vec!();
+        let mut child_pv: TinyVec<[Move; 32]> = tiny_vec!();
 
         // Null move pruning
         let our_side = if board.white_to_move { 0 } else { 1 };
@@ -776,7 +786,7 @@ impl<'a> Searcher<'a> {
                 ply + 1,
                 false,
                 false,
-                &mut pv,
+                &mut child_pv,
             )?;
 
             board.unmake_null_move(en_passant_target_square_index);
@@ -906,7 +916,7 @@ impl<'a> Searcher<'a> {
                     ply,
                     in_check,
                     can_null_move,
-                    parent_pv,
+                    pv,
                 )?;
 
                 self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
@@ -930,7 +940,7 @@ impl<'a> Searcher<'a> {
             );
             if !legal {
                 if move_made {
-                    self.unmake_move(&new_board);
+                    self.unmake_move();
                 }
                 continue;
             }
@@ -963,7 +973,7 @@ impl<'a> Searcher<'a> {
                     ply + 1,
                     gives_check,
                     can_null_move,
-                    &mut pv,
+                    &mut child_pv,
                 )?;
             } else {
                 // Late move reduction
@@ -1003,7 +1013,7 @@ impl<'a> Searcher<'a> {
                     ply + 1,
                     gives_check,
                     can_null_move,
-                    &mut pv,
+                    &mut child_pv,
                 )?;
 
                 if score > alpha && reduction_ply > 0 {
@@ -1016,7 +1026,7 @@ impl<'a> Searcher<'a> {
                         ply + 1,
                         gives_check,
                         can_null_move,
-                        &mut pv,
+                        &mut child_pv,
                     )?;
                 }
 
@@ -1030,12 +1040,12 @@ impl<'a> Searcher<'a> {
                         ply + 1,
                         gives_check,
                         can_null_move,
-                        &mut pv,
+                        &mut child_pv,
                     )?;
                 }
             }
 
-            self.unmake_move(&new_board);
+            self.unmake_move();
             searched_moves += 1;
 
             if score >= beta {
@@ -1104,11 +1114,13 @@ impl<'a> Searcher<'a> {
 
             if score > best_score {
                 if ply == 0 {
-                    *parent_pv = pv.clone();
-                    parent_pv.push(mov.m);
+                    pv.clear();
+                    pv.reserve_exact(child_pv.len() + 1);
+                    pv.push(mov.m);
+                    pv.append(&mut child_pv);
 
                     let pv_data = PvData {
-                        pv: parent_pv.clone(),
+                        pv: pv.clone(),
                         search_result: SearchResult {
                             best_move: mov.m,
                             score,
@@ -1141,8 +1153,10 @@ impl<'a> Searcher<'a> {
 
                         // This will be handled separately for root nodes
                         if is_pv && ply != 0 {
-                            *parent_pv = pv.clone();
-                            parent_pv.push(mov.m);
+                            pv.clear();
+                            pv.reserve_exact(child_pv.len() + 1);
+                            pv.push(mov.m);
+                            pv.append(&mut child_pv);
                         }
                     }
                 }
@@ -1163,10 +1177,8 @@ impl<'a> Searcher<'a> {
                 );
                 panic!("Found no legal moves from the root of the search")
             } else if in_check {
-                parent_pv.clear();
                 return Ok(board.evaluate_checkmate_side_to_move_relative(ply));
             } else {
-                parent_pv.clear();
                 return Ok(self.eval_draw(board));
             }
         } else if searched_moves == 1 && ply == 0 {
@@ -1180,12 +1192,12 @@ impl<'a> Searcher<'a> {
                 .expect("No root pv found at the end of alpha_beta_recurse for ply == 0");
             best_move = Some(best_pv.search_result.best_move);
             best_score = best_pv.search_result.score;
-            *parent_pv = best_pv.pv.clone();
+            *pv = best_pv.pv.clone();
             improved_alpha |= best_score > alpha;
         }
 
         if excluded_move.is_none() {
-            let best_move = best_move.unwrap();
+            let best_move = best_move.unwrap_or(EMPTY_MOVE);
 
             let entry_type = if improved_alpha {
                 MoveType::Best
@@ -1259,7 +1271,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            if tt_data.important_move.is_capture() {
+            if tt_data.important_move.is_capture() && tt_data.important_move != EMPTY_MOVE {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
                     score: 1,
@@ -1326,7 +1338,7 @@ impl<'a> Searcher<'a> {
                 );
                 if !legal {
                     if move_made {
-                        self.unmake_move(&new_board);
+                        self.unmake_move();
                     }
                     continue;
                 }
@@ -1339,7 +1351,7 @@ impl<'a> Searcher<'a> {
                 // Only doing captures right now so not checking halfmove or threefold repetition here
                 let score = -self.quiescense_side_to_move_relative(&mut new_board, -beta, -alpha, ply + 1)?;
 
-                self.unmake_move(&new_board);
+                self.unmake_move();
 
                 if score >= beta {
                     self.transposition_table.store_entry(TTEntry::new(
@@ -1425,9 +1437,9 @@ impl<'a> Searcher<'a> {
         nnue_eval + board.eval_modifiers()
     }
 
-    /// Does not modify the board, but does update the repetition tracker and change which accumulator is current
-    fn unmake_move(&mut self, new_board: &Board) {
-        self.repetitions.unmake_move(new_board.hash);
+    /// Updates the repetition tracker and changes which accumulator is current
+    fn unmake_move(&mut self) {
+        self.repetitions.pop_hash();
         self.accumulators.decr_ply();
     }
 }
