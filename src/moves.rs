@@ -5,8 +5,8 @@ use log::error;
 use crate::{
     board::{
         Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
-        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES,
-        file_8x8, get_zobrist_hash_value, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
+        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES, file_8x8,
+        index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
     },
     nnue::{AccumulatorPairStack, Network, PieceOnSquare},
     repetition_tracker::RepetitionTracker,
@@ -38,6 +38,11 @@ const MOVE_FLAG_PROMOTION_FULL: u16 = MOVE_FLAG_PROMOTION << 12;
 pub struct Move {
     // from: 6 bits, to: 6 bits: flags: 4 bits. Using flags format from https://www.chessprogramming.org/Encoding_Moves
     pub data: u16,
+}
+
+pub struct NullMoveInfo {
+    moves_since_irreversible: u8,
+    en_passant_target_square_index: Option<u8>,
 }
 
 impl Move {
@@ -193,10 +198,17 @@ impl Board {
         }
 
         let moved_piece = self.get_piece_64(from as usize);
-        if capture || moved_piece & PIECE_MASK == PIECE_PAWN {
+        let reset_halfmove = capture || moved_piece & PIECE_MASK == PIECE_PAWN;
+        if reset_halfmove {
             self.halfmove_clock = 0;
         } else {
             self.halfmove_clock += 1;
+        }
+
+        if reset_halfmove || flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
+            self.moves_since_irreversible = 0;
+        } else {
+            self.moves_since_irreversible += 1;
         }
 
         if flags == MOVE_KING_CASTLE || flags == MOVE_QUEEN_CASTLE {
@@ -318,40 +330,11 @@ impl Board {
         self.white_to_move = !self.white_to_move;
         self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
-        repetitions.make_move(mov, self.hash);
-    }
-
-    /// Move must be a simple move piece from x to y. No captures, no pawn double pushes, no castling, etc.
-    /// This is a simplified, specialized copy of unmake_move that must stay in sync.
-    pub fn unmake_reversible_move_for_repetitions(&mut self, move_index: usize, repetitions: &RepetitionTracker) {
-        let m = repetitions.get_move(move_index);
-        let from = m.from() as usize;
-        let to = m.to() as usize;
-        let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
-
-        debug_assert_eq!(m.flags(), 0);
-
-        let moved_piece = self.get_piece_64(to);
-        debug_assert_ne!(moved_piece, 0);
-
-        let moved_piece_kind = moved_piece & PIECE_MASK;
-        self.write_piece(PIECE_NONE, to);
-        self.hash ^= get_zobrist_hash_value(moved_piece_kind, !self.white_to_move, to, zobrist_hash_values);
-        self.write_piece(moved_piece, from);
-        self.hash ^= get_zobrist_hash_value(moved_piece_kind, !self.white_to_move, from, zobrist_hash_values);
-
-        // Any move that resets this is irreversible so shouldn't need to check for underflow
-        self.halfmove_clock -= 1;
-
-        if self.white_to_move {
-            self.fullmove_counter -= 1;
-        }
-        self.white_to_move = !self.white_to_move;
-        self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+        repetitions.push_hash(self.hash);
     }
 
     #[must_use]
-    pub fn make_null_move(&mut self) -> Option<u8> {
+    pub fn make_null_move(&mut self) -> NullMoveInfo {
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
 
         let en_passant_target_square_index = self.en_passant_target_square_index;
@@ -362,22 +345,29 @@ impl Board {
         }
 
         self.en_passant_target_square_index = None;
+        let moves_since_irreversible = self.moves_since_irreversible;
+        self.moves_since_irreversible = 0;
 
         // should I increment move clocks/counters?
         self.white_to_move = !self.white_to_move;
         self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
-        en_passant_target_square_index
+        NullMoveInfo {
+            en_passant_target_square_index,
+            moves_since_irreversible,
+        }
     }
 
-    pub fn unmake_null_move(&mut self, en_passant_target_square_index: Option<u8>) {
+    pub fn unmake_null_move(&mut self, info: NullMoveInfo) {
         let zobrist_hash_values = &*ZOBRIST_HASH_VALUES;
 
-        self.en_passant_target_square_index = en_passant_target_square_index;
-        if let Some(en_passant_target_square_index) = en_passant_target_square_index {
+        self.en_passant_target_square_index = info.en_passant_target_square_index;
+        if let Some(en_passant_target_square_index) = info.en_passant_target_square_index {
             let file = file_8x8(en_passant_target_square_index);
             self.hash ^= zobrist_hash_values[HASH_VALUES_EP_FILE_IDX + file as usize];
         }
+
+        self.moves_since_irreversible = info.moves_since_irreversible;
 
         // should I decrement move clocks/counters?
         self.white_to_move = !self.white_to_move;
@@ -515,7 +505,7 @@ mod moves_tests {
                         let from_uci = uci.get_board_copy().unwrap();
 
                         let fen = from_uci.to_fen();
-                        let from_fen = Board::from_fen(&fen, None).unwrap();
+                        let mut from_fen = Board::from_fen(&fen, None).unwrap();
 
                         if from_fen.hash != from_uci.hash {
                             let mut diff_found = false;
@@ -530,6 +520,12 @@ mod moves_tests {
                                 println!("hash differs by more than one value from ZOBRIST_HASH_VALUES");
                             }
                         }
+
+                        // moves_since_irreversible tracks moves made through make_move, so it will be 0 after loading from FEN
+                        assert_eq!(from_fen.moves_since_irreversible, 0);
+                        assert!(from_uci.moves_since_irreversible <= from_uci.halfmove_clock);
+
+                        from_fen.moves_since_irreversible = from_uci.moves_since_irreversible;
 
                         if from_fen != from_uci {
                             println!("Found mismatch after making move {m}");
@@ -587,6 +583,7 @@ mod moves_tests {
         assert_ne!(from_fen.halfmove_clock, from_repetitions.halfmove_clock);
         from_repetitions.fullmove_counter = from_fen.fullmove_counter;
         from_repetitions.halfmove_clock = from_fen.halfmove_clock;
+        from_repetitions.moves_since_irreversible = from_fen.moves_since_irreversible;
 
         assert_eq!(from_fen, from_repetitions);
     }
