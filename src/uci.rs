@@ -323,13 +323,15 @@ impl UciInterface {
                     } else if message.starts_with("eval") {
                         if let Some(board) = &self.board {
                             let accumulators = AccumulatorPair::from(board, &NNUE);
-                            let eval = if board.white_to_move {
+                            let nnue_eval = if board.white_to_move {
                                 NNUE.evaluate(&accumulators.white, &accumulators.black)
                             } else {
                                 NNUE.evaluate(&accumulators.black, &accumulators.white)
                             };
 
-                            println!("Static eval: {}", eval);
+                            let modified_eval = nnue_eval + board.eval_modifiers();
+
+                            println!("Static eval: {}", modified_eval);
                         } else {
                             error!("Board must be set with position first");
                         }

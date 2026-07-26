@@ -566,10 +566,7 @@ impl<'a> Searcher<'a> {
         debug_assert!(alpha <= beta);
         pv.clear();
 
-        if ply != 0
-            && (board.halfmove_clock >= 100
-                || board.is_insufficient_material())
-        {
+        if ply != 0 && (board.halfmove_clock >= 100 || board.is_insufficient_material()) {
             if self.inc_and_check_thread_nodes() {
                 return Err(());
             }
@@ -1428,11 +1425,13 @@ impl<'a> Searcher<'a> {
 
     fn evaluate_nnue(&self, board: &Board) -> i16 {
         let pair = self.accumulators.get_current_accumulator();
-        if board.white_to_move {
+        let nnue_eval = if board.white_to_move {
             NNUE.evaluate(&pair.white, &pair.black)
         } else {
             NNUE.evaluate(&pair.black, &pair.white)
-        }
+        };
+
+        nnue_eval + board.eval_modifiers()
     }
 
     /// Updates the repetition tracker and changes which accumulator is current

@@ -177,9 +177,7 @@ impl RepetitionTracker {
 
         let stm_hash = ZOBRIST_HASH_VALUES[HASH_VALUES_BLACK_TO_MOVE_IDX];
 
-        let mut other = self.hashes_reversed_index(0)
-            ^ self.hashes_reversed_index(1)
-            ^ stm_hash;
+        let mut other = self.hashes_reversed_index(0) ^ self.hashes_reversed_index(1) ^ stm_hash;
 
         let moves_data = &**REPETITION_MOVES_DATA;
 
@@ -187,9 +185,7 @@ impl RepetitionTracker {
         let mut d = 1;
         while d + 2 <= board.moves_since_irreversible as usize {
             d += 2;
-            other ^= self.hashes_reversed_index(d - 1)
-                ^ self.hashes_reversed_index(d)
-                ^ stm_hash;
+            other ^= self.hashes_reversed_index(d - 1) ^ self.hashes_reversed_index(d) ^ stm_hash;
 
             // The opponent's pieces must have reverted for us to be able to make a repetition
             if other != 0 {
