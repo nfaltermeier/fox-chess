@@ -599,8 +599,8 @@ impl<'a> Searcher<'a> {
             });
         }
 
-        if in_check {
-            draft = draft.saturating_add(1);
+        if in_check && draft == 0 {
+            draft += 1;
         }
 
         if draft == 0 {
