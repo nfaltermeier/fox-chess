@@ -82,7 +82,7 @@ fn do_perft(
         let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov, repetitions, None, None);
         if !legal {
             if move_made {
-                repetitions.unmake_move(new_board.hash);
+                repetitions.pop_hash();
             }
             continue;
         }
@@ -98,7 +98,7 @@ fn do_perft(
             println!("{} {}", mov.simple_long_algebraic_notation(), stats.nodes - start_nodes)
         }
 
-        repetitions.unmake_move(new_board.hash);
+        repetitions.pop_hash();
     }
 }
 

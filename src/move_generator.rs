@@ -699,7 +699,7 @@ mod check_evasion_tests {
                     new_board.test_legality_and_maybe_make_move(mov.m, &mut repetitions, None, None);
 
                 if move_made {
-                    repetitions.unmake_move(new_board.hash);
+                    repetitions.pop_hash();
                 }
 
                 result

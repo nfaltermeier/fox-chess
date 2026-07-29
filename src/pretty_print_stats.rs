@@ -70,7 +70,7 @@ fn format_moves_san(board: &Board, moves: &TinyVec<[Move; 32]>) -> String {
     let mut repetitions = RepetitionTracker::new();
     let mut result = String::new();
 
-    for (move_index, mov) in moves.iter().rev().enumerate() {
+    for (move_index, mov) in moves.iter().enumerate() {
         let to = mov.to();
         let from = mov.from();
         let moving_piece_type = board.get_piece_64(mov.from() as usize) & PIECE_MASK;

@@ -311,15 +311,18 @@ impl UciInterface {
                     } else if message.starts_with("eval") {
                         if let Some(board) = &self.board {
                             let accumulators = AccumulatorPair::from(board, &NNUE);
-                            let eval = if board.white_to_move {
+                            let nnue_eval = if board.white_to_move {
                                 NNUE.evaluate(&accumulators.white, &accumulators.black)
                             } else {
                                 NNUE.evaluate(&accumulators.black, &accumulators.white)
                             };
 
-                            let normalized = wdl::normalize_score(eval, board);
+                            let eval_modifier = board.eval_modifiers();
+                            let modified_eval = nnue_eval + eval_modifier;
 
-                            println!("Normalized eval: {normalized}, Raw eval: {eval}");
+                            let normalized = wdl::normalize_score(modified_eval, board);
+
+                            println!("Normalized eval: {normalized}, Raw eval: {modified_eval}, NNUE raw eval: {nnue_eval}, heuristic eval modifier: {eval_modifier}");
                         } else {
                             error!("Board must be set with position first");
                         }
@@ -367,7 +370,6 @@ impl UciInterface {
             elapsed.as_millis(),
             transposition_table.hashfull(search_starting_fullmove),
             pv.iter()
-                .rev()
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),
@@ -425,5 +427,16 @@ impl UciInterface {
         };
 
         format!("{} {}", build_info.profile, commit)
+    }
+}
+
+#[cfg(test)]
+mod uci_tests {
+    use super::*;
+
+    impl UciInterface {
+        pub fn repetition_tracker(&self) -> &RepetitionTracker {
+            &self.repetitions
+        }
     }
 }

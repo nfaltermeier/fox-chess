@@ -9,6 +9,8 @@ use uci::UciInterface;
 
 use cli::{CliArgs, handle_startup_command};
 
+use crate::repetition_tracker::init_repetition_moves_data;
+
 mod bench;
 mod bitboard;
 mod board;
@@ -49,6 +51,7 @@ fn main() {
 
     // dereference lazy cell to cause it to initialize
     let _ = *ZOBRIST_HASH_VALUES;
+    init_repetition_moves_data();
     initialize_magic_bitboards();
 
     if let Some(command) = &args.command {
