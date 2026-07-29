@@ -3,8 +3,8 @@ use crate::board::Board;
 // Based on https://github.com/official-stockfish/WDL_model
 
 const MATERIAL_TARGET: f32 = 58.0;
-const A_COEFFS: [f32; 4] = [-747.96623883, 1977.20640528, -2324.95666384, 2103.66589986];
-const B_COEFFS: [f32; 4] = [-50.82038629, -53.11877225, 339.20138045, 191.71475232];
+const A_COEFFS: [f32; 4] = [-137.18006228, 364.89416650, -486.05414711, 520.33495197];
+const B_COEFFS: [f32; 4] = [0.04907342, -37.48135548, 99.27663650, 48.25721487];
 
 pub fn normalize_score(score: i16, board: &Board) -> i16 {
     let (a, _) = get_parameters(board);
