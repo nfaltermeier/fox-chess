@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score (raw)       win/draw/loss time nodes nodes/s hashfull pv");
+    println!("  d/sd pv#  score       win/draw/loss time nodes nodes/s hashfull pv");
 }
 
 #[inline(never)]
@@ -30,8 +30,7 @@ pub fn pretty_print_stats(
         format!("{mate_str:>6}")
     } else {
         let normalized_pawns = wdl::normalize_score(score, board) as f32 / 100.0;
-        let pawns = score as f32 / 100.0;
-        format!("{normalized_pawns:>6.2} ({pawns:>6.2})")
+        format!("{normalized_pawns:>6.2}")
     };
 
     let time = {
