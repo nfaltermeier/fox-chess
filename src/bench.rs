@@ -67,7 +67,7 @@ pub fn bench() {
     ];
 
     let tc = None;
-    let sc = Some(UciSearchControl::depth(9));
+    let sc = Some(UciSearchControl::depth(12));
 
     let mut nodes = 0;
     let start_time = Instant::now();
