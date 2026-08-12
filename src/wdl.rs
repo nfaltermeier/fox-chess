@@ -24,8 +24,10 @@ pub fn get_wdl_rounded(score: i16, board: &Board, coeff: u16) -> (u16, u16, u16)
 fn get_parameters(board: &Board) -> (f32, f32) {
     let material = board.count_material().clamp(17, 78);
     let material_ratio = material as f32 / MATERIAL_TARGET;
-    let a = ((A_COEFFS[0] * material_ratio + A_COEFFS[1]) * material_ratio + A_COEFFS[2]) * material_ratio + A_COEFFS[3];
-    let b = ((B_COEFFS[0] * material_ratio + B_COEFFS[1]) * material_ratio + B_COEFFS[2]) * material_ratio + B_COEFFS[3];
+    let a =
+        ((A_COEFFS[0] * material_ratio + A_COEFFS[1]) * material_ratio + A_COEFFS[2]) * material_ratio + A_COEFFS[3];
+    let b =
+        ((B_COEFFS[0] * material_ratio + B_COEFFS[1]) * material_ratio + B_COEFFS[2]) * material_ratio + B_COEFFS[3];
 
     (a, b)
 }

@@ -12,7 +12,20 @@ use tinyvec::TinyVec;
 use vampirc_uci::{UciMessage, UciPiece, parse_with_unknown};
 
 use crate::{
-    STARTING_FEN, bench::bench, board::Board, evaluate::{MATE_THRESHOLD, MATE_VALUE}, get_build_info, history::ThreadHistoryTables, moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves}, nnue::{AccumulatorPair, NNUE}, perft::run_full_perft_suite, repetition_tracker::RepetitionTracker, search::{self, PrintMode, search_multithreaded, stats::SearchStats}, transposition_table::TranspositionTable, uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions}, wdl,
+    STARTING_FEN,
+    bench::bench,
+    board::Board,
+    evaluate::{MATE_THRESHOLD, MATE_VALUE},
+    get_build_info,
+    history::ThreadHistoryTables,
+    moves::{FLAGS_PROMO_BISHOP, FLAGS_PROMO_KNIGHT, FLAGS_PROMO_QUEEN, FLAGS_PROMO_ROOK, Move, find_and_run_moves},
+    nnue::{AccumulatorPair, NNUE},
+    perft::run_full_perft_suite,
+    repetition_tracker::RepetitionTracker,
+    search::{self, PrintMode, search_multithreaded, stats::SearchStats},
+    transposition_table::TranspositionTable,
+    uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
+    wdl,
 };
 
 pub struct UciInterface {
@@ -341,7 +354,9 @@ impl UciInterface {
 
                             let normalized = wdl::normalize_score(modified_eval, board);
 
-                            println!("Normalized eval: {normalized}, Raw eval: {modified_eval}, NNUE raw eval: {nnue_eval}, heuristic eval modifier: {eval_modifier}");
+                            println!(
+                                "Normalized eval: {normalized}, Raw eval: {modified_eval}, NNUE raw eval: {nnue_eval}, heuristic eval modifier: {eval_modifier}"
+                            );
                         } else {
                             error!("Board must be set with position first");
                         }

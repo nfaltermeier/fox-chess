@@ -3,7 +3,14 @@ use std::time::Duration;
 use tinyvec::TinyVec;
 
 use crate::{
-    board::{Board, PIECE_MASK, PIECE_PAWN, file_8x8, piece_to_letter, rank_8x8}, evaluate::{MATE_THRESHOLD, MATE_VALUE}, moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move}, repetition_tracker::RepetitionTracker, search::stats::SearchStats, staged_move_generator::StagedMoveGenerator, transposition_table::TranspositionTable, wdl,
+    board::{Board, PIECE_MASK, PIECE_PAWN, file_8x8, piece_to_letter, rank_8x8},
+    evaluate::{MATE_THRESHOLD, MATE_VALUE},
+    moves::{MOVE_KING_CASTLE, MOVE_QUEEN_CASTLE, Move},
+    repetition_tracker::RepetitionTracker,
+    search::stats::SearchStats,
+    staged_move_generator::StagedMoveGenerator,
+    transposition_table::TranspositionTable,
+    wdl,
 };
 
 pub fn print_header() {
