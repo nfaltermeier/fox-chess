@@ -1,6 +1,6 @@
 use crate::board::Board;
 
-// Based on https://github.com/official-stockfish/WDL_model
+// Formulas from and coefficients generated with https://github.com/official-stockfish/WDL_model
 
 const MATERIAL_TARGET: f32 = 58.0;
 const A_COEFFS: [f32; 4] = [-137.18006228, 364.89416650, -486.05414711, 520.33495197];
