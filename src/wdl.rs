@@ -12,17 +12,11 @@ pub fn normalize_score(score: i16, board: &Board) -> i16 {
     normalized_score.round() as i16
 }
 
-pub fn get_milli_wdl(score: i16, board: &Board) -> (u16, u16, u16) {
-    let (w, d, l) = get_wdl(score, board);
-    ((w * 1000.0).round() as u16, (d * 1000.0).round() as u16, (l * 1000.0).round() as u16)
-}
-
-pub fn get_wdl(score: i16, board: &Board) -> (f32, f32, f32) {
+pub fn get_wdl_rounded(score: i16, board: &Board, coeff: u16) -> (u16, u16, u16) {
     let (a, b) = get_parameters(board);
-    let w = get_win_rate(score, a, b);
-    let l = get_win_rate(-score, a, b);
-    // rounding after this means that it still doesn't always add up
-    let d = (1.0 - w - l).max(0.0);
+    let w = (get_win_rate(score, a, b) * (coeff as f32)).round() as u16;
+    let l = (get_win_rate(-score, a, b) * (coeff as f32)).round() as u16;
+    let d = coeff - w - l;
 
     (w, d, l)
 }

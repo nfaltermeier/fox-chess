@@ -383,7 +383,7 @@ impl UciInterface {
         };
 
         let wdl = if show_wdl {
-            let (w, d, l) = wdl::get_milli_wdl(score, board);
+            let (w, d, l) = wdl::get_wdl_rounded(score, board, 1000);
             format!("wdl {w} {d} {l} ")
         } else {
             String::new()

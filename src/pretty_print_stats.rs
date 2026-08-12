@@ -49,10 +49,10 @@ pub fn pretty_print_stats(
     };
 
     let wdl = {
-        let (w, d, l) = wdl::get_wdl(score, board);
-        let w = format!("{:0}%", (w * 100.0).round());
-        let d = format!("{:0}%", (d * 100.0).round());
-        let l = format!("{:0}%", (l * 100.0).round());
+        let (w, d, l) = wdl::get_wdl_rounded(score, board, 100);
+        let w = format!("{w:0}%");
+        let d = format!("{d:0}%");
+        let l = format!("{l:0}%");
         format!("{w:>4}/{d:^4}/{l:<4}")
     };
 
