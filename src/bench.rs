@@ -98,6 +98,7 @@ pub fn bench() {
             |_| {},
             false,
             0,
+            false,
         );
 
         nodes += stats.thread_total_nodes();

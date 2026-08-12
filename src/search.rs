@@ -108,6 +108,7 @@ pub struct Searcher<'a> {
     thread_num: u16,
     stop_search: &'a AtomicBool,
     accumulators: AccumulatorPairStack,
+    show_wdl: bool,
 }
 
 /// Returns the stats and result from the main thread
@@ -127,6 +128,7 @@ pub fn search_multithreaded<'a, F>(
     on_search_finished: F,
     hard_max_nodes: bool,
     move_overhead: u16,
+    show_wdl: bool,
 ) -> (SearchResult, SearchStats)
 where
     F: Fn(&SearchResult),
@@ -171,6 +173,7 @@ where
                     stop_search,
                     stats,
                     hard_max_nodes,
+                    show_wdl,
                 );
 
                 searcher.initialize_with_board(&board);
@@ -210,6 +213,7 @@ where
             &stop_search,
             stats,
             hard_max_nodes,
+            show_wdl,
         );
         let result =
             searcher.iterative_deepening_search(board, time_options, search_options, move_overhead, print_mode);
@@ -236,6 +240,7 @@ impl<'a> Searcher<'a> {
         stop_search: &'a AtomicBool,
         stats: SearchStats,
         hard_max_nodes: bool,
+        show_wdl: bool,
     ) -> Self {
         assert!(multi_pv >= 1);
 
@@ -266,6 +271,7 @@ impl<'a> Searcher<'a> {
             thread_num,
             stop_search,
             accumulators: AccumulatorPairStack::new(),
+            show_wdl,
         }
     }
 
@@ -391,6 +397,7 @@ impl<'a> Searcher<'a> {
                                     i as u8 + 1,
                                     pv.selective_depth,
                                     &board,
+                                    self.show_wdl,
                                 );
                             }
                             PrintMode::Pretty => {

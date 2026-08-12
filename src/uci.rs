@@ -30,6 +30,7 @@ pub struct UciInterface {
     threads: u16,
     hard_max_nodes: bool,
     move_overhead: u16,
+    show_wdl: bool,
 }
 
 impl UciInterface {
@@ -47,6 +48,7 @@ impl UciInterface {
             threads: 1,
             hard_max_nodes: true,
             move_overhead: 0,
+            show_wdl: false,
         }
     }
 
@@ -65,6 +67,7 @@ impl UciInterface {
                     println!("option name Contempt type spin default 0 min -100 max 100");
                     println!("option name Soft Max Nodes type check default false");
                     println!("option name Move Overhead type spin default 0 min 0 max 5000");
+                    println!("option name UCI_ShowWDL type check default false");
                     RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
@@ -156,6 +159,7 @@ impl UciInterface {
                             },
                             self.hard_max_nodes,
                             self.move_overhead,
+                            self.show_wdl,
                         );
                     } else {
                         error!("Board must be set with position first");
@@ -275,6 +279,21 @@ impl UciInterface {
                                 error!("Expected a value for option Move Overhead");
                             }
                         }
+                        "uci_showwdl" => {
+                            if let Some(value) = value {
+                                let show_wdl = value.parse::<bool>();
+                                if let Ok(show_wdl) = show_wdl {
+                                    self.show_wdl = show_wdl;
+                                } else {
+                                    error!(
+                                        "Failed to parse UCI_ShowWDL value as a boolean: {}",
+                                        show_wdl.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option UCI_ShowWDL");
+                            }
+                        }
                         _ => {
                             error!("Unknown UCI setoption name '{name}'");
                         }
@@ -351,6 +370,7 @@ impl UciInterface {
         multi_pv: u8,
         selective_depth: u8,
         board: &Board,
+        show_wdl: bool,
     ) {
         let abs_cp = score.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
@@ -362,10 +382,17 @@ impl UciInterface {
             format!("score cp {normalized_score}")
         };
 
+        let wdl = if show_wdl {
+            let (w, d, l) = wdl::get_milli_wdl(score, board);
+            format!("wdl {w} {d} {l} ")
+        } else {
+            String::new()
+        };
+
         let total_nodes = stats.global_total_nodes();
         let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {} raw_score {score}",
+            "info depth {} multipv {multi_pv} {score_string} {wdl}time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {} raw_score {score}",
             stats.depth,
             elapsed.as_millis(),
             transposition_table.hashfull(search_starting_fullmove),

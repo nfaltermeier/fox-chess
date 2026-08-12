@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score (raw)      time nodes nodes/s hashfull pv");
+    println!("  d/sd pv#  score (raw)       win/draw/loss time nodes nodes/s hashfull pv");
 }
 
 #[inline(never)]
@@ -48,6 +48,14 @@ pub fn pretty_print_stats(
         }
     };
 
+    let wdl = {
+        let (w, d, l) = wdl::get_wdl(score, board);
+        let w = format!("{:0}%", (w * 100.0).round());
+        let d = format!("{:0}%", (d * 100.0).round());
+        let l = format!("{:0}%", (l * 100.0).round());
+        format!("{w:>4}/{d:^4}/{l:<4}")
+    };
+
     let depth = stats.depth;
 
     let total_nodes = stats.global_total_nodes();
@@ -61,7 +69,7 @@ pub fn pretty_print_stats(
     let pv_str = format_moves_san(board, pv_moves);
 
     println!(
-        "{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string}  {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}"
+        "{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string} {wdl} {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}"
     );
 }
 
