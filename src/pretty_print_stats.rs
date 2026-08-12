@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score       win/draw/loss time nodes nodes/s hashfull pv");
+    println!("  d/sd pv#  score  win/draw/loss      time nodes nodes/s hashfull pv");
 }
 
 #[inline(never)]
