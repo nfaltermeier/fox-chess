@@ -21,6 +21,7 @@ Now uses an efficiently updatable neural network (NNUE) for evaluation, which is
 * Contempt: Sets the engine's draw score (in centipawns). Higher means the engine wants to avoid a draw more. Default is 0 and range is -100 to 100.
 * Soft Max Nodes: When enabled and max nodes is specified (ex. `go nodes 100000`), then the engine will try to finish searching the current iteration before reporting the best move (it can search more nodes than specified). If enabled and nodes searched exceeds 20x the maximum, then it will still cancel the search. A hard nodes maximum will not be exactly followed when using multiple threads. Default is disabled (false).
 * Move Overhead: Search will try to stop this many milliseconds earlier than normal. To account for overhead from network, GUI, etc. Default is 0.
+* UCI_ShowWDL: Controls whether the estimated likelyhood of winning, losing, or drawing is included in `info` prints. Uses the engine's internal WDL model. Default is disabled (false).
 
 ## Prerequisites for Building
 The MSRV is currently 1.88. Using the latest version is probably best. I'm using 1.95.0 currently.

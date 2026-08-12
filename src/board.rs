@@ -542,6 +542,21 @@ impl Board {
             self.nonpawn_hashes[side] ^= hash;
         }
     }
+
+    pub fn count_material(&self) -> u8 {
+        (self.piece_counts[0][PIECE_PAWN as usize]
+            + self.piece_counts[1][PIECE_PAWN as usize]
+            + 3 * (self.piece_counts[0][PIECE_KNIGHT as usize] + self.piece_counts[1][PIECE_KNIGHT as usize])
+            + 3 * (self.piece_counts[0][PIECE_BISHOP as usize] + self.piece_counts[1][PIECE_BISHOP as usize]))
+            .saturating_add(
+                5_u8.saturating_mul(
+                    self.piece_counts[0][PIECE_ROOK as usize] + self.piece_counts[1][PIECE_ROOK as usize],
+                ),
+            )
+            .saturating_add(9_u8.saturating_mul(
+                self.piece_counts[0][PIECE_QUEEN as usize] + self.piece_counts[1][PIECE_QUEEN as usize],
+            ))
+    }
 }
 
 impl Debug for Board {

@@ -10,10 +10,11 @@ use crate::{
     search::stats::SearchStats,
     staged_move_generator::StagedMoveGenerator,
     transposition_table::TranspositionTable,
+    wdl,
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score       time nodes nodes/s hashfull pv");
+    println!("  d/sd pv#  score  win/draw/loss      time nodes nodes/s hashfull pv");
 }
 
 #[inline(never)]
@@ -35,8 +36,8 @@ pub fn pretty_print_stats(
         let mate_str = format!("{}M{moves}", if score < 0 { "-" } else { "" });
         format!("{mate_str:>6}")
     } else {
-        let pawns = score as f32 / 100.0;
-        format!("{pawns:>6.2}")
+        let normalized_pawns = wdl::normalize_score(score, board) as f32 / 100.0;
+        format!("{normalized_pawns:>6.2}")
     };
 
     let time = {
@@ -53,6 +54,14 @@ pub fn pretty_print_stats(
         }
     };
 
+    let wdl = {
+        let (w, d, l) = wdl::get_wdl_rounded(score, board, 100);
+        let w = format!("{w:0}%");
+        let d = format!("{d:0}%");
+        let l = format!("{l:0}%");
+        format!("{w:>4}/{d:^4}/{l:<4}")
+    };
+
     let depth = stats.depth;
 
     let total_nodes = stats.global_total_nodes();
@@ -66,7 +75,7 @@ pub fn pretty_print_stats(
     let pv_str = format_moves_san(board, pv_moves);
 
     println!(
-        "{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string}  {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}"
+        "{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string} {wdl} {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}"
     );
 }
 

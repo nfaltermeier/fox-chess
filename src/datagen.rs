@@ -360,7 +360,7 @@ fn run_datagen_thread(threadnum: u16, sync: &Arc<Sync>, args: &DatagenArgs) {
                 0,
             );
 
-            if results.score.abs() > args.maximum_opening_imbalance {
+            if wdl::normalize_score(results.score, &fc_board).abs() > args.maximum_opening_imbalance {
                 game_moves_vec = Vec::new();
                 mem::swap(&mut game.moves, &mut game_moves_vec);
                 continue;

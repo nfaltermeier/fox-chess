@@ -25,6 +25,7 @@ use crate::{
     search::{self, PrintMode, search_multithreaded, stats::SearchStats},
     transposition_table::TranspositionTable,
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
+    wdl,
 };
 
 pub struct UciInterface {
@@ -42,6 +43,7 @@ pub struct UciInterface {
     threads: u16,
     hard_max_nodes: bool,
     move_overhead: u16,
+    show_wdl: bool,
 }
 
 impl UciInterface {
@@ -59,6 +61,7 @@ impl UciInterface {
             threads: 1,
             hard_max_nodes: true,
             move_overhead: 0,
+            show_wdl: false,
         }
     }
 
@@ -77,6 +80,7 @@ impl UciInterface {
                     println!("option name Contempt type spin default 0 min -100 max 100");
                     println!("option name Soft Max Nodes type check default false");
                     println!("option name Move Overhead type spin default 0 min 0 max 5000");
+                    println!("option name UCI_ShowWDL type check default false");
                     RequiredUciOptions::print_uci_options();
                     println!("uciok");
                 }
@@ -168,6 +172,7 @@ impl UciInterface {
                             },
                             self.hard_max_nodes,
                             self.move_overhead,
+                            self.show_wdl,
                         );
                     } else {
                         error!("Board must be set with position first");
@@ -287,6 +292,21 @@ impl UciInterface {
                                 error!("Expected a value for option Move Overhead");
                             }
                         }
+                        "uci_showwdl" => {
+                            if let Some(value) = value {
+                                let show_wdl = value.parse::<bool>();
+                                if let Ok(show_wdl) = show_wdl {
+                                    self.show_wdl = show_wdl;
+                                } else {
+                                    error!(
+                                        "Failed to parse UCI_ShowWDL value as a boolean: {}",
+                                        show_wdl.unwrap_err()
+                                    );
+                                }
+                            } else {
+                                error!("Expected a value for option UCI_ShowWDL");
+                            }
+                        }
                         _ => {
                             error!("Unknown UCI setoption name '{name}'");
                         }
@@ -329,9 +349,14 @@ impl UciInterface {
                                 NNUE.evaluate(&accumulators.black, &accumulators.white)
                             };
 
-                            let modified_eval = nnue_eval + board.eval_modifiers();
+                            let eval_modifier = board.eval_modifiers();
+                            let modified_eval = nnue_eval + eval_modifier;
 
-                            println!("Static eval: {}", modified_eval);
+                            let normalized = wdl::normalize_score(modified_eval, board);
+
+                            println!(
+                                "Normalized eval: {normalized}, Raw eval: {modified_eval}, NNUE raw eval: {nnue_eval}, heuristic eval modifier: {eval_modifier}"
+                            );
                         } else {
                             error!("Board must be set with position first");
                         }
@@ -359,6 +384,8 @@ impl UciInterface {
         search_starting_fullmove: u8,
         multi_pv: u8,
         selective_depth: u8,
+        board: &Board,
+        show_wdl: bool,
     ) {
         let abs_cp = score.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
@@ -366,13 +393,21 @@ impl UciInterface {
             let moves = (diff as f32 / 2.0).ceil();
             format!("score mate {}{moves}", if score < 0 { "-" } else { "" })
         } else {
-            format!("score cp {score}")
+            let normalized_score = wdl::normalize_score(score, board);
+            format!("score cp {normalized_score}")
+        };
+
+        let wdl = if show_wdl {
+            let (w, d, l) = wdl::get_wdl_rounded(score, board, 1000);
+            format!("wdl {w} {d} {l} ")
+        } else {
+            String::new()
         };
 
         let total_nodes = stats.global_total_nodes();
         let nps = total_nodes as f64 / elapsed.as_secs_f64();
         println!(
-            "info depth {} multipv {multi_pv} {score_string} time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {}",
+            "info depth {} multipv {multi_pv} {score_string} {wdl}time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {}",
             stats.depth,
             elapsed.as_millis(),
             transposition_table.hashfull(search_starting_fullmove),
