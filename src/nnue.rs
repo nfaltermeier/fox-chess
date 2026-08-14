@@ -7,11 +7,12 @@ const QA: i16 = 255;
 const QB: i32 = 64;
 const SCALE: i32 = 400;
 const HIDDEN_SIZE: usize = 256;
+const OUTPUT_BUCKET_COUNT: usize = 8;
 
 // Based on the bullet inference example
 
 // Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
-pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/bengal-v3.nnue")) };
+pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/blanford.nnue")) };
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
@@ -35,30 +36,34 @@ pub struct Network {
     /// Vector with dimension `HIDDEN_SIZE`.
     /// Values have quantization of QA.
     feature_bias: Accumulator,
-    /// Column-Major `1 x (2 * HIDDEN_SIZE)`
+    /// Column-Major `OUTPUT_BUCKET_COUNT x (2 * HIDDEN_SIZE)`
     /// matrix, we use it like this to make the
     /// code nicer in `Network::evaluate`.
     /// Values have quantization of QB.
-    output_weights: [i16; 2 * HIDDEN_SIZE],
+    output_weights: [[i16; 2 * HIDDEN_SIZE]; OUTPUT_BUCKET_COUNT],
     /// Scalar output bias.
     /// Value has quantization of QA * QB.
-    output_bias: i16,
+    output_biases: [i16; OUTPUT_BUCKET_COUNT],
 }
 
 impl Network {
     /// Calculates the output of the network, starting from the already
     /// calculated hidden layer (done efficiently during makemoves).
-    pub fn evaluate(&self, us: &Accumulator, them: &Accumulator) -> i16 {
+    pub fn evaluate(&self, us: &Accumulator, them: &Accumulator, board: &Board) -> i16 {
         // Initialise output.
         let mut output = 0;
 
+        let output_bucket_index = (board.occupancy.count_ones().min(32) as usize - 2) / (32usize.div_ceil(OUTPUT_BUCKET_COUNT));
+
+        let bucket_output_weights = &self.output_weights[output_bucket_index];
+
         // Side-To-Move Accumulator -> Output.
-        for (&input, &weight) in us.vals.iter().zip(&self.output_weights[..HIDDEN_SIZE]) {
+        for (&input, &weight) in us.vals.iter().zip(&bucket_output_weights[..HIDDEN_SIZE]) {
             output += screlu_mul(input, weight);
         }
 
         // Not-Side-To-Move Accumulator -> Output.
-        for (&input, &weight) in them.vals.iter().zip(&self.output_weights[HIDDEN_SIZE..]) {
+        for (&input, &weight) in them.vals.iter().zip(&bucket_output_weights[HIDDEN_SIZE..]) {
             output += screlu_mul(input, weight);
         }
 
@@ -66,7 +71,7 @@ impl Network {
         output /= QA as i32;
 
         // Add bias.
-        output += i32::from(self.output_bias);
+        output += i32::from(self.output_biases[output_bucket_index]);
 
         // Aptarget_ply eval scale.
         output *= SCALE;

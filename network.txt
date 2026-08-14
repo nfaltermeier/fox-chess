@@ -1,2 +1,2 @@
-bengal-v3.nnue
-CRC64: 5C70FC64EF396648
+blanford.nnue
+CRC64: D8ABF902C1E8FCC2

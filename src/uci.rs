@@ -344,9 +344,9 @@ impl UciInterface {
                         if let Some(board) = &self.board {
                             let accumulators = AccumulatorPair::from(board, &NNUE);
                             let nnue_eval = if board.white_to_move {
-                                NNUE.evaluate(&accumulators.white, &accumulators.black)
+                                NNUE.evaluate(&accumulators.white, &accumulators.black, &board)
                             } else {
-                                NNUE.evaluate(&accumulators.black, &accumulators.white)
+                                NNUE.evaluate(&accumulators.black, &accumulators.white, &board)
                             };
 
                             let eval_modifier = board.eval_modifiers();

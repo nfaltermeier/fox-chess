@@ -209,7 +209,7 @@ LLR: -2.30 (-102.3%) (-2.25, 2.89) [0.00, 10.00]
 ```
 
 # Bengal-V3
-* WDL: Linear from 0.4 to 0.6
+* WDL: Linear from 0.4 to 0.7
 
 VS Bengal
 ```
@@ -261,4 +261,34 @@ LOS: 9.11 %, DrawRatio: 46.74 %, PairsRatio: 0.89
 Games: 1716, Wins: 428, Losses: 461, Draws: 827, Points: 841.5 (49.04 %)
 Ptnml(0-2): [29, 213, 401, 192, 23], WL/DD Ratio: 0.90
 LLR: -2.30 (-102.1%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Bengal-V7
+* Add a finetuning stage
+    * Superbatches: 8
+    * WDL: 0.85
+    * LR: Linear decay from 0.001 * 0.3^5 to 0.001 * 0.3^7
+    * Data: Only the positions generated earlier with Corsac
+
+VS Bengal-V3
+```
+Results of engine1 vs engine2 (40+0.4, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: -2.27 +/- 6.58, nElo: -4.36 +/- 12.63
+LOS: 24.94 %, DrawRatio: 51.69 %, PairsRatio: 0.97
+Games: 2906, Wins: 612, Losses: 631, Draws: 1663, Points: 1443.5 (49.67 %)
+Ptnml(0-2): [19, 337, 751, 336, 10], WL/DD Ratio: 0.52
+LLR: -2.25 (-100.0%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Blanford
+* Arch: (768 -> 256)x2 -> 1x8 (added output buckets)
+
+VS Bengal-V3
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 9.92 +/- 7.37, nElo: 16.69 +/- 12.40
+LOS: 99.58 %, DrawRatio: 44.26 %, PairsRatio: 1.17
+Games: 3014, Wins: 814, Losses: 728, Draws: 1472, Points: 1550.0 (51.43 %)
+Ptnml(0-2): [28, 359, 667, 405, 48], WL/DD Ratio: 0.88
+LLR: 2.92 (101.0%) (-2.25, 2.89) [0.00, 10.00]
 ```

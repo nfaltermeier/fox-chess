@@ -1434,9 +1434,9 @@ impl<'a> Searcher<'a> {
     fn evaluate_nnue(&self, board: &Board) -> i16 {
         let pair = self.accumulators.get_current_accumulator();
         let nnue_eval = if board.white_to_move {
-            NNUE.evaluate(&pair.white, &pair.black)
+            NNUE.evaluate(&pair.white, &pair.black, &board)
         } else {
-            NNUE.evaluate(&pair.black, &pair.white)
+            NNUE.evaluate(&pair.black, &pair.white, &board)
         };
 
         nnue_eval + board.eval_modifiers()
