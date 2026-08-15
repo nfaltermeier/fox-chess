@@ -292,3 +292,15 @@ Games: 3014, Wins: 814, Losses: 728, Draws: 1472, Points: 1550.0 (51.43 %)
 Ptnml(0-2): [28, 359, 667, 405, 48], WL/DD Ratio: 0.88
 LLR: 2.92 (101.0%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Blanford-V2
+* Data: Add 66M positions (filtered) @ 5K soft nodes self-generated with Blanford
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 9.99 +/- 7.52, nElo: 16.26 +/- 12.24
+LOS: 99.54 %, DrawRatio: 43.60 %, PairsRatio: 1.13
+Games: 3096, Wins: 859, Losses: 770, Draws: 1467, Points: 1592.5 (51.44 %)
+Ptnml(0-2): [33, 376, 675, 397, 67], WL/DD Ratio: 0.95
+LLR: 2.90 (100.2%) (-2.25, 2.89) [0.00, 10.00]
+```

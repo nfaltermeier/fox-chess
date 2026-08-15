@@ -1,2 +1,2 @@
-blanford.nnue
-CRC64: D8ABF902C1E8FCC2
+blanford-v2.nnue
+CRC64: B481C8CF0657278F
