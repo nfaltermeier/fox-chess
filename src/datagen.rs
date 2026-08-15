@@ -39,6 +39,7 @@ use crate::{
     staged_move_generator::StagedMoveGenerator,
     transposition_table::TranspositionTable,
     uci_required_options_helper::RequiredUciOptions,
+    wdl,
 };
 
 #[derive(Subcommand)]
@@ -309,7 +310,7 @@ fn run_datagen_thread(threadnum: u16, sync: &Arc<Sync>, args: &DatagenArgs) {
 
                     break;
                 } else {
-                    repetitions.unmake_move(new_board.hash);
+                    repetitions.pop_hash();
                     moves.remove(i);
                 }
             }
@@ -358,6 +359,7 @@ fn run_datagen_thread(threadnum: u16, sync: &Arc<Sync>, args: &DatagenArgs) {
                 |_| {},
                 false,
                 0,
+                false,
             );
 
             if wdl::normalize_score(results.score, &fc_board).abs() > args.maximum_opening_imbalance {
@@ -408,6 +410,7 @@ fn run_datagen_thread(threadnum: u16, sync: &Arc<Sync>, args: &DatagenArgs) {
                 |_| {},
                 false,
                 0,
+                false,
             );
 
             // Capture, promo, castle, and pawn moves are irreversible. Prevent repetitions from filling up.
@@ -663,10 +666,10 @@ impl Board {
             let mut new_board = self.clone();
             let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov, repetitions, None, None);
             if legal {
-                repetitions.unmake_move(new_board.hash);
+                repetitions.pop_hash();
                 return GameOutcome::Ongoing;
             } else if move_made {
-                repetitions.unmake_move(new_board.hash);
+                repetitions.pop_hash();
             }
         }
 

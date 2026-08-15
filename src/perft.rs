@@ -133,7 +133,7 @@ fn check_perft_stats(mov: Move, board: &Board, stats: &mut PerftStats, repetitio
             let (legal, move_made) = new_board.test_legality_and_maybe_make_move(mov, repetitions, None, None);
 
             if move_made {
-                repetitions.unmake_move(new_board.hash);
+                repetitions.pop_hash();
             }
 
             if legal {

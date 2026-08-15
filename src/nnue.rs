@@ -53,7 +53,8 @@ impl Network {
         // Initialise output.
         let mut output = 0;
 
-        let output_bucket_index = (board.occupancy.count_ones().min(32) as usize - 2) / (32usize.div_ceil(OUTPUT_BUCKET_COUNT));
+        let output_bucket_index =
+            (board.occupancy.count_ones().min(32) as usize - 2) / (32usize.div_ceil(OUTPUT_BUCKET_COUNT));
 
         let bucket_output_weights = &self.output_weights[output_bucket_index];
 

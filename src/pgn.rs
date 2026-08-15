@@ -402,7 +402,7 @@ impl<'a> Pgn {
                     }
                 }
 
-                repetitions.unmake_move(self.board.hash);
+                repetitions.pop_hash();
                 self.fens.push(self.board.to_fen());
             }
 
