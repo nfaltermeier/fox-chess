@@ -304,3 +304,28 @@ Games: 3096, Wins: 859, Losses: 770, Draws: 1467, Points: 1592.5 (51.44 %)
 Ptnml(0-2): [33, 376, 675, 397, 67], WL/DD Ratio: 0.95
 LLR: 2.90 (100.2%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Blanford-V3
+* Data: Remove the old 32M positions (filtered) @ 5K hard nodes self-generated with HCE
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: -3.52 +/- 8.22, nElo: -5.75 +/- 13.44
+LOS: 20.06 %, DrawRatio: 43.93 %, PairsRatio: 0.97
+Games: 2568, Wins: 656, Losses: 682, Draws: 1230, Points: 1271.0 (49.49 %)
+Ptnml(0-2): [48, 317, 564, 323, 32], WL/DD Ratio: 0.91
+LLR: -2.29 (-101.6%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Blanford-V4
+* Data: Add 265M positions (filtered) @ 5K hard nodes self-generated with Blanford-V2
+
+VS Blanford-V2
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 9.51 +/- 7.15, nElo: 15.87 +/- 11.94
+LOS: 99.54 %, DrawRatio: 45.54 %, PairsRatio: 1.16
+Games: 3254, Wins: 889, Losses: 800, Draws: 1565, Points: 1671.5 (51.37 %)
+Ptnml(0-2): [36, 374, 741, 417, 59], WL/DD Ratio: 0.91
+LLR: 2.93 (101.4%) (-2.25, 2.89) [0.00, 10.00]
+```

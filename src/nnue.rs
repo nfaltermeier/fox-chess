@@ -12,7 +12,7 @@ const OUTPUT_BUCKET_COUNT: usize = 8;
 // Based on the bullet inference example
 
 // Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
-pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/blanford-v2.nnue")) };
+pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/blanford-v4.nnue")) };
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
