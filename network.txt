@@ -1,2 +1,2 @@
-blanford-v4.nnue
-CRC64: 44C1E3E902EFC63D
+blanford-v6.nnue
+CRC64: 9955A1BE0573872C

@@ -329,3 +329,27 @@ Games: 3254, Wins: 889, Losses: 800, Draws: 1565, Points: 1671.5 (51.37 %)
 Ptnml(0-2): [36, 374, 741, 417, 59], WL/DD Ratio: 0.91
 LLR: 2.93 (101.4%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Blanford-V5
+* Data: Interleave data from all data generation runs instead of loading from separate files for each run
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: -2.88 +/- 7.72, nElo: -4.84 +/- 12.94
+LOS: 23.18 %, DrawRatio: 46.21 %, PairsRatio: 0.98
+Games: 2770, Wins: 699, Losses: 722, Draws: 1349, Points: 1373.5 (49.58 %)
+Ptnml(0-2): [48, 328, 640, 337, 32], WL/DD Ratio: 0.87
+LLR: -2.26 (-100.2%) (-2.25, 2.89) [0.00, 10.00]
+```
+
+# Blanford-V6
+* Superbatches: 160
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 20.30 +/- 11.38, nElo: 35.45 +/- 19.81
+LOS: 99.98 %, DrawRatio: 45.85 %, PairsRatio: 1.54
+Games: 1182, Wins: 331, Losses: 262, Draws: 589, Points: 625.5 (52.92 %)
+Ptnml(0-2): [12, 114, 271, 181, 13], WL/DD Ratio: 0.84
+LLR: 2.91 (100.8%) (-2.25, 2.89) [0.00, 10.00]
+```
