@@ -353,3 +353,15 @@ Games: 1182, Wins: 331, Losses: 262, Draws: 589, Points: 625.5 (52.92 %)
 Ptnml(0-2): [12, 114, 271, 181, 13], WL/DD Ratio: 0.84
 LLR: 2.91 (100.8%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Ruppell
+* Arch: (768 -> 512)x2 -> 1x8
+
+```
+Results of engine1 vs engine2 (40+0.4, 1t, 64MB, UHO_Lichess_4852_v1.epd):
+Elo: 20.75 +/- 11.28, nElo: 38.66 +/- 20.96
+LOS: 99.99 %, DrawRatio: 46.78 %, PairsRatio: 1.55
+Games: 1056, Wins: 294, Losses: 231, Draws: 531, Points: 559.5 (52.98 %)
+Ptnml(0-2): [4, 106, 247, 165, 6], WL/DD Ratio: 0.90
+LLR: 2.89 (100.1%) (-2.25, 2.89) [0.00, 10.00]
+```
