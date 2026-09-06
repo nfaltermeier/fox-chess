@@ -710,9 +710,11 @@ impl<'a> Searcher<'a> {
         }
 
         let mut static_eval = None;
+        let mut eval_correction = None;
         let mut futility_prune = false;
         if !in_check && excluded_move.is_none() {
-            let eval = self.evaluate_nnue(board) + self.correction_histories.get_adjustment(board, &self.ss, ply);
+            eval_correction = Some(self.correction_histories.get_adjustment(board, &self.ss, ply));
+            let eval = self.evaluate_nnue(board) + eval_correction.unwrap();
             static_eval = Some(eval);
             self.ss[ply as usize].static_eval = Some(eval);
 
@@ -1001,6 +1003,10 @@ impl<'a> Searcher<'a> {
 
                     if in_check {
                         reduction_fixedpoint_128 -= 128;
+                    }
+
+                    if eval_correction.is_some_and(|eval_correction| eval_correction.abs() >= 150) {
+                        reduction_fixedpoint_128 -= 64;
                     }
 
                     let rounding = (reduction_fixedpoint_128 % 128 >= 64) as i16;
