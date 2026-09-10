@@ -712,26 +712,29 @@ impl<'a> Searcher<'a> {
         let mut static_eval = None;
         let mut eval_correction = None;
         let mut futility_prune = false;
+        let mut improving = None;
         if !in_check && excluded_move.is_none() {
             eval_correction = Some(self.correction_histories.get_adjustment(board, &self.ss, ply));
             let eval = self.evaluate_nnue(board) + eval_correction.unwrap();
             static_eval = Some(eval);
             self.ss[ply as usize].static_eval = Some(eval);
 
-            if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
-                let improving = if ply > 1
-                    && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval
-                {
-                    eval > old_eval
-                } else if ply > 3
-                    && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval
-                {
-                    eval > old_eval
-                } else {
-                    false
-                };
+            
+            improving = Some(if ply > 1
+                && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval
+            {
+                eval > old_eval
+            } else if ply > 3
+                && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval
+            {
+                eval > old_eval
+            } else {
+                false
+            });
 
-                let rfp_threshold = beta + 90 * (draft as i16 - if improving { 1 } else { 0 });
+            if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
+
+                let rfp_threshold = beta + 90 * (draft as i16 - if improving.unwrap() { 1 } else { 0 });
                 let rfp_eval = if tt_entry.is_some_and(|e| {
                     e.get_move_type() == MoveType::Best as u8
                         || (e.get_move_type() == MoveType::FailHigh as u8 && e.get_score(ply) >= rfp_threshold)
@@ -1007,6 +1010,10 @@ impl<'a> Searcher<'a> {
 
                     if eval_correction.is_some_and(|eval_correction| eval_correction.abs() >= 150) {
                         reduction_fixedpoint_128 -= 64;
+                    }
+
+                    if improving.is_some_and(|improving| improving == true) {
+                        reduction_fixedpoint_128 -= 41;
                     }
 
                     let rounding = (reduction_fixedpoint_128 % 128 >= 64) as i16;
