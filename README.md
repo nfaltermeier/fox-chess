@@ -24,7 +24,7 @@ Now uses an efficiently updatable neural network (NNUE) for evaluation, which is
 * UCI_ShowWDL: Controls whether the estimated likelyhood of winning, losing, or drawing is included in `info` prints. Uses the engine's internal WDL model. Default is disabled (false).
 
 ## Prerequisites for Building
-The MSRV is currently 1.88. Using the latest version is probably best. I'm using 1.95.0 currently.
+The MSRV is currently 1.95. Using the latest version is probably best. I'm using 1.95.0 currently.
 
 To create a PGO optimized build (recommended) you will need the `llvm-profdata` binary which can be installed with:
 ```

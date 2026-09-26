@@ -50,23 +50,12 @@ impl Network {
     /// Calculates the output of the network, starting from the already
     /// calculated hidden layer (done efficiently during makemoves).
     pub fn evaluate(&self, us: &Accumulator, them: &Accumulator, board: &Board) -> i16 {
-        // Initialise output.
-        let mut output = 0;
-
         let output_bucket_index =
             (board.occupancy.count_ones().min(32) as usize - 2) / (32usize.div_ceil(OUTPUT_BUCKET_COUNT));
 
         let bucket_output_weights = &self.output_weights[output_bucket_index];
 
-        // Side-To-Move Accumulator -> Output.
-        for (&input, &weight) in us.vals.iter().zip(&bucket_output_weights[..HIDDEN_SIZE]) {
-            output += screlu_mul(input, weight);
-        }
-
-        // Not-Side-To-Move Accumulator -> Output.
-        for (&input, &weight) in them.vals.iter().zip(&bucket_output_weights[HIDDEN_SIZE..]) {
-            output += screlu_mul(input, weight);
-        }
+        let mut output = activate_and_apply_weights(us, them, bucket_output_weights);
 
         // Reduce quantization from QA * QA * QB to QA * QB.
         output /= QA as i32;
@@ -74,13 +63,89 @@ impl Network {
         // Add bias.
         output += i32::from(self.output_biases[output_bucket_index]);
 
-        // Aptarget_ply eval scale.
+        // Apply eval scale.
         output *= SCALE;
 
         // Remove quantisation altogether.
         output /= QA as i32 * QB;
 
         output as i16
+    }
+}
+
+fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i16; 2 * HIDDEN_SIZE]) -> i32 {
+    let us_weights = &weights[..HIDDEN_SIZE];
+    let their_weights = &weights[HIDDEN_SIZE..];
+
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512bw", target_feature = "avx512f") => {
+            use std::arch::x86_64::*;
+
+            unsafe {
+                let mut result = _mm512_set1_epi32(0);
+
+                let max = _mm512_set1_epi16(QA);
+                let min = _mm512_set1_epi16(0);
+                let screlu_mul_vecs = |values: __m512i, weights: __m512i, acc: __m512i| -> __m512i {
+                    let maxed = _mm512_max_epi16(values, max);
+                    let clamped = _mm512_min_epi16(maxed, min);
+
+                    let intermediate = _mm512_mullo_epi16(clamped, weights);
+
+                    cfg_select! {
+                        target_feature = "avx512vnni" => _mm512_dpwssd_epi32(acc, intermediate, clamped),
+                        _ => {
+
+                        }
+                    }
+                    
+                };
+
+                let (us_chunks, uc_remainder) = us.vals.as_chunks::<32>();
+                let (us_weights_chunks, uw_remainder) = us_weights.as_chunks::<32>();
+
+                debug_assert_eq!(uc_remainder.len(), 0);
+                debug_assert_eq!(uw_remainder.len(), 0);
+                debug_assert_eq!(us_chunks.len(), us_weights_chunks.len());
+
+                for (vals, weights) in us_chunks.iter().zip(us_weights_chunks) {
+                    let vals = _mm512_load_epi32(vals.as_ptr().cast());
+                    let weights = _mm512_load_epi32(weights.as_ptr().cast());
+
+                    result = screlu_mul_vecs(vals, weights, result);
+                }
+
+                let (them_chunks, tc_remainder) = them.vals.as_chunks::<32>();
+                let (their_weights_chunks, tw_remainder) = their_weights.as_chunks::<32>();
+
+                debug_assert_eq!(tc_remainder.len(), 0);
+                debug_assert_eq!(tw_remainder.len(), 0);
+                debug_assert_eq!(them_chunks.len(), their_weights_chunks.len());
+
+                for (vals, weights) in them_chunks.iter().zip(their_weights_chunks) {
+                    let vals = _mm512_load_epi32(vals.as_ptr().cast());
+                    let weights = _mm512_load_epi32(weights.as_ptr().cast());
+
+                    result = screlu_mul_vecs(vals, weights, result);
+                }
+
+                _mm512_reduce_add_epi32(result)
+            }
+        },
+        _ => {
+            let mut output = 0;
+            // Side-To-Move Accumulator -> Output.
+            for (&input, &weight) in us.vals.iter().zip(us_weights) {
+                output += screlu_mul(input, weight);
+            }
+
+            // Not-Side-To-Move Accumulator -> Output.
+            for (&input, &weight) in them.vals.iter().zip(their_weights) {
+                output += screlu_mul(input, weight);
+            }
+
+            output
+        }
     }
 }
 
