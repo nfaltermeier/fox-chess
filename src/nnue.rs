@@ -14,19 +14,6 @@ const OUTPUT_BUCKET_COUNT: usize = 8;
 // Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
 pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/ruppell.nnue")) };
 
-#[inline]
-/// Square Clipped ReLU - Activation Function.
-/// Range is 0.0 .. 1.0 (in other words, 0 to QA*QA quantized).
-/// Implements Lizard screlu as described by https://asteri.sm/files/2024-06-01-nnue#lizard-simd-for-squared-clipped-relu
-/// With notes based on their description
-fn screlu_mul(x: i16, w: i16) -> i32 {
-    let clamped = x.clamp(0, QA);
-    // Will not overflow because max(clamped) = 255 [QA] and max(w) = 127
-    // because weights are clamped to [-1.98, 1.98] by the optimizer. round(1.98 * 64 [QB]) = 127.
-    let intermediate = clamped * w;
-    intermediate as i32 * clamped as i32
-}
-
 /// This is the quantised format that bullet outputs.
 #[repr(C)]
 pub struct Network {
@@ -55,7 +42,7 @@ impl Network {
 
         let bucket_output_weights = &self.output_weights[output_bucket_index];
 
-        let mut output = activate_and_apply_weights(us, them, bucket_output_weights);
+        let mut output = screlu_and_apply_weights(us, them, bucket_output_weights);
 
         // Reduce quantization from QA * QA * QB to QA * QB.
         output /= QA as i32;
@@ -73,7 +60,11 @@ impl Network {
     }
 }
 
-fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i16; 2 * HIDDEN_SIZE]) -> i32 {
+/// Screlu - Square Clipped ReLU is the activation function.
+/// Screlu produces results in the range of 0.0 to 1.0 (in other words, 0 to QA*QA quantized).
+/// After activating, multiplies the result by the weight, ending in QA * QA * QB quantization.
+/// Implements Lizard screlu as described by https://asteri.sm/files/2024-06-01-nnue#lizard-simd-for-squared-clipped-relu
+fn screlu_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i16; 2 * HIDDEN_SIZE]) -> i32 {
     let us_weights = &weights[..HIDDEN_SIZE];
     let them_weights = &weights[HIDDEN_SIZE..];
 
@@ -189,15 +180,23 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
             }
         },
         _ => {
+            fn screlu_mul_scalar(x: i16, w: i16) -> i32 {
+                let clamped = x.clamp(0, QA);
+                // Will not overflow because max(clamped) = 255 [QA] and max(w) = 127
+                // because weights are clamped to [-1.98, 1.98] by the optimizer. round(1.98 * 64 [QB]) = 127.
+                let intermediate = clamped * w;
+                intermediate as i32 * clamped as i32
+            }
+
             let mut output = 0;
             // Side-To-Move Accumulator -> Output.
             for (&input, &weight) in us.vals.iter().zip(us_weights) {
-                output += screlu_mul(input, weight);
+                output += screlu_mul_scalar(input, weight);
             }
 
             // Not-Side-To-Move Accumulator -> Output.
             for (&input, &weight) in them.vals.iter().zip(their_weights) {
-                output += screlu_mul(input, weight);
+                output += screlu_mul_scalar(input, weight);
             }
 
             output
