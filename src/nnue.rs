@@ -82,7 +82,6 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
             use std::arch::x86_64::*;
 
             unsafe {
-                let mut result = _mm512_set1_epi32(0);
 
                 let max_value = _mm512_set1_epi16(QA);
                 let zero = _mm512_set1_epi16(0);
@@ -108,13 +107,6 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
                 debug_assert_eq!(uw_remainder.len(), 0);
                 debug_assert_eq!(us_chunks.len(), us_weights_chunks.len());
 
-                for (vals, weights) in us_chunks.iter().zip(us_weights_chunks) {
-                    let vals = _mm512_load_epi32(vals.as_ptr().cast());
-                    let weights = _mm512_load_epi32(weights.as_ptr().cast());
-
-                    result = screlu_mul_vecs(vals, weights, result);
-                }
-
                 let (them_chunks, tc_remainder) = them.vals.as_chunks::<32>();
                 let (their_weights_chunks, tw_remainder) = their_weights.as_chunks::<32>();
 
@@ -122,14 +114,26 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
                 debug_assert_eq!(tw_remainder.len(), 0);
                 debug_assert_eq!(them_chunks.len(), their_weights_chunks.len());
 
-                for (vals, weights) in them_chunks.iter().zip(their_weights_chunks) {
-                    let vals = _mm512_load_epi32(vals.as_ptr().cast());
-                    let weights = _mm512_load_epi32(weights.as_ptr().cast());
+                debug_assert_eq!(us_chunks.len(), them_chunks.len());
 
-                    result = screlu_mul_vecs(vals, weights, result);
+                let mut result1 = _mm512_set1_epi32(0);
+                let mut result2 = _mm512_set1_epi32(0);
+
+                for i in 0..us_chunks.len() {
+                    let us_vals = _mm512_load_epi32(us_chunks[i].as_ptr().cast());
+                    let us_weights = _mm512_load_epi32(us_weights_chunks[i].as_ptr().cast());
+
+                    result1 = screlu_mul_vecs(us_vals, us_weights, result1);
+
+                    let them_vals = _mm512_load_epi32(them_chunks[i].as_ptr().cast());
+                    let them_weights = _mm512_load_epi32(their_weights_chunks[i].as_ptr().cast());
+
+                    result2 = screlu_mul_vecs(them_vals, them_weights, result2);
                 }
 
-                _mm512_reduce_add_epi32(result)
+                result1 = _mm512_add_epi32(result1, result2);
+
+                _mm512_reduce_add_epi32(result1)
             }
         },
         _ => {
