@@ -135,6 +135,59 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
                 _mm512_reduce_add_epi32(result1)
             }
         },
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            use std::arch::x86_64::*;
+
+            unsafe {
+                let max_value = _mm256_set1_epi16(QA);
+                let zero = _mm256_set1_epi16(0);
+                let screlu_mul_vecs = |values: __m256i, weights: __m256i, acc: __m256i| -> __m256i {
+                    let maxed = _mm256_min_epi16(values, max_value);
+                    let clamped = _mm256_max_epi16(maxed, zero);
+
+                    let intermediate = _mm256_mullo_epi16(clamped, weights);
+
+                    let product_sums = _mm256_madd_epi16(intermediate, clamped);
+                    _mm256_add_epi32(product_sums, acc)
+                };
+
+                let (us_chunks, uc_remainder) = us.vals.as_chunks::<16>();
+                let (us_weights_chunks, uw_remainder) = us_weights.as_chunks::<16>();
+
+                assert_eq!(uc_remainder.len(), 0);
+                assert_eq!(uw_remainder.len(), 0);
+                assert_eq!(us_chunks.len(), us_weights_chunks.len());
+
+                let (them_chunks, tc_remainder) = them.vals.as_chunks::<16>();
+                let (them_weights_chunks, tw_remainder) = them_weights.as_chunks::<16>();
+
+                assert_eq!(tc_remainder.len(), 0);
+                assert_eq!(tw_remainder.len(), 0);
+                assert_eq!(them_chunks.len(), them_weights_chunks.len());
+
+                assert_eq!(us_chunks.len(), them_chunks.len());
+
+                let mut result1 = _mm256_set1_epi32(0);
+                let mut result2 = _mm256_set1_epi32(0);
+
+                for i in 0..us_chunks.len() {
+                    let us_vals = _mm256_load_si256(us_chunks[i].as_ptr().cast());
+                    let us_weights = _mm256_load_si256(us_weights_chunks[i].as_ptr().cast());
+
+                    result1 = screlu_mul_vecs(us_vals, us_weights, result1);
+
+                    let them_vals = _mm256_load_si256(them_chunks[i].as_ptr().cast());
+                    let them_weights = _mm256_load_si256(them_weights_chunks[i].as_ptr().cast());
+
+                    result2 = screlu_mul_vecs(them_vals, them_weights, result2);
+                }
+
+                result1 = _mm256_add_epi32(result1, result2);
+
+                let results_arr: [i32; 8] = std::mem::transmute(result1);
+                results_arr.iter().sum()
+            }
+        },
         _ => {
             let mut output = 0;
             // Side-To-Move Accumulator -> Output.
