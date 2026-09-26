@@ -82,7 +82,6 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
             use std::arch::x86_64::*;
 
             unsafe {
-
                 let max_value = _mm512_set1_epi16(QA);
                 let zero = _mm512_set1_epi16(0);
                 let screlu_mul_vecs = |values: __m512i, weights: __m512i, acc: __m512i| -> __m512i {
@@ -94,10 +93,10 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
                     cfg_select! {
                         target_feature = "avx512vnni" => _mm512_dpwssd_epi32(acc, intermediate, clamped),
                         _ => {
-
+                            let product_sums = _mm512_madd_epi16(intermediate, clamped);
+                            _mm512_add_epi32(product_sums, acc)
                         }
                     }
-                    
                 };
 
                 let (us_chunks, uc_remainder) = us.vals.as_chunks::<32>();
