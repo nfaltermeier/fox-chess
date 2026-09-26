@@ -84,11 +84,11 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
             unsafe {
                 let mut result = _mm512_set1_epi32(0);
 
-                let max = _mm512_set1_epi16(QA);
-                let min = _mm512_set1_epi16(0);
+                let max_value = _mm512_set1_epi16(QA);
+                let zero = _mm512_set1_epi16(0);
                 let screlu_mul_vecs = |values: __m512i, weights: __m512i, acc: __m512i| -> __m512i {
-                    let maxed = _mm512_max_epi16(values, max);
-                    let clamped = _mm512_min_epi16(maxed, min);
+                    let maxed = _mm512_min_epi16(values, max_value);
+                    let clamped = _mm512_max_epi16(maxed, zero);
 
                     let intermediate = _mm512_mullo_epi16(clamped, weights);
 
