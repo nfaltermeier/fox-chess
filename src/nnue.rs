@@ -75,7 +75,7 @@ impl Network {
 
 fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i16; 2 * HIDDEN_SIZE]) -> i32 {
     let us_weights = &weights[..HIDDEN_SIZE];
-    let their_weights = &weights[HIDDEN_SIZE..];
+    let them_weights = &weights[HIDDEN_SIZE..];
 
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512bw", target_feature = "avx512f") => {
@@ -102,18 +102,18 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
                 let (us_chunks, uc_remainder) = us.vals.as_chunks::<32>();
                 let (us_weights_chunks, uw_remainder) = us_weights.as_chunks::<32>();
 
-                debug_assert_eq!(uc_remainder.len(), 0);
-                debug_assert_eq!(uw_remainder.len(), 0);
-                debug_assert_eq!(us_chunks.len(), us_weights_chunks.len());
+                assert_eq!(uc_remainder.len(), 0);
+                assert_eq!(uw_remainder.len(), 0);
+                assert_eq!(us_chunks.len(), us_weights_chunks.len());
 
                 let (them_chunks, tc_remainder) = them.vals.as_chunks::<32>();
-                let (their_weights_chunks, tw_remainder) = their_weights.as_chunks::<32>();
+                let (them_weights_chunks, tw_remainder) = them_weights.as_chunks::<32>();
 
-                debug_assert_eq!(tc_remainder.len(), 0);
-                debug_assert_eq!(tw_remainder.len(), 0);
-                debug_assert_eq!(them_chunks.len(), their_weights_chunks.len());
+                assert_eq!(tc_remainder.len(), 0);
+                assert_eq!(tw_remainder.len(), 0);
+                assert_eq!(them_chunks.len(), them_weights_chunks.len());
 
-                debug_assert_eq!(us_chunks.len(), them_chunks.len());
+                assert_eq!(us_chunks.len(), them_chunks.len());
 
                 let mut result1 = _mm512_set1_epi32(0);
                 let mut result2 = _mm512_set1_epi32(0);
@@ -125,7 +125,7 @@ fn activate_and_apply_weights(us: &Accumulator, them: &Accumulator, weights: &[i
                     result1 = screlu_mul_vecs(us_vals, us_weights, result1);
 
                     let them_vals = _mm512_load_epi32(them_chunks[i].as_ptr().cast());
-                    let them_weights = _mm512_load_epi32(their_weights_chunks[i].as_ptr().cast());
+                    let them_weights = _mm512_load_epi32(them_weights_chunks[i].as_ptr().cast());
 
                     result2 = screlu_mul_vecs(them_vals, them_weights, result2);
                 }
