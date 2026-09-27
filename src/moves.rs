@@ -4,9 +4,10 @@ use log::error;
 
 use crate::{
     board::{
-        Board, COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
-        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES, file_8x8,
-        index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
+        Board, CASTLE_BLACK_KING_FLAG, CASTLE_BLACK_QUEEN_FLAG, CASTLE_WHITE_KING_FLAG, CASTLE_WHITE_QUEEN_FLAG,
+        COLOR_BLACK, CastlingValue, HASH_VALUES_BLACK_TO_MOVE_IDX, HASH_VALUES_CASTLE_BASE_IDX,
+        HASH_VALUES_EP_FILE_IDX, PIECE_KING, PIECE_MASK, PIECE_NONE, PIECE_PAWN, PIECE_ROOK, ZOBRIST_HASH_VALUES,
+        file_8x8, index_8x8_to_pos_str, piece_to_colored_letter, rank_8x8,
     },
     nnue::{AccumulatorPairStack, Network, PieceOnSquare},
     repetition_tracker::RepetitionTracker,
@@ -372,6 +373,69 @@ impl Board {
         // should I decrement move clocks/counters?
         self.white_to_move = !self.white_to_move;
         self.hash ^= zobrist_hash_values[HASH_VALUES_BLACK_TO_MOVE_IDX];
+    }
+
+    pub fn move_is_maybe_pseudo_legal(&self, mov: Move) -> bool {
+        let moving_piece = self.get_piece_64(mov.from() as usize);
+        let expected_color_flag_stm = if self.white_to_move { 0 } else { COLOR_BLACK };
+
+        if moving_piece == PIECE_NONE || moving_piece & COLOR_BLACK != expected_color_flag_stm {
+            return false;
+        }
+
+        if mov.is_capture() {
+            if mov.flags() == MOVE_EP_CAPTURE {
+                if self
+                    .en_passant_target_square_index
+                    .is_none_or(|ep_index| mov.to() != ep_index)
+                {
+                    return false;
+                }
+            } else {
+                let target_piece = self.get_piece_64(mov.to() as usize);
+                let expected_color_flag_ntm = if self.white_to_move { COLOR_BLACK } else { 0 };
+
+                if target_piece == PIECE_NONE || target_piece & COLOR_BLACK != expected_color_flag_ntm {
+                    return false;
+                }
+            }
+        } else {
+            if mov.flags() == MOVE_KING_CASTLE || mov.flags() == MOVE_QUEEN_CASTLE {
+                if self.white_to_move {
+                    if mov.flags() == MOVE_QUEEN_CASTLE
+                        && ((self.occupancy & 0x1f) != 0x11 || self.castling_rights & CASTLE_WHITE_QUEEN_FLAG == 0)
+                    {
+                        return false;
+                    }
+
+                    if mov.flags() == MOVE_KING_CASTLE
+                        && ((self.occupancy & 0xf0) != 0x90 || self.castling_rights & CASTLE_WHITE_KING_FLAG == 0)
+                    {
+                        return false;
+                    }
+                } else {
+                    if mov.flags() == MOVE_QUEEN_CASTLE
+                        && ((self.occupancy & 0x1f00000000000000) != 0x1100000000000000
+                            || self.castling_rights & CASTLE_BLACK_QUEEN_FLAG == 0)
+                    {
+                        return false;
+                    }
+
+                    if mov.flags() == MOVE_KING_CASTLE
+                        && ((self.occupancy & 0xf000000000000000) != 0x9000000000000000
+                            || self.castling_rights & CASTLE_BLACK_KING_FLAG == 0)
+                    {
+                        return false;
+                    }
+                }
+            } else {
+                if self.get_piece_64(mov.to() as usize) != PIECE_NONE {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 }
 
