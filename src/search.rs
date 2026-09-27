@@ -704,7 +704,7 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            if tt_data.important_move != EMPTY_MOVE {
+            if tt_data.important_move != EMPTY_MOVE && board.move_is_maybe_pseudo_legal(tt_data.important_move) {
                 move_gen.set_tt_move(tt_data.important_move);
             }
         }
@@ -719,21 +719,21 @@ impl<'a> Searcher<'a> {
             static_eval = Some(eval);
             self.ss[ply as usize].static_eval = Some(eval);
 
-            
-            improving = Some(if ply > 1
-                && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval
-            {
-                eval > old_eval
-            } else if ply > 3
-                && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval
-            {
-                eval > old_eval
-            } else {
-                false
-            });
+            improving = Some(
+                if ply > 1
+                    && let Some(old_eval) = self.ss[(ply - 2) as usize].static_eval
+                {
+                    eval > old_eval
+                } else if ply > 3
+                    && let Some(old_eval) = self.ss[(ply - 4) as usize].static_eval
+                {
+                    eval > old_eval
+                } else {
+                    false
+                },
+            );
 
             if draft < 6 && !is_pv && alpha.abs() < 2000 && beta.abs() < 2000 {
-
                 let rfp_threshold = beta + 90 * (draft as i16 - if improving.unwrap() { 1 } else { 0 });
                 let rfp_eval = if tt_entry.is_some_and(|e| {
                     e.get_move_type() == MoveType::Best as u8
@@ -815,9 +815,20 @@ impl<'a> Searcher<'a> {
             self.ss[ply as usize].killers = [EMPTY_MOVE; 2];
 
             let tt_entry = self.transposition_table.get_entry(board.hash, self.starting_fullmove);
-            if let Some(tt_data) = tt_entry {
+            // TODO: Not checking for null move here, maybe this is the issue?
+            if let Some(tt_data) = tt_entry
+                && board.move_is_maybe_pseudo_legal(tt_data.important_move)
+            {
                 move_gen.set_tt_move(tt_data.important_move);
             }
+        }
+
+        // Delay setting tt move to avoid cost of move_is_maybe_pseudo_legal if possible
+        if let Some(tt_data) = tt_entry
+            && tt_data.important_move != EMPTY_MOVE
+            && board.move_is_maybe_pseudo_legal(tt_data.important_move)
+        {
+            move_gen.set_tt_move(tt_data.important_move);
         }
 
         if !in_check {
@@ -1289,7 +1300,10 @@ impl<'a> Searcher<'a> {
                 }
             }
 
-            if tt_data.important_move.is_capture() && tt_data.important_move != EMPTY_MOVE {
+            if tt_data.important_move.is_capture()
+                && tt_data.important_move != EMPTY_MOVE
+                && board.move_is_maybe_pseudo_legal(tt_data.important_move)
+            {
                 moves.push(ScoredMove {
                     m: tt_data.important_move,
                     score: 1,
