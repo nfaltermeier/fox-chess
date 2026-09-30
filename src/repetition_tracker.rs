@@ -477,7 +477,7 @@ mod repetition_tracker_tests {
         initialize_magic_bitboards();
 
         let (_, stop_rx) = mpsc::channel::<()>();
-        let mut uci = UciInterface::new(10, stop_rx);
+        let mut uci = UciInterface::new(512, stop_rx);
 
         let messages = parse_with_unknown(&uci_command);
         uci.process_command(&uci_command, messages);

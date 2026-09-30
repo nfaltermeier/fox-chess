@@ -47,12 +47,12 @@ pub struct UciInterface {
 }
 
 impl UciInterface {
-    pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
+    pub fn new(tt_bucket_count: u64, stop_rx: Receiver<()>) -> UciInterface {
         UciInterface {
             board: None,
             repetitions: RepetitionTracker::new(),
             stop_rx,
-            transposition_table: TranspositionTable::new_with_bucket_count_log_2(tt_size_log_2),
+            transposition_table: TranspositionTable::new_with_bucket_count(tt_bucket_count),
             thread_histories: vec![ThreadHistoryTables::new()],
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),

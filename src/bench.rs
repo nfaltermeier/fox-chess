@@ -78,7 +78,7 @@ pub fn bench() {
 
         println!("Fen: {}", board.to_fen());
 
-        let transposition_table = TranspositionTable::new_with_bucket_count_log_2(18);
+        let transposition_table = TranspositionTable::new_with_bucket_count(131_072);
         let mut thread_history = ThreadHistoryTables::new();
 
         let (_, stop_rx) = mpsc::channel::<()>();

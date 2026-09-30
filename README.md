@@ -15,7 +15,7 @@ Now uses an efficiently updatable neural network (NNUE) for evaluation, which is
 | v1.0    | 2727       |            | |
 
 ## Uci Options
-* Hash: Sets the transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2. Default is 128.
+* Hash: Sets the transposition table size in MiB (Mebibytes). Must be at least 1. Default is 128.
 * Threads: Sets the number of threads to use while searching. Must be at least 1. NUMA has not been tested for high thread counts. Default is 1.
 * MultiPV: The engine will search for and print this many Principal Variations / bestmoves. Values greater than 1 make search slower but produce more accurate results. Value must be at least 1 and less than 256. Default is 1.
 * Contempt: Sets the engine's draw score (in centipawns). Higher means the engine wants to avoid a draw more. Default is 0 and range is -100 to 100.

@@ -558,7 +558,7 @@ mod moves_tests {
                     initialize_magic_bitboards();
 
                     let (_, stop_rx) = mpsc::channel::<()>();
-                    let mut uci = UciInterface::new(10, stop_rx);
+                    let mut uci = UciInterface::new(512, stop_rx);
                     let mut uci_command = String::from("position startpos moves");
                     for m in moves {
                         uci_command.push(' ');
