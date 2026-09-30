@@ -29,7 +29,7 @@ use crate::{
 };
 
 pub struct UciInterface {
-    board: Option<Board>,
+    board: Board,
     repetitions: Box<RepetitionTracker>,
     stop_rx: Receiver<()>,
     // histories remembered between searches
@@ -46,13 +46,16 @@ pub struct UciInterface {
     show_wdl: bool,
 }
 
-impl UciInterface {
-    pub fn new(tt_size_log_2: u8, stop_rx: Receiver<()>) -> UciInterface {
+impl<'a> UciInterface {
+    pub fn new(tt_bucket_count: u64, stop_rx: Receiver<()>) -> UciInterface {
+        let mut repetitions = RepetitionTracker::new();
+        let board = Board::from_fen(STARTING_FEN, Some(&mut repetitions)).unwrap();
+
         UciInterface {
-            board: None,
-            repetitions: RepetitionTracker::new(),
+            board,
+            repetitions,
             stop_rx,
-            transposition_table: TranspositionTable::new_with_bucket_count_log_2(tt_size_log_2),
+            transposition_table: TranspositionTable::new_with_bucket_count(tt_bucket_count),
             thread_histories: vec![ThreadHistoryTables::new()],
             multi_pv: 1,
             extra_uci_options: RequiredUciOptionsAsOptions::default(),
@@ -66,13 +69,14 @@ impl UciInterface {
     }
 
     #[uci_fields_parser(extra_uci_options)]
+    /// Return value: true to cancel further command processing
     pub fn process_command(&mut self, command_text: &str, parsed_commands: Vec<UciMessage>) -> bool {
         debug!("Received UCI cmd string (trimmed) '{}'", command_text.trim());
         for m in parsed_commands {
             match m {
                 UciMessage::Uci => {
                     self.use_uci_mode = true;
-                    println!("id name FoxChess {}", UciInterface::get_version());
+                    println!("id name FoxChess {}", Self::get_version());
                     println!("id author nfaltermeier");
                     println!("option name Threads type spin default 1 min 1 max 65535");
                     println!("option name Hash type spin default 128 min 1 max 1048576");
@@ -88,7 +92,7 @@ impl UciInterface {
                     println!("readyok")
                 }
                 UciMessage::UciNewGame => {
-                    self.board = None;
+                    self.board = Board::from_fen(STARTING_FEN, Some(&mut self.repetitions)).unwrap();
                     self.transposition_table.clear();
                     self.thread_histories.clear();
                     for _ in 0..self.threads {
@@ -98,24 +102,23 @@ impl UciInterface {
                 UciMessage::Position { startpos, fen, moves } => {
                     let start = Instant::now();
                     if startpos {
-                        self.board = Some(Board::from_fen(STARTING_FEN, Some(&mut self.repetitions)).unwrap())
+                        self.board = Board::from_fen(STARTING_FEN, Some(&mut self.repetitions)).unwrap();
                     } else if fen.is_some() {
                         let fen_str = fen.unwrap().0;
                         let result = Board::from_fen(&fen_str, Some(&mut self.repetitions));
                         match result {
-                            Ok(b) => self.board = Some(b),
+                            Ok(b) => self.board = b,
                             Err(err_msg) => {
                                 error!(
                                     "Failed to parse FEN from UCI. Error message: {err_msg}. FEN: {}",
                                     fen_str
-                                )
+                                );
+                                continue;
                             }
                         }
                     }
 
-                    if !moves.is_empty()
-                        && let Some(board) = &mut self.board
-                    {
+                    if !moves.is_empty() {
                         trace!("running {} moves", moves.len());
                         let mapped = moves.iter().map(|m| {
                             let from = (m.from.file as u8) - b'a' + ((m.from.rank - 1) * 8);
@@ -137,7 +140,7 @@ impl UciInterface {
                             (from, to, promo)
                         });
 
-                        find_and_run_moves(board, mapped.collect(), &mut self.repetitions)
+                        find_and_run_moves(&mut self.board, mapped.collect(), &mut self.repetitions)
                     }
                     let duration = start.elapsed();
                     trace!("Position with {} moves took {duration:#?} to calculate", moves.len());
@@ -149,34 +152,30 @@ impl UciInterface {
                     search_control,
                 } => {
                     trace!("At start of go. {:#?}", self.board);
-                    if let Some(b) = &self.board {
-                        search_multithreaded(
-                            self.threads,
-                            &self.transposition_table,
-                            &mut self.thread_histories,
-                            &self.stop_rx,
-                            self.multi_pv,
-                            self.extra_uci_options.convert(),
-                            self.contempt,
-                            self.repetitions.clone(),
-                            if self.use_uci_mode {
-                                PrintMode::Uci
-                            } else {
-                                PrintMode::Pretty
-                            },
-                            b.clone(),
-                            &time_control,
-                            &search_control,
-                            |search_result| {
-                                println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
-                            },
-                            self.hard_max_nodes,
-                            self.move_overhead,
-                            self.show_wdl,
-                        );
-                    } else {
-                        error!("Board must be set with position first");
-                    }
+                    search_multithreaded(
+                        self.threads,
+                        &self.transposition_table,
+                        &mut self.thread_histories,
+                        &self.stop_rx,
+                        self.multi_pv,
+                        self.extra_uci_options.convert(),
+                        self.contempt,
+                        self.repetitions.clone(),
+                        if self.use_uci_mode {
+                            PrintMode::Uci
+                        } else {
+                            PrintMode::Pretty
+                        },
+                        self.board.clone(),
+                        &time_control,
+                        &search_control,
+                        |search_result| {
+                            println!("bestmove {}", search_result.best_move.simple_long_algebraic_notation());
+                        },
+                        self.hard_max_nodes,
+                        self.move_overhead,
+                        self.show_wdl,
+                    );
                 }
                 // Stop is handled with a separate sender and receiver to communicate with a running search so nothing needs to be done here
                 UciMessage::Stop => {}
@@ -320,54 +319,49 @@ impl UciInterface {
                             continue;
                         }
 
-                        if let Some(board) = &mut self.board {
-                            match parts.get(2).unwrap().parse::<u8>() {
-                                Ok(depth) => {
-                                    board.start_perft(depth, true);
-                                }
-                                Err(e) => {
-                                    error!("Failed to parse depth argument as u8. Error: {e:#?}");
-                                }
+                        match parts.get(2).unwrap().parse::<u8>() {
+                            Ok(depth) => {
+                                self.board.start_perft(depth, true);
                             }
-                        } else {
-                            error!("Board must be set with position first");
+                            Err(e) => {
+                                error!("Failed to parse depth argument as u8. Error: {e:#?}");
+                            }
                         }
                     } else if message.starts_with("fen") {
-                        if let Some(board) = &self.board {
-                            println!("Current fen: {}", board.to_fen())
-                        } else {
-                            error!("Board must be set with position first");
-                        }
+                        println!("Current fen: {}", self.board.to_fen())
                     } else if message.eq_ignore_ascii_case("bench") {
                         bench();
                     } else if message.starts_with("eval") {
-                        if let Some(board) = &self.board {
-                            let accumulators = AccumulatorPair::from(board, &NNUE);
-                            let nnue_eval = if board.white_to_move {
-                                NNUE.evaluate(&accumulators.white, &accumulators.black, &board)
-                            } else {
-                                NNUE.evaluate(&accumulators.black, &accumulators.white, &board)
-                            };
-
-                            let eval_modifier = board.eval_modifiers();
-                            let modified_eval = nnue_eval + eval_modifier;
-
-                            let normalized = wdl::normalize_score(modified_eval, board);
-
-                            println!(
-                                "Normalized eval: {normalized}, Raw eval: {modified_eval}, NNUE raw eval: {nnue_eval}, heuristic eval modifier: {eval_modifier}"
-                            );
+                        let accumulators = AccumulatorPair::from(&self.board, &NNUE);
+                        let nnue_eval = if self.board.white_to_move {
+                            NNUE.evaluate(&accumulators.white, &accumulators.black, &self.board)
                         } else {
-                            error!("Board must be set with position first");
-                        }
+                            NNUE.evaluate(&accumulators.black, &accumulators.white, &self.board)
+                        };
+
+                        let eval_modifier = self.board.eval_modifiers();
+                        let modified_eval = nnue_eval + eval_modifier;
+
+                        let normalized = wdl::normalize_score(modified_eval, &self.board);
+
+                        println!(
+                            "Normalized eval: {normalized}, Raw eval: {modified_eval}, NNUE raw eval: {nnue_eval}, heuristic eval modifier: {eval_modifier}"
+                        );
                     } else if message.eq_ignore_ascii_case("perftsuite") {
                         run_full_perft_suite();
+                    } else if message.eq_ignore_ascii_case("go") {
+                        let new_command = "go infinite";
+                        self.process_command(new_command, parse_with_unknown(new_command));
                     } else {
-                        error!("Unknown UCI cmd in '{message}'. Parsing error: {err:?}");
+                        if err.is_none() {
+                            error!("Unknown UCI command in '{message}'.");
+                        } else {
+                            error!("Unknown UCI command in '{message}'. Parsing error: {err:?}");
+                        }
                     }
                 }
                 _ => {
-                    error!("Unhandled UCI cmd in (trimmed) '{}'", command_text.trim());
+                    error!("Unhandled UCI command in (trimmed) '{}'", command_text.trim());
                 }
             }
         }
@@ -419,9 +413,8 @@ impl UciInterface {
         );
     }
 
-    /// For testing
-    pub fn get_board_copy(&self) -> Option<Board> {
-        self.board.clone()
+    pub fn board(&'a self) -> &'a Board {
+        &self.board
     }
 
     // Based off of https://stackoverflow.com/a/55201400

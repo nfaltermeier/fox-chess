@@ -15,7 +15,7 @@ Now uses an efficiently updatable neural network (NNUE) for evaluation, which is
 | v1.0    | 2727       |            | |
 
 ## Uci Options
-* Hash: Sets the transposition table size in MiB (Mebibytes). Must be at least 1 and will be rounded down to a power of 2. Default is 128.
+* Hash: Sets the transposition table size in MiB (Mebibytes). Must be at least 1. Default is 128.
 * Threads: Sets the number of threads to use while searching. Must be at least 1. NUMA has not been tested for high thread counts. Default is 1.
 * MultiPV: The engine will search for and print this many Principal Variations / bestmoves. Values greater than 1 make search slower but produce more accurate results. Value must be at least 1 and less than 256. Default is 1.
 * Contempt: Sets the engine's draw score (in centipawns). Higher means the engine wants to avoid a draw more. Default is 0 and range is -100 to 100.
@@ -36,8 +36,8 @@ cargo install cargo-pgo
 ```
 
 ## Building
-Fox Chess now uses neural networks for evaluation. I currently don't have any automatic download setup, so you'll have to download it yourself and put it in the `networks` folder.
-You can find the networks here: https://github.com/nfaltermeier/fox-chess-nets/releases. If you don't do this, you'll get a compilation error such as 'error: couldn't read `src\../networks/first.nnue`: The system cannot find the file specified.'
+Neural Network files will be automatically downloaded using curl when building. 
+If this is not working for you, then you can find the networks here: https://github.com/nfaltermeier/fox-chess-nets/releases. You'll need to put the `.nnue` file into a `networks` folder at the repository root.
 
 All of your CPU's supported features will automatically be enabled for the best performance. To perform the build, you can use
 ```
@@ -67,13 +67,7 @@ RUSTFLAGS=-Ctarget-cpu=<target> cargo pgo run -- bench
 RUSTFLAGS=-Ctarget-cpu=<target> cargo pgo optimize
 ```
 
-If you're unsure, you can instead just use (although performance will be impacted)
-```
-cargo pgo run -- bench
-cargo pgo optimize
-```
-
-If you want to build a fully portable executable on x86_64-pc-windows-msvc then you will need to explicitly pass `x86-64-v1` for the target. Most computers will support `x86-64-v3` or at least `x86-64-v2` though.
+If you want to build a fully portable executable then you will need to explicitly pass `x86-64-v1` for the target. Most computers will support `x86-64-v3` or at least `x86-64-v2` though.
 
 #### AVX2 without PEXT
 This note is mostly for myself, but to create an optimized build without any code changes for Ryzen 1000 and 3000 series CPUs, use

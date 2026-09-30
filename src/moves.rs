@@ -558,7 +558,7 @@ mod moves_tests {
                     initialize_magic_bitboards();
 
                     let (_, stop_rx) = mpsc::channel::<()>();
-                    let mut uci = UciInterface::new(10, stop_rx);
+                    let mut uci = UciInterface::new(512, stop_rx);
                     let mut uci_command = String::from("position startpos moves");
                     for m in moves {
                         uci_command.push(' ');
@@ -566,7 +566,7 @@ mod moves_tests {
 
                         let messages = parse_with_unknown(&uci_command);
                         uci.process_command(&uci_command, messages);
-                        let from_uci = uci.get_board_copy().unwrap();
+                        let from_uci = uci.board();
 
                         let fen = from_uci.to_fen();
                         let mut from_fen = Board::from_fen(&fen, None).unwrap();
@@ -591,11 +591,11 @@ mod moves_tests {
 
                         from_fen.moves_since_irreversible = from_uci.moves_since_irreversible;
 
-                        if from_fen != from_uci {
+                        if from_fen != *from_uci {
                             println!("Found mismatch after making move {m}");
                         }
 
-                        assert_eq!(from_fen, from_uci);
+                        assert_eq!(from_fen, *from_uci);
                     }
                 }
             )*

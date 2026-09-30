@@ -94,7 +94,7 @@ fn setup_logger(args: &CliArgs) -> Result<(), fern::InitError> {
 fn run_uci() {
     // 2^23 entries -> 128MiB
     let (message_rx, stop_rx) = UciInterface::process_stdin_uci();
-    let mut uci = UciInterface::new(23, stop_rx);
+    let mut uci = UciInterface::new(4_194_304, stop_rx);
     loop {
         match message_rx.recv() {
             Ok(val) => {
