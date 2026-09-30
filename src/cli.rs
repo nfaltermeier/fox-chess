@@ -145,7 +145,7 @@ pub fn handle_startup_command(command: &Command) {
                     let mut uci = UciInterface::new(512, stop_rx);
                     uci.process_command(&uci_command, messages);
 
-                    uci.get_board_copy().unwrap().start_perft(depth, true);
+                    uci.board().start_perft(depth, true);
                     return;
                 }
 

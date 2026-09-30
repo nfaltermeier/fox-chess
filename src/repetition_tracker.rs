@@ -481,9 +481,8 @@ mod repetition_tracker_tests {
 
         let messages = parse_with_unknown(&uci_command);
         uci.process_command(&uci_command, messages);
-        let board = uci.get_board_copy().unwrap();
 
         // b7b8 is a repetition, which was the move played 5 moves ago when the current position repeated earlier
-        assert!(uci.repetition_tracker().test_has_upcoming_repetition(&board));
+        assert!(uci.repetition_tracker().test_has_upcoming_repetition(uci.board()));
     }
 }
