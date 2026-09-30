@@ -11,8 +11,8 @@ const OUTPUT_BUCKET_COUNT: usize = 8;
 
 // Based on the bullet inference example
 
-// Find the network files at https://github.com/nfaltermeier/fox-chess-nets/releases
-pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!("../networks/ruppell.nnue")) };
+// Network files will be downloaded by the build script and NEURAL_NETWORK env variable will be set by the build script.
+pub static NNUE: Network = unsafe { std::mem::transmute(*include_bytes!(concat!("../", env!("NEURAL_NETWORK")))) };
 
 #[inline]
 /// Square Clipped ReLU - Activation Function.
