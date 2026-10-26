@@ -49,6 +49,7 @@ pub struct Network {
 impl Network {
     /// Calculates the output of the network, starting from the already
     /// calculated hidden layer (done efficiently during makemoves).
+    #[inline]
     pub fn evaluate(&self, us: &Accumulator, them: &Accumulator, board: &Board) -> i16 {
         // Initialise output.
         let mut output = 0;
