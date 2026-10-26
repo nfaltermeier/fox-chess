@@ -9,12 +9,12 @@ use crate::{
     repetition_tracker::RepetitionTracker,
     search::stats::SearchStats,
     staged_move_generator::StagedMoveGenerator,
-    transposition_table::TranspositionTable,
+    transposition_table::{MoveType, TranspositionTable},
     wdl,
 };
 
 pub fn print_header() {
-    println!("  d/sd pv#  score  win/draw/loss      time nodes nodes/s hashfull pv");
+    println!("  D/SD BND PV#  score  win/draw/loss      time nodes nodes/s hashfull PV");
 }
 
 #[inline(never)]
@@ -28,6 +28,8 @@ pub fn pretty_print_stats(
     multi_pv: u8,
     selective_depth: u8,
     board: &Board,
+    pv_type: MoveType,
+    partial_result: bool,
 ) {
     let abs_score = score.abs();
     let score_string = if abs_score >= MATE_THRESHOLD {
@@ -63,6 +65,11 @@ pub fn pretty_print_stats(
     };
 
     let depth = stats.depth;
+    let bound = match pv_type {
+        MoveType::FailHigh => "LB ",
+        MoveType::Best => "   ",
+        MoveType::FailLow => "UB ",
+    };
 
     let total_nodes = stats.global_total_nodes();
     let nodes_str = format_nodes(total_nodes);
@@ -74,8 +81,10 @@ pub fn pretty_print_stats(
 
     let pv_str = format_moves_san(board, pv_moves);
 
+    let partial_result = if partial_result { " *Partial search result" } else { "" };
+
     println!(
-        "{depth:>3}/{selective_depth:<3} {multi_pv:>2} {score_string} {wdl} {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}"
+        "{depth:>3}/{selective_depth:<3} {bound} {multi_pv:>2} {score_string} {wdl} {time} {nodes_str} {nps_str} {hashfull:>7.1}% {pv_str}{partial_result}"
     );
 }
 

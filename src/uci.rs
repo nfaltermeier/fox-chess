@@ -23,7 +23,7 @@ use crate::{
     perft::run_full_perft_suite,
     repetition_tracker::RepetitionTracker,
     search::{self, PrintMode, search_multithreaded, stats::SearchStats},
-    transposition_table::TranspositionTable,
+    transposition_table::{MoveType, TranspositionTable},
     uci_required_options_helper::{RequiredUciOptions, RequiredUciOptionsAsOptions},
     wdl,
 };
@@ -380,6 +380,8 @@ impl<'a> UciInterface {
         selective_depth: u8,
         board: &Board,
         show_wdl: bool,
+        pv_type: MoveType,
+        partial_result: bool,
     ) {
         let abs_cp = score.abs();
         let score_string = if abs_cp >= MATE_THRESHOLD {
@@ -391,25 +393,38 @@ impl<'a> UciInterface {
             format!("score cp {normalized_score}")
         };
 
+        let bound = match pv_type {
+            MoveType::FailHigh => " lowerbound",
+            MoveType::Best => "",
+            MoveType::FailLow => " upperbound",
+        };
+
         let wdl = if show_wdl {
             let (w, d, l) = wdl::get_wdl_rounded(score, board, 1000);
-            format!("wdl {w} {d} {l} ")
+            format!(" wdl {w} {d} {l}")
         } else {
             String::new()
         };
 
         let total_nodes = stats.global_total_nodes();
         let nps = total_nodes as f64 / elapsed.as_secs_f64();
+
+        let partial_result_str = if partial_result {
+            " string partial search result"
+        } else {
+            ""
+        };
+
         println!(
-            "info depth {} multipv {multi_pv} {score_string} {wdl}time {} nodes {total_nodes} nps {nps:.0} seldepth {selective_depth} hashfull {} pv {} string aspiration_researches {}",
-            stats.depth,
-            elapsed.as_millis(),
-            transposition_table.hashfull(search_starting_fullmove),
-            pv.iter()
+            "info depth {depth} seldepth {selective_depth} multipv {multi_pv} {score_string}{bound}{wdl} time {elapsed_millis} nodes {total_nodes} nps {nps:.0} hashfull {hashfull} pv {pv_str}{partial_result_str}",
+            depth = stats.depth,
+            elapsed_millis = elapsed.as_millis(),
+            hashfull = transposition_table.hashfull(search_starting_fullmove),
+            pv_str = pv
+                .iter()
                 .map(|m| m.simple_long_algebraic_notation())
                 .collect::<Vec<String>>()
                 .join(" "),
-            stats.aspiration_researches,
         );
     }
 

@@ -6,7 +6,7 @@ use std::{
 };
 
 use arrayvec::ArrayVec;
-use log::{debug, error};
+use log::error;
 use tinyvec::{TinyVec, tiny_vec};
 use vampirc_uci::{UciSearchControl, UciTimeControl};
 
@@ -49,7 +49,7 @@ enum SearchControl {
     Nodes,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum PrintMode {
     None,
     Uci,
@@ -62,6 +62,7 @@ pub struct SearchResult {
     pub score: i16,
 }
 
+#[derive(Clone)]
 struct PvData {
     /// PVs are stored as a queue, FIFO
     pub pv: TinyVec<[Move; 32]>,
@@ -145,16 +146,18 @@ where
     let main_history = &mut main_history[0];
     let stats = SearchStats::default();
     let stop_search = AtomicBool::new(false);
+    let start_time = if threads > 1 { Some(Instant::now()) } else { None };
     thread::scope(|s| {
         for thread_num in 1..threads {
             let mut board = board.clone();
             let repetitions = repetitions.clone();
             let extra_uci_options = extra_uci_options.clone();
             // This is some trickery from https://stackoverflow.com/a/58459786.
-            // Without this it would move stop_received into the thread and then I can't use it for the main thread.
+            // Without this it would move stop_search into the thread and then I can't use it for the main thread.
             // It wouldn't be needed if the closure didn't use the move keyword,
             // but then I can't reference thread_num because it wants to borrow it.
             let stop_search = &stop_search;
+            let start_time = start_time.as_ref().unwrap();
             let stats = stats.clone();
             let (thread_history, remaining_history) = thread_histories.split_at_mut(1);
             thread_histories = remaining_history;
@@ -181,7 +184,8 @@ where
                 // This is a shortened version of iterative_deepening_search that just searches until the main thread says to stop
                 let mut last_result = None;
                 for draft in 1..=255 {
-                    let single_move = searcher.alpha_beta_init(&mut board, draft, last_result);
+                    let (single_move, _) =
+                        searcher.alpha_beta_init(&mut board, draft, last_result, PrintMode::None, start_time);
 
                     if single_move {
                         break;
@@ -374,111 +378,139 @@ impl<'a> Searcher<'a> {
             panic!("Please specify wtime and btime, infinite, depth, or nodes when calling go.");
         }
 
-        let mut latest_result = None;
+        let mut previous_result: Option<PvData> = None;
         for depth in 1..=255 {
-            let end_search = self.alpha_beta_init(&mut board, depth, latest_result.clone());
-            if let Some(best_pv) = self.root_pvs.front()
+            let (end_search, search_cancelled) = self.alpha_beta_init(
+                &mut board,
+                depth,
+                previous_result.as_ref().map(|lr| &lr.search_result).cloned(),
+                print_mode,
+                &start_time,
+            );
+
+            let worst_pv_mate;
+            let latest_result = if let Some(best_pv) = self.root_pvs.front()
                 && let Some(worst_pv) = self.root_pvs.back()
             {
-                let elapsed = start_time.elapsed();
-
-                if print_mode != PrintMode::None {
-                    for (i, pv) in self.root_pvs.iter().enumerate() {
-                        match print_mode {
-                            PrintMode::None => unreachable!(),
-                            PrintMode::Uci => {
-                                UciInterface::print_search_info(
-                                    pv.search_result.score,
-                                    &self.stats,
-                                    &elapsed,
-                                    self.transposition_table,
-                                    &pv.pv,
-                                    self.starting_fullmove,
-                                    i as u8 + 1,
-                                    pv.selective_depth,
-                                    &board,
-                                    self.show_wdl,
-                                );
-                            }
-                            PrintMode::Pretty => {
-                                pretty_print_stats(
-                                    pv.search_result.score,
-                                    &self.stats,
-                                    &elapsed,
-                                    self.transposition_table,
-                                    &pv.pv,
-                                    self.starting_fullmove,
-                                    i as u8 + 1,
-                                    pv.selective_depth,
-                                    &board,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                self.stats.aspiration_researches = 0;
-
-                if self.stop_received
-                    || (search_control != SearchControl::Infinite
-                        && (end_search
-                            || worst_pv.search_result.score.abs() >= MATE_THRESHOLD
-                            || depth >= max_depth
-                            || self.stats.global_total_nodes() >= self.max_nodes))
-                {
-                    return (best_pv.search_result.clone(), self.stats);
-                }
-
-                if search_control == SearchControl::TimeLeft || search_control == SearchControl::MoveTime {
-                    if search_control == SearchControl::TimeLeft
-                        && let Some(cutoff_times) = &cutoff_times
-                    {
-                        // Recreate behavior from when dropping into qsearch counted as 2 nodes. total_search_leaves is added into root_pv_branch_nodes in search.
-                        let pv_nodes_fraction = self.root_pv_branch_nodes as f32
-                            / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes
-                                + self.stats.total_search_leaves
-                                - self.stats.start_of_iteration_search_leaves) as f32;
-
-                        if self.pv_nodes_fractions.len() >= 3 {
-                            self.pv_nodes_fractions.pop_back();
-                        }
-
-                        self.pv_nodes_fractions.push_front(pv_nodes_fraction);
-
-                        soft_cutoff_time = Some(modify_cutoff_time(cutoff_times, &self.pv_nodes_fractions));
-                    }
-
-                    if elapsed
-                        >= soft_cutoff_time
-                            .unwrap()
-                            .saturating_sub(Duration::from_millis(move_overhead as u64))
-                    {
-                        return (best_pv.search_result.clone(), self.stats);
-                    }
-                }
-
-                latest_result = Some(best_pv.search_result.clone());
+                worst_pv_mate = worst_pv.search_result.score.abs() >= MATE_THRESHOLD;
+                best_pv
             } else {
-                if print_mode != PrintMode::None {
-                    println!(
-                        "info string search interrupted with nodes {}",
-                        self.stats.global_total_nodes()
-                    );
+                if previous_result.is_none() {
+                    panic!(
+                        "iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches"
+                    )
                 }
 
-                if !self.stop_received {
-                    debug!("Cancelled search of depth {depth} due to exceeding time budget or max nodes being reached");
-                }
+                worst_pv_mate = false;
 
-                return (latest_result
-                    .expect("iterative_deepening_search exceeded cancel_search_time or max nodes before completing any searches"), self.stats);
+                previous_result.as_ref().unwrap()
+            };
+
+            let elapsed = start_time.elapsed();
+
+            if print_mode != PrintMode::None {
+                // If the just finished search had no result (must be cancelled early) then reprint the latest search result
+                let mut i = 0;
+                let max_iters = self.root_pvs.len().max(1);
+                while i < max_iters {
+                    let pv = if i != 0 || self.root_pvs.len() != 0 {
+                        &self.root_pvs[i]
+                    } else {
+                        latest_result
+                    };
+
+                    match print_mode {
+                        PrintMode::None => unreachable!(),
+                        PrintMode::Uci => {
+                            UciInterface::print_search_info(
+                                pv.search_result.score,
+                                &self.stats,
+                                &elapsed,
+                                self.transposition_table,
+                                &pv.pv,
+                                self.starting_fullmove,
+                                i as u8 + 1,
+                                pv.selective_depth,
+                                &board,
+                                self.show_wdl,
+                                MoveType::Best,
+                                search_cancelled,
+                            );
+                        }
+                        PrintMode::Pretty => {
+                            pretty_print_stats(
+                                pv.search_result.score,
+                                &self.stats,
+                                &elapsed,
+                                self.transposition_table,
+                                &pv.pv,
+                                self.starting_fullmove,
+                                i as u8 + 1,
+                                pv.selective_depth,
+                                &board,
+                                MoveType::Best,
+                                search_cancelled,
+                            );
+                        }
+                    }
+
+                    i += 1;
+                }
             }
+
+            if self.stop_received
+                || (search_control != SearchControl::Infinite
+                    && (end_search
+                        || worst_pv_mate
+                        || depth >= max_depth
+                        || self.stats.global_total_nodes() >= self.max_nodes))
+            {
+                return (latest_result.search_result.clone(), self.stats);
+            }
+
+            if search_control == SearchControl::TimeLeft || search_control == SearchControl::MoveTime {
+                if search_control == SearchControl::TimeLeft
+                    && let Some(cutoff_times) = &cutoff_times
+                {
+                    // Recreate behavior from when dropping into qsearch counted as 2 nodes. total_search_leaves is added into root_pv_branch_nodes in search.
+                    let pv_nodes_fraction = self.root_pv_branch_nodes as f32
+                        / (self.stats.thread_total_nodes() - self.stats.start_of_iteration_nodes
+                            + self.stats.total_search_leaves
+                            - self.stats.start_of_iteration_search_leaves) as f32;
+
+                    if self.pv_nodes_fractions.len() >= 3 {
+                        self.pv_nodes_fractions.pop_back();
+                    }
+
+                    self.pv_nodes_fractions.push_front(pv_nodes_fraction);
+
+                    soft_cutoff_time = Some(modify_cutoff_time(cutoff_times, &self.pv_nodes_fractions));
+                }
+
+                if elapsed
+                    >= soft_cutoff_time
+                        .unwrap()
+                        .saturating_sub(Duration::from_millis(move_overhead as u64))
+                {
+                    return (latest_result.search_result.clone(), self.stats);
+                }
+            }
+
+            previous_result = Some(latest_result.clone());
         }
 
-        (latest_result.unwrap(), self.stats)
+        (previous_result.unwrap().search_result, self.stats)
     }
 
-    fn alpha_beta_init(&mut self, board: &mut Board, draft: u8, last_result: Option<SearchResult>) -> bool {
+    /// Returns: First bool is true if the search should stop, second bool is true if the search got cancelled midway through
+    fn alpha_beta_init(
+        &mut self,
+        board: &mut Board,
+        draft: u8,
+        last_result: Option<SearchResult>,
+        print_mode: PrintMode,
+        start_time: &Instant,
+    ) -> (bool, bool) {
         self.stats.depth = draft;
         self.single_root_move = false;
         self.root_killers = [EMPTY_MOVE; 2];
@@ -512,40 +544,113 @@ impl<'a> Searcher<'a> {
             let result = self.alpha_beta_recurse(board, alpha, beta, draft, 0, self.starting_in_check, true, &mut pv);
 
             if result.is_err() {
+                // Will need to not clear this if using partial search results
                 self.root_pvs.clear();
 
                 // In this case the state of the board will not been reset back to the starting state
-                return true;
+                return (true, true);
             }
 
-            let low_score = self
+            let low_pv = self
                 .root_pvs
                 .back()
-                .expect("No root pv found in alpha_beta_init after successful search")
-                .search_result
-                .score;
-            let high_score = self
+                .expect("No root pv found in alpha_beta_init after successful search");
+            let high_pv = self
                 .root_pvs
                 .front()
-                .expect("No root pv found in alpha_beta_init after successful search")
-                .search_result
-                .score;
+                .expect("No root pv found in alpha_beta_init after successful search");
 
-            if low_score <= alpha {
-                self.stats.aspiration_researches += 1;
-
-                while low_score <= alpha {
+            if low_pv.search_result.score <= alpha {
+                while low_pv.search_result.score <= alpha {
                     alpha = alpha
                         .saturating_sub_unsigned(ASPIRATION_WINDOW_OFFSETS[alpha_window_index])
                         .min(-i16::MAX);
                     alpha_window_index += 1;
                 }
-            } else if high_score >= beta {
-                self.stats.aspiration_researches += 1;
 
-                while high_score >= beta {
+                let score = low_pv.search_result.score;
+                let selective_depth = low_pv.selective_depth;
+                let pv = &low_pv.pv;
+                let multi_pv = self.multi_pv;
+
+                match print_mode {
+                    PrintMode::None => {}
+                    PrintMode::Uci => {
+                        UciInterface::print_search_info(
+                            score,
+                            &self.stats,
+                            &start_time.elapsed(),
+                            &self.transposition_table,
+                            pv,
+                            self.starting_fullmove,
+                            multi_pv,
+                            selective_depth,
+                            board,
+                            false,
+                            MoveType::FailLow,
+                            false,
+                        );
+                    }
+                    PrintMode::Pretty => {
+                        pretty_print_stats(
+                            score,
+                            &self.stats,
+                            &start_time.elapsed(),
+                            self.transposition_table,
+                            pv,
+                            self.starting_fullmove,
+                            multi_pv,
+                            selective_depth,
+                            &board,
+                            MoveType::FailLow,
+                            false,
+                        );
+                    }
+                }
+            } else if high_pv.search_result.score >= beta {
+                while high_pv.search_result.score >= beta {
                     beta = beta.saturating_add_unsigned(ASPIRATION_WINDOW_OFFSETS[beta_window_index]);
                     beta_window_index += 1;
+                }
+
+                let score = high_pv.search_result.score;
+                let selective_depth = high_pv.selective_depth;
+                let pv = &high_pv.pv;
+                let multi_pv = 1;
+
+                match print_mode {
+                    PrintMode::None => {}
+                    PrintMode::Uci => {
+                        UciInterface::print_search_info(
+                            score,
+                            &self.stats,
+                            &start_time.elapsed(),
+                            &self.transposition_table,
+                            pv,
+                            self.starting_fullmove,
+                            multi_pv,
+                            selective_depth,
+                            board,
+                            false,
+                            MoveType::FailHigh,
+                            false,
+                        );
+                    }
+                    PrintMode::Pretty => {
+                        pretty_print_stats(
+                            score,
+                            &self.stats,
+                            &start_time.elapsed(),
+                            self.transposition_table,
+                            pv,
+                            self.starting_fullmove,
+                            multi_pv,
+                            selective_depth,
+                            &board,
+                            MoveType::FailHigh,
+                            false,
+                        );
+                    }
                 }
             } else {
                 break;
@@ -557,7 +662,7 @@ impl<'a> Searcher<'a> {
             panic!("PV is empty in alpha_beta_init")
         }
 
-        self.single_root_move
+        (self.single_root_move, false)
     }
 
     fn alpha_beta_recurse(
@@ -1095,8 +1200,11 @@ impl<'a> Searcher<'a> {
                 }
 
                 if ply == 0 {
+                    let mut pv = TinyVec::new();
+                    pv.push(mov.m);
+
                     let pv_data = PvData {
-                        pv: TinyVec::default(),
+                        pv,
                         search_result: SearchResult {
                             best_move: mov.m,
                             score,
@@ -1529,7 +1637,6 @@ pub mod stats {
         pub start_of_iteration_nodes: u64,
         pub start_of_iteration_search_leaves: u64,
         pub total_search_leaves: u64,
-        pub aspiration_researches: u8,
         pub selective_depth: u8,
     }
 

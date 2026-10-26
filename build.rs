@@ -31,11 +31,12 @@ fn main() {
             fs::create_dir(directory).expect("Failed to create 'networks' folder");
         }
 
-        let url = format!("https://github.com/nfaltermeier/fox-chess-nets/releases/download/{NEURAL_NETWORK_NAME}/{NEURAL_NETWORK_NAME}.nnue");
+        let url = format!(
+            "https://github.com/nfaltermeier/fox-chess-nets/releases/download/{NEURAL_NETWORK_NAME}/{NEURAL_NETWORK_NAME}.nnue"
+        );
 
         let mut cmd = Command::new("curl");
-        cmd
-            .arg("-fL")
+        cmd.arg("-fL")
             .arg(&url)
             .args(["--output", &format!("{NEURAL_NETWORK_NAME}.nnue")])
             .current_dir(directory);
