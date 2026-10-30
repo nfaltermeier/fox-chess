@@ -2,7 +2,7 @@ use std::{env, fs, path::Path, process::Command};
 
 use quote::quote;
 
-const NEURAL_NETWORK_NAME: &str = "ruppell";
+const NEURAL_NETWORK_NAME: &str = "pale";
 
 fn main() {
     build_info_build::build_script();

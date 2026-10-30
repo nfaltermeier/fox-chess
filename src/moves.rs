@@ -235,6 +235,7 @@ impl Board {
             {
                 accumulators.add2_sub2(
                     net,
+                    self,
                     PieceOnSquare::new(PIECE_KING, self.white_to_move, king_to),
                     PieceOnSquare::new(PIECE_ROOK, self.white_to_move, rook_to),
                     PieceOnSquare::new(PIECE_KING, self.white_to_move, king_from),
@@ -256,9 +257,9 @@ impl Board {
                 if mov.is_capture() {
                     let captured_piece =
                         PieceOnSquare::new(captured_piece.unwrap() & PIECE_MASK, !self.white_to_move, to);
-                    accumulators.add1_sub2(net, promoted, pawn, captured_piece);
+                    accumulators.add1_sub2(net, self, promoted, pawn, captured_piece);
                 } else {
-                    accumulators.add1_sub1(net, promoted, pawn);
+                    accumulators.add1_sub1(net, self, promoted, pawn);
                 }
             }
         } else {
@@ -277,9 +278,9 @@ impl Board {
                         !self.white_to_move,
                         capture_target_square.unwrap(),
                     );
-                    accumulators.add1_sub2(net, add, remove, captured_piece);
+                    accumulators.add1_sub2(net, self, add, remove, captured_piece);
                 } else {
-                    accumulators.add1_sub1(net, add, remove);
+                    accumulators.add1_sub1(net, self, add, remove);
                 }
             }
         }

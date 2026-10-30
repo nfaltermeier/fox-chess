@@ -1,3 +1,5 @@
+use std::ptr;
+
 use crate::{
     bitboard::bitscan_forward_and_reset,
     board::{Board, COLOR_BLACK, PIECE_KING, PIECE_MASK},
@@ -160,20 +162,9 @@ impl Accumulator {
                 - remove_weights2.vals[i];
         }
     }
-}
 
-#[derive(Clone, PartialEq)]
-pub struct AccumulatorPair {
-    pub white: Accumulator,
-    pub black: Accumulator,
-}
-
-impl AccumulatorPair {
-    pub fn from(board: &Board, net: &Network) -> Self {
-        let mut result = AccumulatorPair {
-            white: Accumulator::new(net),
-            black: Accumulator::new(net),
-        };
+    fn from(board: &Board, net: &Network, white_pov: bool, orientation: Orientation) -> Self {
+        let mut result = Self::new(net);
 
         let mut pieces = board.occupancy;
         while pieces != 0 {
@@ -183,16 +174,43 @@ impl AccumulatorPair {
             let piece_type = (piece & PIECE_MASK) as usize;
             let white = piece & COLOR_BLACK == 0;
 
-            result
-                .white
-                .add_feature((piece_type - 1 + if white { 0 } else { 6 }) * 64 + index, net);
-            // square index flipped horizontally and vertically
-            result
-                .black
-                .add_feature(((piece_type - 1 + if white { 6 } else { 0 }) * 64 + index) ^ 56, net);
+            if white_pov {
+                result.add_feature(
+                    (piece_type - 1 + if white { 0 } else { 6 }) * 64 + orientation.transform_square(index),
+                    net,
+                );
+            } else {
+                // square index flipped horizontally and vertically
+                result.add_feature(
+                    ((piece_type - 1 + if white { 6 } else { 0 }) * 64 + orientation.transform_square(index)) ^ 56,
+                    net,
+                );
+            }
         }
 
         result
+    }
+}
+
+// Safety Note: all fields with bit pattern requirements must be initialized in AccumulatorPairStack::get_accumulator_pairs_for_update
+#[derive(Clone, PartialEq)]
+pub struct AccumulatorPair {
+    pub white: Accumulator,
+    white_orientation: Orientation,
+    pub black: Accumulator,
+    black_orientation: Orientation,
+}
+
+impl AccumulatorPair {
+    pub fn from(board: &Board, net: &Network) -> Self {
+        let orientations = Orientation::from(board);
+
+        AccumulatorPair {
+            white: Accumulator::from(board, net, true, orientations.0),
+            white_orientation: orientations.0,
+            black: Accumulator::from(board, net, false, orientations.1),
+            black_orientation: orientations.1,
+        }
     }
 }
 
@@ -219,51 +237,85 @@ impl AccumulatorPairStack {
         self.ply = 0;
     }
 
-    pub fn add1_sub1(&mut self, net: &Network, add: PieceOnSquare, remove: PieceOnSquare) {
+    pub fn add1_sub1(&mut self, net: &Network, board: &Board, add: PieceOnSquare, remove: PieceOnSquare) {
         self.ply += 1;
         let (input, output) = self.get_accumulator_pairs_for_update(self.ply);
 
-        Accumulator::add1_sub1(
-            &input.white,
-            &mut output.white,
-            net,
-            add.get_index(true),
-            remove.get_index(true),
-        );
-        Accumulator::add1_sub1(
-            &input.black,
-            &mut output.black,
-            net,
-            add.get_index(false),
-            remove.get_index(false),
-        );
+        let new_orientations = Orientation::from(board);
+
+        if new_orientations.0 == input.white_orientation {
+            Accumulator::add1_sub1(
+                &input.white,
+                &mut output.white,
+                net,
+                add.get_index(true, input.white_orientation),
+                remove.get_index(true, input.white_orientation),
+            );
+        } else {
+            output.white = Accumulator::from(board, net, true, new_orientations.0);
+        }
+        output.white_orientation = new_orientations.0;
+
+        if new_orientations.1 == input.black_orientation {
+            Accumulator::add1_sub1(
+                &input.black,
+                &mut output.black,
+                net,
+                add.get_index(false, input.black_orientation),
+                remove.get_index(false, input.black_orientation),
+            );
+        } else {
+            output.black = Accumulator::from(board, net, false, new_orientations.1);
+        }
+        output.black_orientation = new_orientations.1;
     }
 
-    pub fn add1_sub2(&mut self, net: &Network, add: PieceOnSquare, remove1: PieceOnSquare, remove2: PieceOnSquare) {
+    pub fn add1_sub2(
+        &mut self,
+        net: &Network,
+        board: &Board,
+        add: PieceOnSquare,
+        remove1: PieceOnSquare,
+        remove2: PieceOnSquare,
+    ) {
         self.ply += 1;
         let (input, output) = self.get_accumulator_pairs_for_update(self.ply);
 
-        Accumulator::add1_sub2(
-            &input.white,
-            &mut output.white,
-            net,
-            add.get_index(true),
-            remove1.get_index(true),
-            remove2.get_index(true),
-        );
-        Accumulator::add1_sub2(
-            &input.black,
-            &mut output.black,
-            net,
-            add.get_index(false),
-            remove1.get_index(false),
-            remove2.get_index(false),
-        );
+        let new_orientations = Orientation::from(board);
+
+        if new_orientations.0 == input.white_orientation {
+            Accumulator::add1_sub2(
+                &input.white,
+                &mut output.white,
+                net,
+                add.get_index(true, input.white_orientation),
+                remove1.get_index(true, input.white_orientation),
+                remove2.get_index(true, input.white_orientation),
+            );
+        } else {
+            output.white = Accumulator::from(board, net, true, new_orientations.0);
+        }
+        output.white_orientation = new_orientations.0;
+
+        if new_orientations.1 == input.black_orientation {
+            Accumulator::add1_sub2(
+                &input.black,
+                &mut output.black,
+                net,
+                add.get_index(false, input.black_orientation),
+                remove1.get_index(false, input.black_orientation),
+                remove2.get_index(false, input.black_orientation),
+            );
+        } else {
+            output.black = Accumulator::from(board, net, false, new_orientations.1);
+        }
+        output.black_orientation = new_orientations.1;
     }
 
     pub fn add2_sub2(
         &mut self,
         net: &Network,
+        board: &Board,
         add1: PieceOnSquare,
         add2: PieceOnSquare,
         remove1: PieceOnSquare,
@@ -272,24 +324,37 @@ impl AccumulatorPairStack {
         self.ply += 1;
         let (input, output) = self.get_accumulator_pairs_for_update(self.ply);
 
-        Accumulator::add2_sub2(
-            &input.white,
-            &mut output.white,
-            net,
-            add1.get_index(true),
-            add2.get_index(true),
-            remove1.get_index(true),
-            remove2.get_index(true),
-        );
-        Accumulator::add2_sub2(
-            &input.black,
-            &mut output.black,
-            net,
-            add1.get_index(false),
-            add2.get_index(false),
-            remove1.get_index(false),
-            remove2.get_index(false),
-        );
+        let new_orientations = Orientation::from(board);
+
+        if new_orientations.0 == input.white_orientation {
+            Accumulator::add2_sub2(
+                &input.white,
+                &mut output.white,
+                net,
+                add1.get_index(true, input.white_orientation),
+                add2.get_index(true, input.white_orientation),
+                remove1.get_index(true, input.white_orientation),
+                remove2.get_index(true, input.white_orientation),
+            );
+        } else {
+            output.white = Accumulator::from(board, net, true, new_orientations.0);
+        }
+        output.white_orientation = new_orientations.0;
+
+        if new_orientations.1 == input.black_orientation {
+            Accumulator::add2_sub2(
+                &input.black,
+                &mut output.black,
+                net,
+                add1.get_index(false, input.black_orientation),
+                add2.get_index(false, input.black_orientation),
+                remove1.get_index(false, input.black_orientation),
+                remove2.get_index(false, input.black_orientation),
+            );
+        } else {
+            output.black = Accumulator::from(board, net, false, new_orientations.1);
+        }
+        output.black_orientation = new_orientations.1;
     }
 
     /// For when the search goes back to an earlier position, make the previous accumulator the active one
@@ -306,10 +371,20 @@ impl AccumulatorPairStack {
                 self.accumulators.reserve(1);
             }
 
+            let new_element_index = self.accumulators.len();
             let new_len = self.accumulators.len() + 1;
             // Safety: accumulators has at least one extra capacity and an accumulator is just an array of ints, so any bitpattern is valid.
-            // These uninitialized bytes are expected to be written to in add1_sub1, add1_sub2, or add2_sub2 before the caller returns.
+            // The orientations are initialized to a default value, they contain fields that do not allow any bit pattern.
+            // The uninitialized bytes in the white and black accumulators are expected to be written to in add1_sub1, add1_sub2, or add2_sub2 before the caller returns.
             unsafe {
+                let new_element = self.accumulators.as_mut_ptr().add(new_element_index);
+
+                let new_white_orientation = ptr::addr_of_mut!((*new_element).white_orientation);
+                new_white_orientation.write(Orientation::default());
+
+                let new_black_orientation = ptr::addr_of_mut!((*new_element).black_orientation);
+                new_black_orientation.write(Orientation::default());
+
                 self.accumulators.set_len(new_len);
             }
         }
@@ -350,8 +425,38 @@ impl PieceOnSquare {
         }
     }
 
-    fn get_index(self, white_pov: bool) -> usize {
-        let pov_square = if white_pov { self.square } else { self.square ^ 56 };
+    fn get_index(self, white_pov: bool, orientation: Orientation) -> usize {
+        let pov_square = orientation.transform_square_u8(if white_pov { self.square } else { self.square ^ 56 });
         (self.piece_type_sub_one as usize + if white_pov ^ self.white { 6 } else { 0 }) * 64 + pov_square as usize
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Default)]
+struct Orientation {
+    horiz_mirrored: bool,
+}
+
+impl Orientation {
+    fn transform_square(self, square: usize) -> usize {
+        square ^ if self.horiz_mirrored { 7 } else { 0 }
+    }
+
+    fn transform_square_u8(self, square: u8) -> u8 {
+        self.transform_square(square as usize) as u8
+    }
+
+    /// Returns white then black orientation
+    fn from(board: &Board) -> (Self, Self) {
+        let white_mirror = board.piece_bitboards[0][PIECE_KING as usize].trailing_zeros() % 8 > 3;
+        let black_mirror = board.piece_bitboards[1][PIECE_KING as usize].trailing_zeros() % 8 > 3;
+
+        (
+            Orientation {
+                horiz_mirrored: white_mirror,
+            },
+            Orientation {
+                horiz_mirrored: black_mirror,
+            },
+        )
     }
 }

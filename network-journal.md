@@ -365,3 +365,16 @@ Games: 1056, Wins: 294, Losses: 231, Draws: 531, Points: 559.5 (52.98 %)
 Ptnml(0-2): [4, 106, 247, 165, 6], WL/DD Ratio: 0.90
 LLR: 2.89 (100.1%) (-2.25, 2.89) [0.00, 10.00]
 ```
+
+# Pale
+* Arch: (768hm -> 512)x2 -> 1x8
+* Implement Horizontal Mirroring to keep the king in files a-d
+
+```
+Results of engine1 vs engine2 (8+0.08, 1t, 16MB, UHO_Lichess_4852_v1.epd):
+Elo: 15.85 +/- 7.46, nElo: 26.92 +/- 12.65
+LOS: 100.00 %, DrawRatio: 45.51 %, PairsRatio: 1.35
+Games: 2896, Wins: 815, Losses: 683, Draws: 1398, Points: 1514.0 (52.28 %)
+Ptnml(0-2): [30, 306, 659, 408, 45], WL/DD Ratio: 0.93
+LLR: 2.91 (100.5%) (-2.25, 2.89) [0.00, 5.00]
+```
